@@ -35,9 +35,11 @@ Deno.serve(async (req) => {
     if (carId !== null) {
       if (typeof carId !== 'string') return json({ error: 'INVALID_CAR' }, 400)
       const { data: car, error } = await admin
-        .from('cars').select('id, ownership').eq('id', carId).maybeSingle()
+        .from('cars').select('id, ownership, current_driver_id').eq('id', carId).maybeSingle()
       const expected = driverType === 'own_car' ? 'own' : 'company'
-      if (error || !car || car.ownership !== expected) return json({ error: 'INVALID_CAR' }, 400)
+      if (error || !car || car.ownership !== expected || car.current_driver_id !== null) {
+        return json({ error: 'INVALID_CAR' }, 400)
+      }
     }
 
     const { data: code, error: codeErr } = await admin.rpc('generate_login_code', { p_name: name })
@@ -78,8 +80,12 @@ Deno.serve(async (req) => {
     if (carId !== null) {
       const { error: e1 } = await admin.from('profiles').update({ current_car_id: carId }).eq('id', userId)
       if (e1) return await rollback()
-      const { error: e2 } = await admin.from('cars').update({ current_driver_id: userId }).eq('id', carId)
-      if (e2) return await rollback()
+      const { data: linked, error: e2 } = await admin.from('cars')
+        .update({ current_driver_id: userId })
+        .eq('id', carId)
+        .is('current_driver_id', null)
+        .select('id')
+      if (e2 || !linked || linked.length !== 1) return await rollback()
     }
 
     return json({ driver_id: userId, login_code: code, temp_pin: pin })

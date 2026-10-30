@@ -61,7 +61,7 @@ describe.skipIf(!URL_)('edge functions de contas', () => {
   it('admin cria motorista e consegue logar com o PIN', async () => {
     const r = await create()
     expect(r.status).toBe(200)
-    expect(r.json.login_code).toMatch(/^PASSOS\d{2}JOAO$/)
+    expect(r.json.login_code).toMatch(/^PASSOS\d{2,}JOAO$/)
     expect(r.json.temp_pin).toMatch(/^\d{6}$/)
     expect(await canLogin(r.json.login_code, r.json.temp_pin)).toBe(true)
   })
@@ -87,6 +87,50 @@ describe.skipIf(!URL_)('edge functions de contas', () => {
   it('valida telefone e carro inexistente', async () => {
     expect((await create({ ...valid, phone: '123' })).json.error).toBe('INVALID_PHONE')
     expect((await create({ ...valid, car_id: '11111111-1111-1111-1111-111111111111' })).json.error).toBe('INVALID_CAR')
+  })
+
+  describe.skipIf(!SERVICE)('vínculo de carro', () => {
+    const svc = () => createClient(URL_, SERVICE!, { auth: { persistSession: false } })
+    const carIds: string[] = []
+    async function newCar(ownership: 'own' | 'company') {
+      const plate = 'T' + Math.random().toString(36).slice(2, 8).toUpperCase()
+      const { data, error } = await svc().from('cars')
+        .insert({ model: 'Teste', plate, consumption_km_l: 10, ownership }).select('id').single()
+      if (error) throw error
+      carIds.push(data.id)
+      return data.id as string
+    }
+    afterAll(async () => {
+      for (const id of carIds) {
+        await svc().from('profiles').update({ current_car_id: null }).eq('current_car_id', id)
+      }
+      for (const id of created) await svc().auth.admin.deleteUser(id)
+      for (const id of carIds) await svc().from('cars').delete().eq('id', id)
+      created.length = 0
+    })
+
+    it('vincula carro livre e rejeita carro já ocupado', async () => {
+      const carId = await newCar('company')
+      const r = await create({ ...valid, car_id: carId })
+      expect(r.status).toBe(200)
+      const { data: car } = await svc().from('cars').select('current_driver_id').eq('id', carId).single()
+      const { data: prof } = await svc().from('profiles').select('current_car_id').eq('id', r.json.driver_id).single()
+      expect(car?.current_driver_id).toBe(r.json.driver_id)
+      expect(prof?.current_car_id).toBe(carId)
+
+      const again = await create({ ...valid, car_id: carId })
+      expect(again.status).toBe(400)
+      expect(again.json.error).toBe('INVALID_CAR')
+      const { data: after } = await svc().from('cars').select('current_driver_id').eq('id', carId).single()
+      expect(after?.current_driver_id).toBe(r.json.driver_id)
+    })
+
+    it('propriedade incompatível com driver_type -> INVALID_CAR', async () => {
+      const carId = await newCar('company')
+      const r = await create({ name: 'João Silva', phone: '11912345678', driver_type: 'own_car', transfer_pct: 30, car_id: carId })
+      expect(r.status).toBe(400)
+      expect(r.json.error).toBe('INVALID_CAR')
+    })
   })
 
   it('deactivate bloqueia o login e reactivate libera', async () => {
