@@ -716,15 +716,14 @@ export async function periodDriverStatements(periodId: string): Promise<PeriodDr
   const byId = new Map(drivers.map((d) => [d.id, d]))
   let out: PeriodDriverStatement[]
   if (period.status === 'open') {
-    const ids = must(await supabase.rpc('period_movement_drivers', { p_period: periodId })) ?? []
-    const active = ids.filter((id) => byId.get(id)?.active)
+    const ids = must(await supabase.rpc('period_drivers', { p_period: periodId })) ?? []
     out = await Promise.all(
-      active.map(async (id) => {
+      ids.map(async (id) => {
         const lines = await computeStatement(id, periodId)
         const d = byId.get(id)!
         return {
           driver_id: id,
-          driver_name: d.name ?? '—',
+          driver_name: (d.name ?? '—') + (d.active ? '' : ' (inativo)'),
           driver_code: d.login_code ?? '',
           driver_type: d.driver_type,
           lines,
@@ -742,7 +741,7 @@ export async function periodDriverStatements(periodId: string): Promise<PeriodDr
       const lines = s.lines as unknown as StatementLines
       return {
         driver_id: s.driver_id,
-        driver_name: d?.name ?? '—',
+        driver_name: (d?.name ?? '—') + (d && !d.active ? ' (inativo)' : ''),
         driver_code: d?.login_code ?? '',
         driver_type: d?.driver_type ?? null,
         lines,

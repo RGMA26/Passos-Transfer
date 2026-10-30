@@ -304,6 +304,9 @@ isOneToOne: false
 "mark_statement_paid":
 { Args: { "p_method": string,"p_paid_at": string,"p_statement": string }; Returns: undefined
                            },
+"period_drivers":
+{ Args: { "p_period": string }; Returns: string[]
+                           },
 "period_for_date":
 { Args: { "d": string }; Returns: string
                            },
