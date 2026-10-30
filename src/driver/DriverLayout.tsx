@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import SyncBadge from '../components/SyncBadge'
 
 const tabs = [
   { to: '/m/hoje', label: 'Hoje' },
@@ -18,6 +19,7 @@ export default function DriverLayout() {
           Sair
         </button>
       </header>
+      <SyncBadge />
       <main className="content">
         <Outlet />
       </main>

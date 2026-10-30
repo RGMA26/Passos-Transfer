@@ -12,6 +12,7 @@ type P = {
 
 let session: { user: { id: string } } | null = null
 let profileRow: P | null = null
+let profileFail = false
 const updateUser = vi.fn()
 const rpc = vi.fn()
 const signOut = vi.fn()
@@ -32,7 +33,10 @@ vi.mock('./lib/supabase', () => ({
     rpc: (...a: unknown[]) => rpc(...a),
     from: () => ({
       select: () => ({
-        eq: () => ({ maybeSingle: async () => ({ data: profileRow, error: null }) }),
+        eq: () => ({ maybeSingle: async () => {
+            if (profileFail) throw new TypeError('Failed to fetch')
+            return { data: profileRow, error: null }
+          } }),
       }),
     }),
   },
@@ -164,5 +168,28 @@ describe('eventos de auth do mesmo usuário', () => {
     expect(screen.queryByText('Carregando...')).not.toBeInTheDocument()
     expect(screen.getByLabelText('campo')).toBe(input)
     expect(input).toHaveValue('abc')
+  })
+})
+
+describe('refresh silencioso', () => {
+  it('falha offline no refresh do mesmo usuário mantém a página', async () => {
+    login({ role: 'driver' })
+    render(
+      <MemoryRouter initialEntries={['/m/x']}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/m/x" element={<Guard area="driver"><input aria-label="campo" /></Guard>} />
+            <Route path="/login" element={<div>tela de login</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+    await screen.findByLabelText('campo')
+    profileFail = true
+    act(() => authCb!('SIGNED_IN', { user: { id: 'u1' } }))
+    await new Promise((r) => setTimeout(r, 30))
+    profileFail = false
+    expect(screen.getByLabelText('campo')).toBeInTheDocument()
+    expect(screen.queryByText('tela de login')).not.toBeInTheDocument()
   })
 })

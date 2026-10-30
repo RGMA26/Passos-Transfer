@@ -1,0 +1,27 @@
+import imageCompression from 'browser-image-compression'
+import { supabase } from './supabase'
+
+export async function compressImage(file: File): Promise<Blob> {
+  return imageCompression(file, {
+    maxWidthOrHeight: 1600,
+    maxSizeMB: 0.5,
+    fileType: 'image/jpeg',
+    useWebWorker: true,
+  })
+}
+
+/** Idempotente (upsert): reenviar o mesmo photoId sobrescreve o mesmo path. */
+export async function uploadPhoto(blob: Blob, driverId: string, photoId: string): Promise<string> {
+  const path = `${driverId}/${photoId}.jpg`
+  const { error } = await supabase.storage
+    .from('photos')
+    .upload(path, blob, { upsert: true, contentType: 'image/jpeg' })
+  if (error) {
+    const e = error as { message: string; status?: number; statusCode?: string | number }
+    const status = Number(e.status ?? e.statusCode)
+    // sem status HTTP = falha de rede (transitória)
+    if (!status) throw new TypeError(e.message)
+    throw Object.assign(new Error(e.message), { status })
+  }
+  return path
+}

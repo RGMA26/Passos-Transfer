@@ -29,7 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [notice, setNotice] = useState<string | null>(null)
   const userIdRef = useRef<string | null>(null)
 
-  const loadProfile = useCallback(async (s: Session | null) => {
+  const loadProfile = useCallback(async (s: Session | null, silent = false) => {
     if (!s) {
       setProfile(null)
       return
@@ -47,7 +47,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setProfile(p)
     } catch {
-      setProfile(null)
+      // refresh silencioso (ex.: offline ao refocar a aba) mantém o perfil atual
+      if (!silent) setProfile(null)
     }
   }, [])
 
@@ -66,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       userIdRef.current = s.user.id
       if (sameUser) {
         // mesmo usuário (refresh de token, refoco da aba): sem tela de loading
-        if (_event !== 'TOKEN_REFRESHED') setTimeout(() => void loadProfile(s), 0)
+        if (_event !== 'TOKEN_REFRESHED') setTimeout(() => void loadProfile(s, true), 0)
         return
       }
       setLoading(true)
