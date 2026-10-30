@@ -1,5 +1,5 @@
 begin;
-select plan(74);
+select plan(84);
 
 -- Fixtures próprias (uuids 6xx, seq 96xx). Admin do seed: ad01.
 -- d1 cenário completo | d2 mudança de % | d3 carro próprio | d4 km negativo
@@ -336,6 +336,63 @@ set local role authenticated;
 select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a9', 7)$$, 'reenvio com turno novo aberto');
 select is((select shift_id::text || '/' || km::text from rides where id = '00000000-0000-0000-0000-0000000006a9'),
   '00000000-0000-0000-0000-0000000006b9/7.0', 'turno novo aberto não reaponta o transfer');
+reset role;
+
+-- ===== transfer recusado e reatribuído: km não vaza para o turno do motorista anterior =====
+-- db ("João", carro da empresa, turno 6bb) | dc ("Maria", carro da empresa, turno 6bc); quinzena e02 (ref 6.00)
+insert into auth.users (id) values ('00000000-0000-0000-0000-0000000006db'), ('00000000-0000-0000-0000-0000000006dc');
+insert into cars (id, model, plate, consumption_km_l, ownership) values
+  ('00000000-0000-0000-0000-0000000006c3','Onix','STM0C03',10.0,'company');
+insert into profiles (id, role, login_code, seq_number, name, driver_type, uber_pct, transfer_pct, current_car_id, active) values
+  ('00000000-0000-0000-0000-0000000006db','driver','stm-b',9611,'DB','company_car',40,30,'00000000-0000-0000-0000-0000000006c1',true),
+  ('00000000-0000-0000-0000-0000000006dc','driver','stm-c',9612,'DC','company_car',40,30,'00000000-0000-0000-0000-0000000006c3',true);
+insert into shifts (id, driver_id, car_id, consumption_km_l, start_date, odometer_start) values
+  ('00000000-0000-0000-0000-0000000006bb','00000000-0000-0000-0000-0000000006db','00000000-0000-0000-0000-0000000006c1',10,'2026-05-05',1000),
+  ('00000000-0000-0000-0000-0000000006bc','00000000-0000-0000-0000-0000000006dc','00000000-0000-0000-0000-0000000006c3',10,'2026-05-05',1000);
+insert into rides (driver_id, platform, ride_date, amount, km) values
+  ('00000000-0000-0000-0000-0000000006db','uber','2026-05-05',100,20);
+insert into rides (id, driver_id, platform, ride_date, amount, client_name, transfer_status) values
+  ('00000000-0000-0000-0000-0000000006ab','00000000-0000-0000-0000-0000000006db','transfer','2026-05-05',100,'Cli','assigned'),
+  ('00000000-0000-0000-0000-0000000006ac','00000000-0000-0000-0000-0000000006db','transfer','2026-05-05',200,'Cli','assigned');
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006db","role":"authenticated"}';
+set local role authenticated;
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006ab', 40)$$, 'João conclui transfer T');
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006ac', 30)$$, 'João conclui transfer U');
+reset role;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
+set local role authenticated;
+select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000006ab',false,'errado')$$, 'admin recusa T');
+select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000006ac',false,'errado')$$, 'admin recusa U (fica assigned com km 30)');
+select lives_ok(
+  $$update rides set driver_id = '00000000-0000-0000-0000-0000000006dc' where id = '00000000-0000-0000-0000-0000000006ab'$$,
+  'admin reatribui T para Maria');
+reset role;
+select is((select shift_id from rides where id = '00000000-0000-0000-0000-0000000006ab'), null::uuid,
+  'reatribuição solta o turno do João');
+-- defesa: shift_id inconsistente (turno de outro motorista) é ignorado ao concluir
+update rides set shift_id = '00000000-0000-0000-0000-0000000006bb' where id = '00000000-0000-0000-0000-0000000006ab';
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006dc","role":"authenticated"}';
+set local role authenticated;
+select is((select shift_id from complete_transfer('00000000-0000-0000-0000-0000000006ab', 50)),
+  '00000000-0000-0000-0000-0000000006bc'::uuid, 'Maria conclui T no próprio turno (turno alheio ignorado)');
+reset role;
+-- defesa: mesmo com shift_id inconsistente, as somas exigem motorista da corrida = do turno
+update rides set shift_id = '00000000-0000-0000-0000-0000000006bb' where id = '00000000-0000-0000-0000-0000000006ab';
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006db","role":"authenticated"}';
+set local role authenticated;
+select is(
+  end_shift('00000000-0000-0000-0000-0000000006bb',1100,'f.jpg','u.jpg'),
+  '{"km_total":100,"km_service":20,"km_off":80,"off_discount_estimate":48.00}'::jsonb,
+  'end_shift do João: só o Uber (sem km da Maria nem do transfer recusado)');
+reset role;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
+set local role authenticated;
+select is(
+  (compute_statement('00000000-0000-0000-0000-0000000006db','00000000-0000-0000-0000-000000006e02')->'km'),
+  '{"total":100,"service":20,"off":80}'::jsonb, 'extrato do João: km em serviço sem T nem U');
+select is(
+  (compute_statement('00000000-0000-0000-0000-0000000006db','00000000-0000-0000-0000-000000006e02')->>'off_duty_fuel_discount')::numeric,
+  48.00, 'extrato do João: desconto inalterado pelo km da Maria');
 reset role;
 
 select * from finish();
