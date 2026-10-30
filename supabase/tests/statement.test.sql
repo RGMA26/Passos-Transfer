@@ -1,5 +1,5 @@
 begin;
-select plan(67);
+select plan(74);
 
 -- Fixtures próprias (uuids 6xx, seq 96xx). Admin do seed: ad01.
 -- d1 cenário completo | d2 mudança de % | d3 carro próprio | d4 km negativo
@@ -311,6 +311,32 @@ select is((select shift_id::text from complete_transfer('00000000-0000-0000-0000
 reset role;
 select is((select transfer_status || '/' || coalesce(consumption_km_l::text, 'null') from rides where id = '00000000-0000-0000-0000-0000000006a3'),
   'completed/12.50', 'carro próprio: concluído com snapshot de consumo');
+
+-- ===== reenvio mantém o turno original (6a9 concluído no turno 6b9, já encerrado) =====
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
+set local role authenticated;
+select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000006a9',false,'km errado')$$, 'admin recusa transfer');
+reset role;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006d9","role":"authenticated"}';
+set local role authenticated;
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a9', 6)$$, 'reenvio sem turno aberto funciona');
+select is((select shift_id from rides where id = '00000000-0000-0000-0000-0000000006a9'),
+  '00000000-0000-0000-0000-0000000006b9'::uuid, 'reenvio mantém o turno original');
+-- abre um turno novo (S2) e reenvia de novo: continua no turno original
+select lives_ok(
+  $$select start_shift('00000000-0000-0000-0000-0000000006ba','00000000-0000-0000-0000-0000000006c1',1500,'p.jpg')$$,
+  'd9 abre turno novo');
+reset role;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
+set local role authenticated;
+select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000006a9',false,'de novo')$$, 'admin recusa de novo');
+reset role;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006d9","role":"authenticated"}';
+set local role authenticated;
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a9', 7)$$, 'reenvio com turno novo aberto');
+select is((select shift_id::text || '/' || km::text from rides where id = '00000000-0000-0000-0000-0000000006a9'),
+  '00000000-0000-0000-0000-0000000006b9/7.0', 'turno novo aberto não reaponta o transfer');
+reset role;
 
 select * from finish();
 rollback;

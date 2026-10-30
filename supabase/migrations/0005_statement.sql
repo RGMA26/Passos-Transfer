@@ -183,7 +183,8 @@ begin
 end $$;
 
 -- complete_transfer: carro da empresa exige turno aberto e liga o transfer a ele
--- (km em serviço do turno = Uber + BlaBlaCar + Transfer); carro próprio fica sem turno
+-- (km em serviço do turno = Uber + BlaBlaCar + Transfer); carro próprio fica sem turno.
+-- Se o transfer já tem shift_id, ele é mantido e não se exige turno aberto.
 create or replace function complete_transfer(p_ride_id uuid, p_km numeric)
 returns rides
 language plpgsql security definer set search_path = public, pg_temp as $$
@@ -208,8 +209,10 @@ begin
     raise exception 'INVALID_KM' using errcode = 'P0001';
   end if;
 
+  -- já ligado a um turno (reenvio após recusa ou repetição): mantém o turno original
+  v_shift := r.shift_id;
   select driver_type into v_type from profiles where id = r.driver_id;
-  if v_type = 'company_car' then
+  if v_shift is null and v_type = 'company_car' then
     select id into v_shift from shifts
       where driver_id = r.driver_id and ended_at is null
       order by started_at desc limit 1;
