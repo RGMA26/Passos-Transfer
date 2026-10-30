@@ -259,8 +259,10 @@ create or replace function row_in_closed_period(p_table text, r jsonb) returns b
 language plpgsql volatile security definer set search_path = public, pg_temp as $$
 declare
   d date;
-  v_id uuid;
+  v_status text;
 begin
+  -- O lock é tomado SEM filtrar por status: se filtrasse, o snapshot do escritor veria
+  -- 'open', pularia a linha sem travar e nunca esperaria o close_period.
   case p_table
     when 'rides' then d := (r->>'ride_date')::date;
     when 'fuelings' then d := (r->>'fueled_on')::date;
@@ -268,16 +270,16 @@ begin
     when 'ride_expenses' then
       select ride_date into d from rides where id = (r->>'ride_id')::uuid;
     when 'adjustments' then
-      select id into v_id from periods
-        where id = (r->>'period_id')::uuid and status = 'closed' for share;
-      return v_id is not null;
+      select status into v_status from periods
+        where id = (r->>'period_id')::uuid for share;
+      return coalesce(v_status = 'closed', false);
     else
       return false;
   end case;
   if d is null then
     return false;
   end if;
-  select id into v_id from periods
-    where status = 'closed' and d between start_date and end_date for share;
-  return v_id is not null;
+  select status into v_status from periods
+    where d between start_date and end_date for share;
+  return coalesce(v_status = 'closed', false);
 end $$;
