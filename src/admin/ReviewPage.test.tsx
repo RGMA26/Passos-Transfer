@@ -17,7 +17,7 @@ const full = (): api.PendingReview => ({
   fuelings: [
     { id: 'f1', driver_id: 'd1', driver_name: 'Maria', fueled_on: '2026-10-28', amount: 200, liters: 35, photo_path: 'f1.jpg' },
   ],
-  expenses: [{ id: 'e1', ride_id: 'r1', driver_name: 'João', kind: 'toll', amount: 12.5, photo_path: 'e1.jpg' }],
+  expenses: [{ id: 'e1', ride_id: 'r1', driver_name: 'João', client_name: 'Hotel Sol', ride_date: '2026-10-27', kind: 'toll', amount: 12.5, photo_path: 'e1.jpg' }],
   shifts: [
     {
       id: 's1', driver_id: 'd1', driver_name: 'Maria', start_date: '2026-10-28',
@@ -51,6 +51,7 @@ describe('fila', () => {
     expect(img.closest('a')).toHaveAttribute('href', 'https://signed/f1.jpg')
     expect(img.closest('a')).toHaveAttribute('target', '_blank')
     expect(within(section('Pedágios e estacionamentos')).getByText(/João/)).toBeInTheDocument()
+    expect(within(section('Pedágios e estacionamentos')).getByText('Transfer: Hotel Sol (27/10)')).toBeInTheDocument()
     expect(within(section('Turnos')).getByText(/1000/)).toBeInTheDocument()
     expect(within(section('Transfers concluídos')).getByText(/Hotel Central/)).toBeInTheDocument()
   })

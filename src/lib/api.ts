@@ -474,7 +474,16 @@ export async function createTransfer(input: NewTransferInput): Promise<void> {
 }
 
 export async function reassignTransfer(id: string, driverId: string): Promise<void> {
-  must(await supabase.from('rides').update({ driver_id: driverId }).eq('id', id))
+  const res = await supabase
+    .from('rides')
+    .update({ driver_id: driverId })
+    .eq('id', id)
+    .eq('transfer_status', 'assigned')
+    .select('id')
+  const rows = must(res) ?? []
+  if (rows.length === 0) {
+    throw Object.assign(new Error('Este transfer não pode mais ser alterado'), { code: 'NOT_CHANGEABLE' })
+  }
 }
 
 export const MSG_TRANSFER_NOT_DELETABLE = 'Este transfer não pode mais ser excluído'
@@ -503,6 +512,8 @@ export interface PendingExpense {
   id: string
   ride_id: string
   driver_name: string
+  client_name: string | null
+  ride_date: string
   kind: string
   amount: number
   photo_path: string
@@ -538,7 +549,7 @@ export async function listPendingReview(): Promise<PendingReview> {
     supabase.from('fuelings').select('*').eq('review_status', 'pending').order('fueled_on'),
     supabase
       .from('ride_expenses')
-      .select('*, rides!inner(driver_id)')
+      .select('*, rides!inner(driver_id, client_name, ride_date)')
       .eq('review_status', 'pending')
       .order('created_at'),
     supabase
@@ -556,7 +567,9 @@ export async function listPendingReview(): Promise<PendingReview> {
     driverNames(),
   ])
   const n = (id: string) => names.get(id) ?? '—'
-  type ExpJoined = RideExpense & { rides: { driver_id: string } }
+  type ExpJoined = RideExpense & {
+    rides: { driver_id: string; client_name: string | null; ride_date: string }
+  }
   return {
     fuelings: (must(f) ?? []).map((x) => ({
       id: x.id,
@@ -571,6 +584,8 @@ export async function listPendingReview(): Promise<PendingReview> {
       id: x.id,
       ride_id: x.ride_id,
       driver_name: n(x.rides.driver_id),
+      client_name: x.rides.client_name,
+      ride_date: x.rides.ride_date,
       kind: x.kind,
       amount: Number(x.amount),
       photo_path: x.photo_path,

@@ -118,6 +118,27 @@ describe('lista', () => {
     await user.click(screen.getByRole('button', { name: 'Salvar motorista' }))
     await waitFor(() => expect(m.reassignTransfer).toHaveBeenCalledWith('t1', 'd2'))
   })
+
+  it('bloqueia salvar sem escolher outro motorista', async () => {
+    const user = userEvent.setup()
+    render(<TransfersPage />)
+    await screen.findByText('Hotel Central')
+    await user.click(screen.getByRole('button', { name: 'Trocar motorista' }))
+    await user.click(screen.getByRole('button', { name: 'Salvar motorista' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Escolha o motorista')
+    expect(m.reassignTransfer).not.toHaveBeenCalled()
+  })
+
+  it('mostra o erro quando o transfer já não pode ser alterado', async () => {
+    m.reassignTransfer.mockRejectedValue(new Error('Este transfer não pode mais ser alterado'))
+    const user = userEvent.setup()
+    render(<TransfersPage />)
+    await screen.findByText('Hotel Central')
+    await user.click(screen.getByRole('button', { name: 'Trocar motorista' }))
+    await user.selectOptions(screen.getByLabelText('Novo motorista'), 'd2')
+    await user.click(screen.getByRole('button', { name: 'Salvar motorista' }))
+    expect(await screen.findByText('Este transfer não pode mais ser alterado')).toBeInTheDocument()
+  })
 })
 
 describe('novo transfer', () => {
@@ -157,5 +178,19 @@ describe('novo transfer', () => {
       destination: 'Aeroporto',
       amount: 300.5,
     })
+  })
+
+  it('23:30 mantém a data digitada', async () => {
+    const user = await openForm()
+    await user.type(screen.getByLabelText('Cliente'), 'Noturno')
+    await user.type(screen.getByLabelText('Data'), '2026-11-02')
+    await user.type(screen.getByLabelText('Horário'), '23:30')
+    await user.type(screen.getByLabelText('Valor contratado'), '100')
+    await user.selectOptions(screen.getByLabelText('Motorista'), 'd1')
+    await user.click(screen.getByRole('button', { name: 'Criar transfer' }))
+    await waitFor(() => expect(m.createTransfer).toHaveBeenCalledTimes(1))
+    const arg = m.createTransfer.mock.calls[0][0]
+    expect(arg.ride_date).toBe('2026-11-02')
+    expect(arg.scheduled_at).toBe('2026-11-03T02:30:00.000Z')
   })
 })

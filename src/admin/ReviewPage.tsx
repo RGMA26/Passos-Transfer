@@ -94,6 +94,7 @@ export default function ReviewPage() {
             >
               <strong>{x.driver_name}</strong>
               <span>{`${x.kind === 'toll' ? 'Pedágio' : 'Estacionamento'} · ${formatBRL(x.amount)}`}</span>
+              <span>{`Transfer: ${x.client_name ?? '—'} (${fmtDay(x.ride_date).slice(0, 5)})`}</span>
             </ReviewItem>
           ))}
         </section>

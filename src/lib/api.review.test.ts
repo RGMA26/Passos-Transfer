@@ -12,7 +12,7 @@ vi.mock('./supabase', () => ({
     },
     from: () => {
       const b: Record<string, unknown> = {}
-      for (const m of ['delete', 'eq', 'select']) {
+      for (const m of ['delete', 'update', 'eq', 'select']) {
         b[m] = (...args: unknown[]) => {
           calls.push({ fn: m, args })
           return b
@@ -23,7 +23,7 @@ vi.mock('./supabase', () => ({
     },
   },
 }))
-import { deleteTransfer, reviewItem } from './api'
+import { deleteTransfer, reassignTransfer, reviewItem } from './api'
 
 beforeEach(() => {
   calls = []
@@ -52,5 +52,17 @@ describe('reviewItem', () => {
   it('propaga o código do servidor', async () => {
     result = { data: null, error: { message: 'REASON_REQUIRED', code: 'P0001' } }
     await expect(reviewItem('shift', 's1', false, '')).rejects.toThrow('REASON_REQUIRED')
+  })
+})
+
+describe('reassignTransfer', () => {
+  it('só altera transfers atribuídos e falha se nenhuma linha mudar', async () => {
+    await expect(reassignTransfer('t1', 'd2')).rejects.toThrow('Este transfer não pode mais ser alterado')
+    expect(calls).toContainEqual({ fn: 'eq', args: ['transfer_status', 'assigned'] })
+  })
+
+  it('ok quando a linha foi alterada', async () => {
+    result = { data: [{ id: 't1' }], error: null }
+    await expect(reassignTransfer('t1', 'd2')).resolves.toBeUndefined()
   })
 })

@@ -171,16 +171,17 @@ function Reassign({
   drivers: Profile[]
   onDone: (changed: boolean) => void
 }) {
-  const [driverId, setDriverId] = useState(row.driver_id)
+  const [driverId, setDriverId] = useState('')
   const [error, setError] = useState('')
 
   async function save() {
-    if (driverId === row.driver_id) return onDone(false)
+    if (!driverId || driverId === row.driver_id) return setError('Escolha o motorista')
     try {
       await api.reassignTransfer(row.id, driverId)
       onDone(true)
-    } catch {
-      setError('Não foi possível trocar o motorista')
+    } catch (err) {
+      const msg = (err as Error).message
+      setError(msg === 'Este transfer não pode mais ser alterado' ? msg : 'Não foi possível trocar o motorista')
     }
   }
 
@@ -189,11 +190,14 @@ function Reassign({
       <label className="field">
         Novo motorista
         <select value={driverId} onChange={(e) => setDriverId(e.target.value)}>
-          {drivers.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
+          <option value="">Escolha o motorista</option>
+          {drivers
+            .filter((d) => d.id !== row.driver_id)
+            .map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
         </select>
       </label>
       {error && <p className="error" role="alert">{error}</p>}
