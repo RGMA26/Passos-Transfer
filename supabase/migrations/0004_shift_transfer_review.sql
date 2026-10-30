@@ -98,7 +98,7 @@ begin
   return jsonb_build_object(
     'km_total', v_total,
     'km_service', v_service,
-    'km_off', v_total - v_service,
+    'km_off', greatest(v_total - v_service, 0),
     'off_discount_estimate', null);
 end $$;
 

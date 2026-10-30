@@ -1,5 +1,5 @@
 begin;
-select plan(64);
+select plan(66);
 
 -- Personas do seed: admin ad01, João d001 (company_car, carro c001 da empresa), Maria d002 (own_car, carro c002 próprio)
 -- Fixtures de transfer/abastecimento (como postgres)
@@ -107,6 +107,19 @@ select is(
   end_shift('00000000-0000-0000-0000-0000000005b2',1300,'f.jpg',null),
   '{"km_total":100,"km_service":0,"km_off":100,"off_discount_estimate":null}'::jsonb,
   'turno sem corridas nem Uber');
+
+-- km de corridas acima do odômetro: km_off nunca negativo
+select lives_ok(
+  $$select start_shift('00000000-0000-0000-0000-0000000005b4','00000000-0000-0000-0000-00000000c001',1000,'p.jpg')$$,
+  'turno para km_off negativo');
+reset role;
+insert into rides (driver_id, platform, ride_date, amount, km) values
+  ('00000000-0000-0000-0000-00000000d001','blablacar','2026-03-05',20,120);
+set local role authenticated;
+select is(
+  end_shift('00000000-0000-0000-0000-0000000005b4',1100,'f.jpg',null),
+  '{"km_total":100,"km_service":120,"km_off":0,"off_discount_estimate":null}'::jsonb,
+  'km_off não fica negativo');
 
 -- ===== João: concluir transfer =====
 select throws_ok(
