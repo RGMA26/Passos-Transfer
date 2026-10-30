@@ -26,7 +26,9 @@ declare
   open_shift uuid;
   assigned_changed boolean;
 begin
-  assigned_changed := tg_op = 'INSERT' or new.driver_id is distinct from old.driver_id;
+  assigned_changed := tg_op = 'INSERT'
+    or new.driver_id is distinct from old.driver_id
+    or new.platform is distinct from old.platform;
   select * into drv from profiles where id = new.driver_id;
 
   if assigned_changed then
@@ -34,13 +36,15 @@ begin
       when 'uber' then drv.uber_pct
       when 'transfer' then drv.transfer_pct
       else null end;
-    if new.platform = 'transfer' then
-      new.consumption_km_l := null;
-      if drv.driver_type = 'own_car' then
-        select c.consumption_km_l into new.consumption_km_l
-          from cars c where c.id = drv.current_car_id;
-      end if;
+    new.consumption_km_l := null;
+    if new.platform = 'transfer' and drv.driver_type = 'own_car' then
+      select c.consumption_km_l into new.consumption_km_l
+        from cars c where c.id = drv.current_car_id;
     end if;
+  else
+    -- snapshots imutáveis: ninguém edita por corrida
+    new.driver_pct := old.driver_pct;
+    new.consumption_km_l := old.consumption_km_l;
   end if;
 
   if new.platform in ('uber', 'blablacar') then

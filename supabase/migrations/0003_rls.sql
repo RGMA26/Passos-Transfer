@@ -164,10 +164,13 @@ create policy driver_insert on rides for insert to authenticated
   with check (is_active_driver() and driver_id = auth.uid()
               and platform in ('uber','blablacar'));
 create policy driver_update on rides for update to authenticated
-  using (is_active_driver() and driver_id = auth.uid() and platform in ('uber','blablacar'))
-  with check (is_active_driver() and driver_id = auth.uid() and platform in ('uber','blablacar'));
+  using (is_active_driver() and driver_id = auth.uid() and platform in ('uber','blablacar')
+    and not exists (select 1 from shifts s where s.id = rides.shift_id and s.review_status <> 'pending'))
+  with check (is_active_driver() and driver_id = auth.uid() and platform in ('uber','blablacar')
+    and not exists (select 1 from shifts s where s.id = rides.shift_id and s.review_status <> 'pending'));
 create policy driver_delete on rides for delete to authenticated
-  using (is_active_driver() and driver_id = auth.uid() and platform in ('uber','blablacar'));
+  using (is_active_driver() and driver_id = auth.uid() and platform in ('uber','blablacar')
+    and not exists (select 1 from shifts s where s.id = rides.shift_id and s.review_status <> 'pending'));
 
 -- fuelings: insere pendente; edita/apaga só pendente
 create policy driver_insert on fuelings for insert to authenticated
@@ -193,8 +196,14 @@ create policy driver_insert on ride_expenses for insert to authenticated
 create policy driver_update on ride_expenses for update to authenticated
   using (is_active_driver() and review_status = 'pending' and exists (
     select 1 from rides r where r.id = ride_id and r.driver_id = auth.uid()))
-  with check (is_active_driver() and review_status = 'pending' and exists (
-    select 1 from rides r where r.id = ride_id and r.driver_id = auth.uid()));
+  with check (
+    is_active_driver() and review_status = 'pending' and reject_reason is null
+    and exists (
+      select 1 from rides r
+      where r.id = ride_id and r.driver_id = auth.uid()
+        and r.platform = 'transfer'
+        and r.transfer_status in ('assigned','completed'))
+  );
 create policy driver_delete on ride_expenses for delete to authenticated
   using (is_active_driver() and review_status = 'pending' and exists (
     select 1 from rides r where r.id = ride_id and r.driver_id = auth.uid()));

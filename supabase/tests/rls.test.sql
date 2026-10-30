@@ -1,5 +1,5 @@
 begin;
-select plan(64);
+select plan(74);
 
 -- Fixtures (como postgres, ignora RLS)
 insert into auth.users (id) values
@@ -52,6 +52,14 @@ insert into statements (driver_id, period_id)
 select d, period_for_date('2026-02-05')
 from unnest(array['00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000b2']::uuid[]) d;
 
+-- Turno aprovado (ride já conferida)
+insert into shifts (id, driver_id, car_id, consumption_km_l, started_at, start_date, odometer_start) values
+  ('00000000-0000-0000-0000-0000000000f4','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1',10,'2026-02-04 08:00+00','2026-02-04',100);
+insert into rides (id, driver_id, platform, ride_date, amount, shift_id) values
+  ('00000000-0000-0000-0000-000000000a31','00000000-0000-0000-0000-0000000000b1','uber','2026-02-04',30,'00000000-0000-0000-0000-0000000000f4');
+update shifts set ended_at = now(), odometer_end = 120, review_status = 'approved'
+ where id = '00000000-0000-0000-0000-0000000000f4';
+
 -- Fixtures na quinzena que será fechada
 insert into shifts (id, driver_id, car_id, consumption_km_l, start_date, odometer_start) values
   ('00000000-0000-0000-0000-0000000000f3','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1',10,'2026-01-05',100);
@@ -77,7 +85,7 @@ set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000b1","r
 
 select is(is_admin(), false, 'motorista não é admin');
 select is((select count(*)::int from rides where driver_id <> auth.uid()), 0, 'A não vê rides de B');
-select is((select count(*)::int from rides where driver_id = auth.uid()), 4, 'A vê as próprias rides (inclui transfers)');
+select is((select count(*)::int from rides where driver_id = auth.uid()), 5, 'A vê as próprias rides (inclui transfers)');
 select is((select count(*)::int from fuelings where driver_id <> auth.uid()), 0, 'A não vê fuelings de B');
 select is((select count(*)::int from shifts where driver_id <> auth.uid()), 0, 'A não vê shifts de B');
 select is((select count(*)::int from statements where driver_id <> auth.uid()), 0, 'A não vê statements de B');
@@ -119,6 +127,32 @@ select is_empty(
 select is_empty(
   $$update rides set amount = 1 where id = '00000000-0000-0000-0000-000000000a02' returning id$$,
   'A não edita ride de B');
+
+-- snapshots imutáveis e ride conferida
+select lives_ok(
+  $$update rides set driver_pct = 100, consumption_km_l = 9 where id = '00000000-0000-0000-0000-000000000a01'$$,
+  'A tenta editar driver_pct/consumption');
+select is((select driver_pct from rides where id = '00000000-0000-0000-0000-000000000a01'), 40.00, 'driver_pct continua 40');
+select is((select consumption_km_l from rides where id = '00000000-0000-0000-0000-000000000a01'), null, 'consumption_km_l continua nulo');
+select is_empty(
+  $$update rides set amount = 1 where id = '00000000-0000-0000-0000-000000000a31' returning id$$,
+  'A não edita ride de turno aprovado');
+select is_empty(
+  $$delete from rides where id = '00000000-0000-0000-0000-000000000a31' returning id$$,
+  'A não apaga ride de turno aprovado');
+select isnt_empty(
+  $$update rides set amount = 55 where id = '00000000-0000-0000-0000-000000000a01' returning id$$,
+  'A ainda edita ride de turno pendente');
+select lives_ok(
+  $$update rides set platform = 'blablacar' where id = '00000000-0000-0000-0000-000000000a01'$$,
+  'A troca uber por blablacar');
+select is((select driver_pct from rides where id = '00000000-0000-0000-0000-000000000a01'), null, 'blablacar zera driver_pct');
+select throws_ok(
+  $$update ride_expenses set ride_id = '00000000-0000-0000-0000-000000000a01' where id = '00000000-0000-0000-0000-000000000e01'$$,
+  '42501', null, 'A não reaponta despesa para ride uber');
+select throws_ok(
+  $$update ride_expenses set ride_id = '00000000-0000-0000-0000-000000000a13' where id = '00000000-0000-0000-0000-000000000e01'$$,
+  '42501', null, 'A não reaponta despesa para transfer checked');
 
 -- fuelings
 select is_empty(
