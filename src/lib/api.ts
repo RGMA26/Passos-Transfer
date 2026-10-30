@@ -433,3 +433,210 @@ export async function assignCar(carId: string, driverId: string | null): Promise
     must(await supabase.from('profiles').update({ current_car_id: carId }).eq('id', driverId))
   }
 }
+
+// ---------- Admin: transfers e conferência ----------
+
+async function driverNames(): Promise<Map<string, string>> {
+  const rows = must(await supabase.from('profiles').select('id, name').eq('role', 'driver')) ?? []
+  return new Map(rows.map((p) => [p.id, p.name ?? '—']))
+}
+
+export type TransferRow = Ride & { driver_name: string }
+
+export async function listTransfers(opts: { status?: string } = {}): Promise<TransferRow[]> {
+  let q = supabase.from('rides').select('*').eq('platform', 'transfer')
+  if (opts.status) q = q.eq('transfer_status', opts.status)
+  const [rides, names] = await Promise.all([
+    q.order('scheduled_at', { ascending: false }),
+    driverNames(),
+  ])
+  return (must(rides) ?? []).map((r) => ({ ...r, driver_name: names.get(r.driver_id) ?? '—' }))
+}
+
+export interface NewTransferInput {
+  driver_id: string
+  client_name: string
+  scheduled_at: string
+  ride_date: string
+  origin?: string | null
+  destination?: string | null
+  amount: number
+}
+
+export async function createTransfer(input: NewTransferInput): Promise<void> {
+  const { error } = await supabase.from('rides').insert({
+    id: crypto.randomUUID(),
+    platform: 'transfer',
+    transfer_status: 'assigned',
+    ...input,
+  })
+  if (error) throw Object.assign(new Error(error.message), { code: error.code })
+}
+
+export async function reassignTransfer(id: string, driverId: string): Promise<void> {
+  must(await supabase.from('rides').update({ driver_id: driverId }).eq('id', id))
+}
+
+export const MSG_TRANSFER_NOT_DELETABLE = 'Este transfer não pode mais ser excluído'
+
+export async function deleteTransfer(id: string): Promise<void> {
+  const res = await supabase
+    .from('rides')
+    .delete()
+    .eq('id', id)
+    .eq('transfer_status', 'assigned')
+    .select('id')
+  const rows = must(res) ?? []
+  if (rows.length === 0) throw Object.assign(new Error(MSG_TRANSFER_NOT_DELETABLE), { code: 'NOT_DELETABLE' })
+}
+
+export interface PendingFueling {
+  id: string
+  driver_id: string
+  driver_name: string
+  fueled_on: string
+  amount: number
+  liters: number
+  photo_path: string
+}
+export interface PendingExpense {
+  id: string
+  ride_id: string
+  driver_name: string
+  kind: string
+  amount: number
+  photo_path: string
+}
+export interface PendingShift {
+  id: string
+  driver_id: string
+  driver_name: string
+  start_date: string
+  odometer_start: number
+  odometer_end: number | null
+  odometer_start_photo: string | null
+  odometer_end_photo: string | null
+  uber_earnings_photo: string | null
+}
+export interface PendingTransfer {
+  id: string
+  driver_name: string
+  client_name: string | null
+  amount: number
+  km: number | null
+  scheduled_at: string | null
+}
+export interface PendingReview {
+  fuelings: PendingFueling[]
+  expenses: PendingExpense[]
+  shifts: PendingShift[]
+  transfers: PendingTransfer[]
+}
+
+export async function listPendingReview(): Promise<PendingReview> {
+  const [f, e, s, t, names] = await Promise.all([
+    supabase.from('fuelings').select('*').eq('review_status', 'pending').order('fueled_on'),
+    supabase
+      .from('ride_expenses')
+      .select('*, rides!inner(driver_id)')
+      .eq('review_status', 'pending')
+      .order('created_at'),
+    supabase
+      .from('shifts')
+      .select('*')
+      .eq('review_status', 'pending')
+      .not('ended_at', 'is', null)
+      .order('started_at'),
+    supabase
+      .from('rides')
+      .select('*')
+      .eq('platform', 'transfer')
+      .eq('transfer_status', 'completed')
+      .order('scheduled_at'),
+    driverNames(),
+  ])
+  const n = (id: string) => names.get(id) ?? '—'
+  type ExpJoined = RideExpense & { rides: { driver_id: string } }
+  return {
+    fuelings: (must(f) ?? []).map((x) => ({
+      id: x.id,
+      driver_id: x.driver_id,
+      driver_name: n(x.driver_id),
+      fueled_on: x.fueled_on,
+      amount: Number(x.amount),
+      liters: Number(x.liters),
+      photo_path: x.photo_path,
+    })),
+    expenses: ((must(e) ?? []) as unknown as ExpJoined[]).map((x) => ({
+      id: x.id,
+      ride_id: x.ride_id,
+      driver_name: n(x.rides.driver_id),
+      kind: x.kind,
+      amount: Number(x.amount),
+      photo_path: x.photo_path,
+    })),
+    shifts: (must(s) ?? []).map((x) => ({
+      id: x.id,
+      driver_id: x.driver_id,
+      driver_name: n(x.driver_id),
+      start_date: x.start_date,
+      odometer_start: Number(x.odometer_start),
+      odometer_end: x.odometer_end === null ? null : Number(x.odometer_end),
+      odometer_start_photo: x.odometer_start_photo,
+      odometer_end_photo: x.odometer_end_photo,
+      uber_earnings_photo: x.uber_earnings_photo,
+    })),
+    transfers: (must(t) ?? []).map((x) => ({
+      id: x.id,
+      driver_name: n(x.driver_id),
+      client_name: x.client_name,
+      amount: Number(x.amount),
+      km: x.km === null ? null : Number(x.km),
+      scheduled_at: x.scheduled_at,
+    })),
+  }
+}
+
+export async function reviewItem(
+  kind: 'fueling' | 'expense' | 'shift' | 'transfer',
+  id: string,
+  approved: boolean,
+  reason: string | null,
+): Promise<void> {
+  const { error } = await supabase.rpc('review_item', {
+    p_kind: kind,
+    p_id: id,
+    p_approved: approved,
+    p_reason: reason as string,
+  })
+  if (error) throw Object.assign(new Error(error.message), { code: error.code })
+}
+
+export interface AdminAlert {
+  kind: 'HIGH_OFF_KM' | 'NEGATIVE_OFF_KM' | 'SHIFT_OPEN_24H'
+  driver_id: string
+  driver_name: string
+  shift_id: string
+  detail: { km_total?: number; km_service?: number; km_off?: number; started_at?: string }
+}
+
+export async function listAlerts(): Promise<AdminAlert[]> {
+  const [res, names] = await Promise.all([supabase.rpc('admin_alerts'), driverNames()])
+  return (must(res) ?? []).map((a) => ({
+    kind: a.kind as AdminAlert['kind'],
+    driver_id: a.driver_id,
+    driver_name: names.get(a.driver_id) ?? '—',
+    shift_id: a.shift_id,
+    detail: (a.detail ?? {}) as AdminAlert['detail'],
+  }))
+}
+
+export async function signedPhotoUrl(path: string): Promise<string> {
+  const { data, error } = await supabase.storage.from('photos').createSignedUrl(path, 600)
+  if (error || !data) throw new Error('PHOTO_UNAVAILABLE')
+  return data.signedUrl
+}
+
+export async function updateShiftOdometers(id: string, start: number, end: number): Promise<void> {
+  must(await supabase.from('shifts').update({ odometer_start: start, odometer_end: end }).eq('id', id))
+}

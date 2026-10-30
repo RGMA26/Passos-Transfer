@@ -11,6 +11,8 @@ import LaunchTab from './driver/LaunchTab'
 import AdminLayout from './admin/AdminLayout'
 import DriversPage from './admin/DriversPage'
 import CarsPage from './admin/CarsPage'
+import TransfersPage from './admin/TransfersPage'
+import ReviewPage from './admin/ReviewPage'
 
 function Placeholder({ title }: { title: string }) {
   return <h2>{title}</h2>
@@ -85,8 +87,8 @@ export function AppRoutes() {
         <Route index element={<Placeholder title="Início" />} />
         <Route path="motoristas" element={<DriversPage />} />
         <Route path="carros" element={<CarsPage />} />
-        <Route path="transfers" element={<Placeholder title="Transfers" />} />
-        <Route path="conferencia" element={<Placeholder title="Conferência" />} />
+        <Route path="transfers" element={<TransfersPage />} />
+        <Route path="conferencia" element={<ReviewPage />} />
         <Route path="quinzenas" element={<Placeholder title="Quinzenas" />} />
         <Route path="extrato/:statementId" element={<Placeholder title="Extrato" />} />
       </Route>

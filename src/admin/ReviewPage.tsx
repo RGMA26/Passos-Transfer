@@ -1,0 +1,303 @@
+import { useCallback, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
+import * as api from '../lib/api'
+import { formatBRL } from '../lib/money'
+import { parseDecimal } from './helpers'
+
+const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
+const MSG_PERIOD_CLOSED = 'Quinzena fechada: não é possível alterar'
+const MSG_REASON = 'Informe o motivo'
+const MSG_ODO = 'O odômetro final não pode ser menor que o inicial'
+
+const errorText = (err: unknown, fallback: string) =>
+  (err as Error)?.message === 'PERIOD_CLOSED' ? MSG_PERIOD_CLOSED : fallback
+
+const dateTimeFmt = new Intl.DateTimeFormat('pt-BR', {
+  timeZone: 'America/Sao_Paulo',
+  dateStyle: 'short',
+  timeStyle: 'short',
+})
+const fmtWhen = (iso?: string | null) => (iso ? dateTimeFmt.format(new Date(iso)) : '—')
+const fmtDay = (d: string) => d.split('-').reverse().join('/')
+
+type Kind = 'fueling' | 'expense' | 'shift' | 'transfer'
+
+export default function ReviewPage() {
+  const [queue, setQueue] = useState<api.PendingReview | null>(null)
+  const [alerts, setAlerts] = useState<api.AdminAlert[]>([])
+  const [failed, setFailed] = useState(false)
+
+  const load = useCallback(async () => {
+    setFailed(false)
+    try {
+      const [q, a] = await Promise.all([api.listPendingReview(), api.listAlerts()])
+      setQueue(q)
+      setAlerts(a)
+    } catch {
+      setFailed(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  if (failed) {
+    return (
+      <section>
+        <h2>Conferência</h2>
+        <p className="error">{MSG_LOAD}</p>
+        <button type="button" onClick={() => void load()}>
+          Tentar novamente
+        </button>
+      </section>
+    )
+  }
+  if (!queue) return <p className="loading">Carregando…</p>
+
+  const total =
+    queue.fuelings.length + queue.expenses.length + queue.shifts.length + queue.transfers.length
+  const reload = () => void load()
+
+  return (
+    <section>
+      <h2>Conferência</h2>
+      <AlertsPanel alerts={alerts} />
+      {total === 0 && <p className="hint">Nada para conferir.</p>}
+      {queue.fuelings.length > 0 && (
+        <section className="panel" aria-label="Abastecimentos">
+          <h3>Abastecimentos</h3>
+          {queue.fuelings.map((f) => (
+            <ReviewItem
+              key={f.id}
+              kind="fueling"
+              id={f.id}
+              onDone={reload}
+              photos={[{ path: f.photo_path, alt: 'Foto do abastecimento' }]}
+            >
+              <strong>{f.driver_name}</strong>
+              <span>{`${fmtDay(f.fueled_on)} · ${formatBRL(f.amount)} · ${f.liters} L`}</span>
+            </ReviewItem>
+          ))}
+        </section>
+      )}
+      {queue.expenses.length > 0 && (
+        <section className="panel" aria-label="Pedágios e estacionamentos">
+          <h3>Pedágios e estacionamentos</h3>
+          {queue.expenses.map((x) => (
+            <ReviewItem
+              key={x.id}
+              kind="expense"
+              id={x.id}
+              onDone={reload}
+              photos={[{ path: x.photo_path, alt: 'Foto do comprovante' }]}
+            >
+              <strong>{x.driver_name}</strong>
+              <span>{`${x.kind === 'toll' ? 'Pedágio' : 'Estacionamento'} · ${formatBRL(x.amount)}`}</span>
+            </ReviewItem>
+          ))}
+        </section>
+      )}
+      {queue.shifts.length > 0 && (
+        <section className="panel" aria-label="Turnos">
+          <h3>Turnos</h3>
+          {queue.shifts.map((s) => (
+            <ShiftItem key={s.id} shift={s} onDone={reload} />
+          ))}
+        </section>
+      )}
+      {queue.transfers.length > 0 && (
+        <section className="panel" aria-label="Transfers concluídos">
+          <h3>Transfers concluídos</h3>
+          {queue.transfers.map((t) => (
+            <ReviewItem key={t.id} kind="transfer" id={t.id} onDone={reload} photos={[]}>
+              <strong>{t.driver_name}</strong>
+              <span>{`${t.client_name ?? '—'} · ${fmtWhen(t.scheduled_at)} · ${formatBRL(t.amount)} · ${t.km ?? '—'} km`}</span>
+            </ReviewItem>
+          ))}
+        </section>
+      )}
+    </section>
+  )
+}
+
+function AlertsPanel({ alerts }: { alerts: api.AdminAlert[] }) {
+  if (alerts.length === 0) return null
+  const text = (a: api.AdminAlert) => {
+    const d = a.detail
+    if (a.kind === 'HIGH_OFF_KM') return `km por fora acima de 20% (${d.km_off} / ${d.km_total} km)`
+    if (a.kind === 'NEGATIVE_OFF_KM') return `km lançado maior que o rodado (${d.km_service} lançados / ${d.km_total} km rodados)`
+    return `Turno aberto há mais de 24 h (desde ${fmtWhen(d.started_at)})`
+  }
+  return (
+    <section className="panel" aria-label="Alertas">
+      <h3>Alertas</h3>
+      <ul>
+        {alerts.map((a, i) => (
+          <li key={`${a.kind}-${a.shift_id}-${i}`}>{`${a.driver_name} — ${text(a)}`}</li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function Thumb({ path, alt }: { path: string; alt: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let alive = true
+    api
+      .signedPhotoUrl(path)
+      .then((u) => alive && setUrl(u))
+      .catch(() => alive && setFailed(true))
+    return () => {
+      alive = false
+    }
+  }, [path])
+  if (failed) return <span className="hint">Foto indisponível</span>
+  if (!url) return <span className="hint">Carregando foto…</span>
+  return (
+    <a href={url} target="_blank" rel="noreferrer">
+      <img src={url} alt={alt} style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 8 }} />
+    </a>
+  )
+}
+
+function ReviewItem({
+  kind,
+  id,
+  photos,
+  onDone,
+  children,
+  extra,
+}: {
+  kind: Kind
+  id: string
+  photos: { path: string; alt: string }[]
+  onDone: () => void
+  children: ReactNode
+  extra?: ReactNode
+}) {
+  const [rejecting, setRejecting] = useState(false)
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function run(approved: boolean) {
+    const r = reason.trim()
+    if (!approved && !r) return setError(MSG_REASON)
+    setError('')
+    setBusy(true)
+    try {
+      await api.reviewItem(kind, id, approved, approved ? null : r)
+      onDone()
+    } catch (err) {
+      setError(errorText(err, 'Não foi possível concluir a ação'))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="review-item" style={{ borderTop: '1px solid #e5e7eb', paddingTop: '0.5rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>{children}</div>
+      {photos.length > 0 && (
+        <div className="seg">
+          {photos.map((p) => (
+            <Thumb key={p.path} path={p.path} alt={p.alt} />
+          ))}
+        </div>
+      )}
+      {extra}
+      {rejecting && (
+        <>
+          <label className="field">
+            Motivo
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} />
+          </label>
+          <button type="button" disabled={busy} onClick={() => void run(false)}>
+            Confirmar recusa
+          </button>
+          <button type="button" className="link" onClick={() => { setRejecting(false); setError('') }}>
+            Cancelar
+          </button>
+        </>
+      )}
+      {error && <p className="error" role="alert">{error}</p>}
+      {!rejecting && (
+        <div className="seg">
+          <button type="button" disabled={busy} onClick={() => void run(true)}>
+            Aprovar
+          </button>
+          <button type="button" disabled={busy} onClick={() => setRejecting(true)}>
+            Recusar
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ShiftItem({ shift, onDone }: { shift: api.PendingShift; onDone: () => void }) {
+  const [editing, setEditing] = useState(false)
+  const [start, setStart] = useState(String(shift.odometer_start))
+  const [end, setEnd] = useState(String(shift.odometer_end ?? ''))
+  const [error, setError] = useState('')
+
+  async function save() {
+    const s = parseDecimal(start)
+    const e = parseDecimal(end)
+    if (s === null || e === null) return setError('Informe os dois odômetros')
+    if (e < s) return setError(MSG_ODO)
+    setError('')
+    try {
+      await api.updateShiftOdometers(shift.id, s, e)
+      setEditing(false)
+      onDone()
+    } catch (err) {
+      setError(errorText(err, 'Não foi possível salvar o odômetro'))
+    }
+  }
+
+  const photos = [
+    shift.odometer_start_photo && { path: shift.odometer_start_photo, alt: 'Foto do odômetro inicial' },
+    shift.odometer_end_photo && { path: shift.odometer_end_photo, alt: 'Foto do odômetro final' },
+    shift.uber_earnings_photo && { path: shift.uber_earnings_photo, alt: 'Print de ganhos Uber' },
+  ].filter((p): p is { path: string; alt: string } => !!p)
+
+  return (
+    <ReviewItem
+      kind="shift"
+      id={shift.id}
+      photos={photos}
+      onDone={onDone}
+      extra={
+        editing ? (
+          <div className="inline-edit">
+            <label className="field">
+              Odômetro inicial
+              <input inputMode="numeric" value={start} onChange={(e) => setStart(e.target.value)} />
+            </label>
+            <label className="field">
+              Odômetro final
+              <input inputMode="numeric" value={end} onChange={(e) => setEnd(e.target.value)} />
+            </label>
+            {error && <p className="error" role="alert">{error}</p>}
+            <button type="button" onClick={() => void save()}>
+              Salvar odômetro
+            </button>
+            <button type="button" className="link" onClick={() => { setEditing(false); setError('') }}>
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setEditing(true)}>
+            Corrigir odômetro
+          </button>
+        )
+      }
+    >
+      <strong>{shift.driver_name}</strong>
+      <span>{`${fmtDay(shift.start_date)} · odômetro ${shift.odometer_start} → ${shift.odometer_end ?? '—'}`}</span>
+    </ReviewItem>
+  )
+}
