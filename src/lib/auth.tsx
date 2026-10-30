@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
@@ -27,6 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState<string | null>(null)
+  const userIdRef = useRef<string | null>(null)
 
   const loadProfile = useCallback(async (s: Session | null) => {
     if (!s) {
@@ -35,8 +36,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       const p = await getMyProfile(s.user.id)
+      if (userIdRef.current !== s.user.id) return // resultado obsoleto
       if (p && p.active === false) {
         setNotice(MSG_DISABLED)
+        userIdRef.current = null
         setProfile(null)
         setSession(null)
         await supabase.auth.signOut()
@@ -54,8 +57,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!alive) return
       setSession(s)
       if (!s) {
+        userIdRef.current = null
         setProfile(null)
         setLoading(false)
+        return
+      }
+      const sameUser = userIdRef.current === s.user.id
+      userIdRef.current = s.user.id
+      if (sameUser) {
+        // mesmo usuário (refresh de token, refoco da aba): sem tela de loading
+        if (_event !== 'TOKEN_REFRESHED') setTimeout(() => void loadProfile(s), 0)
         return
       }
       setLoading(true)

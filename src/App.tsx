@@ -16,7 +16,7 @@ function Loading() {
   return <p className="loading">Carregando...</p>
 }
 
-function Guard({ area, children }: { area: 'driver' | 'admin'; children: ReactNode }) {
+export function Guard({ area, children }: { area: 'driver' | 'admin'; children: ReactNode }) {
   const { session, profile, loading } = useAuth()
   if (loading) return <Loading />
   if (!session || !profile) return <Navigate to="/login" replace />

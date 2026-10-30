@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
 
 type P = {
   id: string
@@ -15,11 +15,13 @@ let profileRow: P | null = null
 const updateUser = vi.fn()
 const rpc = vi.fn()
 const signOut = vi.fn()
+let authCb: ((e: string, s: unknown) => void) | null = null
 
 vi.mock('./lib/supabase', () => ({
   supabase: {
     auth: {
       onAuthStateChange: (cb: (e: string, s: unknown) => void) => {
+        authCb = cb
         setTimeout(() => cb('INITIAL_SESSION', session), 0)
         return { data: { subscription: { unsubscribe: () => {} } } }
       },
@@ -37,7 +39,7 @@ vi.mock('./lib/supabase', () => ({
 }))
 
 import { AuthProvider } from './lib/auth'
-import { AppRoutes } from './App'
+import { AppRoutes, Guard } from './App'
 
 function renderAt(path: string) {
   render(
@@ -137,5 +139,30 @@ describe('primeiro acesso', () => {
     await waitFor(() => expect(updateUser).toHaveBeenCalledWith({ password: '123456' }))
     expect(rpc).toHaveBeenCalledWith('clear_must_change_password')
     expect(await screen.findByRole('heading', { name: 'Hoje' })).toBeInTheDocument()
+  })
+})
+
+describe('eventos de auth do mesmo usuário', () => {
+  it('TOKEN_REFRESHED e SIGNED_IN não desmontam a página nem mostram Loading', async () => {
+    login({ role: 'driver' })
+    render(
+      <MemoryRouter initialEntries={['/m/x']}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/m/x" element={<Guard area="driver"><input aria-label="campo" /></Guard>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+    const input = await screen.findByLabelText('campo')
+    await userEvent.type(input, 'abc')
+    for (const ev of ['TOKEN_REFRESHED', 'SIGNED_IN']) {
+      act(() => authCb!(ev, { user: { id: 'u1' } }))
+      expect(screen.queryByText('Carregando...')).not.toBeInTheDocument()
+    }
+    await new Promise((r) => setTimeout(r, 20))
+    expect(screen.queryByText('Carregando...')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('campo')).toBe(input)
+    expect(input).toHaveValue('abc')
   })
 })
