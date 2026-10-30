@@ -12,7 +12,7 @@ begin
     raise exception 'INVALID_NAME' using errcode = 'P0001';
   end if;
   n := nextval('driver_seq');
-  return 'PASSOS' || lpad(n::text, 2, '0') || first_name;
+  return 'PASSOS' || case when n < 100 then lpad(n::text, 2, '0') else n::text end || first_name;
 end $$;
 
 revoke execute on function generate_login_code(text) from public, anon, authenticated;
@@ -55,9 +55,13 @@ begin
       select id into open_shift from shifts
         where driver_id = new.driver_id and ended_at is null
         order by started_at desc limit 1;
-    else
+    elsif tg_op = 'INSERT' or new.shift_id is distinct from old.shift_id then
       select id into open_shift from shifts
         where id = new.shift_id and driver_id = new.driver_id and ended_at is null;
+    else
+      -- edição simples: o turno pode já ter sido encerrado, só confere o dono
+      select id into open_shift from shifts
+        where id = new.shift_id and driver_id = new.driver_id;
     end if;
     if open_shift is null then
       raise exception 'NO_OPEN_SHIFT' using errcode = 'P0001';

@@ -1,5 +1,5 @@
 begin;
-select plan(12);
+select plan(15);
 
 select setval('driver_seq', 1, false);
 
@@ -76,6 +76,17 @@ select results_eq(
   $$values (25.00::numeric, 12.50::numeric)$$,
   'transfer reatribuído: pct 25 e consumo 12.5');
 
+-- edição após fim do turno
+update shifts set ended_at = now(), odometer_end = 150
+ where id = '00000000-0000-0000-0000-0000000000f1';
+select lives_ok(
+  $$update rides set amount = 75 where id = '00000000-0000-0000-0000-0000000000d1'$$,
+  'editar corrida após fim do turno');
+select results_eq(
+  $$select amount, shift_id from rides where id = '00000000-0000-0000-0000-0000000000d1'$$,
+  $$values (75.00::numeric, '00000000-0000-0000-0000-0000000000f1'::uuid)$$,
+  'valor atualizado e turno inalterado');
+
 -- audit
 select results_eq(
   $$select old_data->>'uber_pct', new_data->>'uber_pct', action from audit_log
@@ -85,6 +96,9 @@ select results_eq(
   'audit_log registra old/new');
 
 select is((select count(*)::int from audit_log where table_name='rides' and action='INSERT'), 3, 'audit de insert em rides');
+
+select setval('driver_seq', 100, false);
+select is(generate_login_code('Ana'), 'PASSOS100ANA', 'código com 3 dígitos não trunca');
 
 select * from finish();
 rollback;
