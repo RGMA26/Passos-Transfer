@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { localDate } from './periods'
 import type { Car, Profile, Ride, Period, RideExpense, Shift, Statement, StatementLines } from './types'
 import type { Database } from './database.types'
 
@@ -654,4 +655,162 @@ export async function signedPhotoUrl(path: string): Promise<string> {
 
 export async function updateShiftOdometers(id: string, start: number, end: number): Promise<void> {
   must(await supabase.from('shifts').update({ odometer_start: start, odometer_end: end }).eq('id', id))
+}
+
+// ---------- Admin: quinzenas, extratos e painel ----------
+
+export async function listPeriods(): Promise<Period[]> {
+  await getCurrentPeriodId(localDate()) // garante que a quinzena atual exista
+  const res = await supabase.from('periods').select('*').order('start_date', { ascending: false })
+  return must(res) ?? []
+}
+
+export async function setReferencePrice(periodId: string, value: number): Promise<void> {
+  must(await supabase.from('periods').update({ reference_fuel_price: value }).eq('id', periodId))
+}
+
+export type AdjustmentKind = 'advance' | 'fine' | 'bonus' | 'correction'
+export type Adjustment = Database['public']['Tables']['adjustments']['Row']
+
+export async function listAdjustments(periodId: string): Promise<Adjustment[]> {
+  const res = await supabase
+    .from('adjustments')
+    .select('*')
+    .eq('period_id', periodId)
+    .order('created_at', { ascending: true })
+  return must(res) ?? []
+}
+
+export interface NewAdjustmentInput {
+  driver_id: string
+  period_id: string
+  kind: AdjustmentKind
+  amount: number
+  description: string
+}
+
+export async function createAdjustment(input: NewAdjustmentInput): Promise<void> {
+  must(await supabase.from('adjustments').insert({ id: crypto.randomUUID(), ...input }))
+}
+
+export async function deleteAdjustment(id: string): Promise<void> {
+  must(await supabase.from('adjustments').delete().eq('id', id))
+}
+
+export interface PeriodDriverStatement {
+  driver_id: string
+  driver_name: string
+  driver_code: string
+  driver_type: string | null
+  lines: StatementLines
+  total: number
+  /** null enquanto a quinzena está aberta (valor estimado). */
+  statement_id: string | null
+  paid_at: string | null
+  payment_method: string | null
+}
+
+export async function periodDriverStatements(periodId: string): Promise<PeriodDriverStatement[]> {
+  const period = mustRow(await supabase.from('periods').select('status').eq('id', periodId).single())
+  const drivers = must(await supabase.from('profiles').select('*').eq('role', 'driver')) ?? []
+  const byId = new Map(drivers.map((d) => [d.id, d]))
+  let out: PeriodDriverStatement[]
+  if (period.status === 'open') {
+    const ids = must(await supabase.rpc('period_movement_drivers', { p_period: periodId })) ?? []
+    const active = ids.filter((id) => byId.get(id)?.active)
+    out = await Promise.all(
+      active.map(async (id) => {
+        const lines = await computeStatement(id, periodId)
+        const d = byId.get(id)!
+        return {
+          driver_id: id,
+          driver_name: d.name ?? '—',
+          driver_code: d.login_code ?? '',
+          driver_type: d.driver_type,
+          lines,
+          total: Number(lines.total),
+          statement_id: null,
+          paid_at: null,
+          payment_method: null,
+        }
+      }),
+    )
+  } else {
+    const rows = must(await supabase.from('statements').select('*').eq('period_id', periodId)) ?? []
+    out = rows.map((s) => {
+      const d = byId.get(s.driver_id)
+      const lines = s.lines as unknown as StatementLines
+      return {
+        driver_id: s.driver_id,
+        driver_name: d?.name ?? '—',
+        driver_code: d?.login_code ?? '',
+        driver_type: d?.driver_type ?? null,
+        lines,
+        total: Number(s.total ?? lines.total),
+        statement_id: s.id,
+        paid_at: s.paid_at,
+        payment_method: s.payment_method,
+      }
+    })
+  }
+  return out.sort((a, b) => a.driver_name.localeCompare(b.driver_name, 'pt-BR'))
+}
+
+export async function closePeriod(periodId: string): Promise<number> {
+  const { data, error } = await supabase.rpc('close_period', { p_period: periodId })
+  if (error) throw Object.assign(new Error(error.message), { code: error.code })
+  return data as number
+}
+
+export async function markStatementPaid(statementId: string, paidAt: string, method: string): Promise<void> {
+  const { error } = await supabase.rpc('mark_statement_paid', {
+    p_statement: statementId,
+    p_paid_at: paidAt,
+    p_method: method,
+  })
+  if (error) throw Object.assign(new Error(error.message), { code: error.code })
+}
+
+export interface PeriodSummary {
+  revenue: { uber: number; transfer: number; blablacar: number }
+  drivers_share: number
+  company_share: number
+  fuel_reimbursed: number
+  fuel_discounted: number
+  off_km_ranking: { driver_id: string; name: string; km_off: number }[]
+}
+
+export async function periodSummary(periodId: string): Promise<PeriodSummary> {
+  const res = await supabase.rpc('period_summary', { p_period: periodId })
+  return must(res) as unknown as PeriodSummary
+}
+
+export interface FullStatement {
+  id: string
+  lines: StatementLines
+  total: number
+  paid_at: string | null
+  payment_method: string | null
+  driver: { name: string; login_code: string; driver_type: string | null }
+  period: { start_date: string; end_date: string }
+}
+
+export async function getStatement(id: string): Promise<FullStatement> {
+  const s = mustRow(await supabase.from('statements').select('*').eq('id', id).maybeSingle())
+  const [d, p] = await Promise.all([
+    supabase.from('profiles').select('name, login_code, driver_type').eq('id', s.driver_id).single(),
+    supabase.from('periods').select('start_date, end_date').eq('id', s.period_id).single(),
+  ])
+  const drv = mustRow(d)
+  const per = mustRow(p)
+  const lines = s.lines as unknown as StatementLines
+  return {
+    id: s.id,
+    lines,
+    total: Number(s.total ?? lines.total),
+    paid_at: s.paid_at,
+    payment_method: s.payment_method,
+    driver: { name: drv.name ?? '—', login_code: drv.login_code ?? '', driver_type: drv.driver_type },
+    period: per,
+  }
 }

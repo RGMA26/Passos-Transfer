@@ -13,10 +13,9 @@ import DriversPage from './admin/DriversPage'
 import CarsPage from './admin/CarsPage'
 import TransfersPage from './admin/TransfersPage'
 import ReviewPage from './admin/ReviewPage'
-
-function Placeholder({ title }: { title: string }) {
-  return <h2>{title}</h2>
-}
+import PeriodsPage from './admin/PeriodsPage'
+import PrintStatementPage from './admin/PrintStatementPage'
+import DashboardPage from './admin/DashboardPage'
 
 const homeFor = (role: string) => (role === 'admin' ? '/admin' : '/m/hoje')
 
@@ -84,13 +83,13 @@ export function AppRoutes() {
           </Guard>
         }
       >
-        <Route index element={<Placeholder title="Início" />} />
+        <Route index element={<DashboardPage />} />
         <Route path="motoristas" element={<DriversPage />} />
         <Route path="carros" element={<CarsPage />} />
         <Route path="transfers" element={<TransfersPage />} />
         <Route path="conferencia" element={<ReviewPage />} />
-        <Route path="quinzenas" element={<Placeholder title="Quinzenas" />} />
-        <Route path="extrato/:statementId" element={<Placeholder title="Extrato" />} />
+        <Route path="quinzenas" element={<PeriodsPage />} />
+        <Route path="extrato/:statementId" element={<PrintStatementPage />} />
       </Route>
       <Route path="*" element={<Entry />} />
     </Routes>
