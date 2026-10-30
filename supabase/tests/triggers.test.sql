@@ -1,5 +1,11 @@
 begin;
 select plan(15);
+-- isola dos dados do seed.sql (revertido no rollback)
+update cars set current_driver_id = null;
+update profiles set current_car_id = null;
+delete from profiles;
+delete from cars;
+delete from auth.users;
 
 select setval('driver_seq', 1, false);
 

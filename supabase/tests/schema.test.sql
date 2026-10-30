@@ -1,5 +1,11 @@
 begin;
 select plan(23);
+-- isola dos dados do seed.sql (revertido no rollback)
+update cars set current_driver_id = null;
+update profiles set current_car_id = null;
+delete from profiles;
+delete from cars;
+delete from auth.users;
 
 select has_table('public', t, t || ' existe')
 from unnest(array['profiles','cars','periods','shifts','rides','ride_expenses','fuelings','adjustments','statements','audit_log']) as t;
