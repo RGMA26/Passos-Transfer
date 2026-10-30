@@ -1,5 +1,5 @@
 begin;
-select plan(60);
+select plan(67);
 
 -- Fixtures próprias (uuids 6xx, seq 96xx). Admin do seed: ad01.
 -- d1 cenário completo | d2 mudança de % | d3 carro próprio | d4 km negativo
@@ -47,9 +47,9 @@ insert into rides (driver_id, platform, ride_date, amount, km) values
   ('00000000-0000-0000-0000-0000000006d1','uber','2026-04-05',100,50),
   ('00000000-0000-0000-0000-0000000006d1','uber','2026-04-05',50,30),
   ('00000000-0000-0000-0000-0000000006d1','blablacar','2026-04-05',80,70);
-insert into rides (id, driver_id, shift_id, platform, ride_date, amount, km, client_name, transfer_status) values
-  ('00000000-0000-0000-0000-0000000006a1','00000000-0000-0000-0000-0000000006d1','00000000-0000-0000-0000-0000000006b1',
-   'transfer','2026-04-05',300,30,'Cli','completed');
+insert into rides (id, driver_id, platform, ride_date, amount, client_name, transfer_status) values
+  ('00000000-0000-0000-0000-0000000006a1','00000000-0000-0000-0000-0000000006d1',
+   'transfer','2026-04-05',300,'Cli','assigned');
 insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path, review_status) values
   ('00000000-0000-0000-0000-0000000006d1','00000000-0000-0000-0000-0000000006c1','2026-04-05',100,16,'x','approved'),
   ('00000000-0000-0000-0000-0000000006d1','00000000-0000-0000-0000-0000000006c1','2026-04-06',50,8,'x','pending');
@@ -59,6 +59,11 @@ insert into ride_expenses (ride_id, kind, amount, photo_path, review_status, rej
 insert into adjustments (driver_id, period_id, kind, amount, description) values
   ('00000000-0000-0000-0000-0000000006d1','00000000-0000-0000-0000-000000006e01','advance',-50,'vale'),
   ('00000000-0000-0000-0000-0000000006d1','00000000-0000-0000-0000-000000006e01','bonus',10,'bônus');
+-- o motorista conclui o transfer com o turno aberto (liga shift_id); depois o turno encerra
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006d1","role":"authenticated"}';
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a1', 30)$$, 'd1 conclui transfer no turno');
+reset role;
 update shifts set ended_at = '2026-04-05 20:00-03', odometer_end = 1200
   where id = '00000000-0000-0000-0000-0000000006b1';
 
@@ -108,6 +113,9 @@ update shifts set ended_at = '2026-06-16 02:00-03', odometer_end = 1100
 insert into shifts (id, driver_id, car_id, consumption_km_l, start_date, odometer_start, odometer_start_photo) values
   ('00000000-0000-0000-0000-0000000006b9','00000000-0000-0000-0000-0000000006d9','00000000-0000-0000-0000-0000000006c1',10,
    (now() at time zone 'America/Sao_Paulo')::date,1000,'p.jpg');
+insert into rides (id, driver_id, platform, ride_date, amount, client_name, transfer_status) values
+  ('00000000-0000-0000-0000-0000000006a9','00000000-0000-0000-0000-0000000006d9','transfer',
+   (now() at time zone 'America/Sao_Paulo')::date,100,'Cli','assigned');
 insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path, review_status) values
   ('00000000-0000-0000-0000-0000000006d9','00000000-0000-0000-0000-0000000006c1',
    (now() at time zone 'America/Sao_Paulo')::date,60,10,'x','approved');
@@ -117,6 +125,9 @@ select ok(not has_function_privilege('anon', 'compute_statement(uuid,uuid)', 'ex
 select ok(has_function_privilege('authenticated', 'compute_statement(uuid,uuid)', 'execute'), 'authenticated executa compute_statement');
 select ok(not has_function_privilege('authenticated', 'fuel_price_for(uuid,uuid)', 'execute'), 'fuel_price_for é interno');
 select ok(not has_function_privilege('anon', 'fuel_price_for(uuid,uuid)', 'execute'), 'anon não executa fuel_price_for');
+
+select is((select shift_id from rides where id = '00000000-0000-0000-0000-0000000006a1'),
+  '00000000-0000-0000-0000-0000000006b1'::uuid, 'transfer da empresa ligado ao turno aberto');
 
 -- ===== Cenário completo (como admin) =====
 set local role authenticated;
@@ -270,18 +281,36 @@ select is(fuel_price_for('00000000-0000-0000-0000-0000000006d1','00000000-0000-0
 select is(fuel_price_for('00000000-0000-0000-0000-0000000006d5','00000000-0000-0000-0000-000000006e02'), 6.00::numeric, 'fuel_price_for: referência');
 select is(fuel_price_for('00000000-0000-0000-0000-0000000006d5','00000000-0000-0000-0000-000000006e01'), null::numeric, 'fuel_price_for: nulo');
 
--- ===== end_shift com estimativa =====
+-- ===== end_shift com estimativa (transfer de 5 km conta como serviço) =====
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006d9","role":"authenticated"}';
 set local role authenticated;
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a9', 5)$$, 'd9 conclui transfer no turno');
 select is(
   end_shift('00000000-0000-0000-0000-0000000006b9',1020,'f.jpg',null),
-  '{"km_total":20,"km_service":0,"km_off":20,"off_discount_estimate":12.00}'::jsonb,
-  'end_shift estima o desconto com o preço médio');
+  '{"km_total":20,"km_service":5,"km_off":15,"off_discount_estimate":9.00}'::jsonb,
+  'end_shift soma o transfer no km em serviço e estima o desconto');
 select is(
   end_shift('00000000-0000-0000-0000-0000000006b9',1500,'z.jpg',null),
-  '{"km_total":20,"km_service":0,"km_off":20,"off_discount_estimate":12.00}'::jsonb,
+  '{"km_total":20,"km_service":5,"km_off":15,"off_discount_estimate":9.00}'::jsonb,
   'end_shift repetido mantém a estimativa');
+-- turno encerrado: carro da empresa não conclui transfer
 reset role;
+insert into rides (id, driver_id, platform, ride_date, amount, client_name, transfer_status) values
+  ('00000000-0000-0000-0000-0000000006aa','00000000-0000-0000-0000-0000000006d9','transfer','2026-07-01',100,'Cli','assigned'),
+  ('00000000-0000-0000-0000-0000000006a3','00000000-0000-0000-0000-0000000006d3','transfer','2026-07-01',100,'Cli','assigned');
+set local role authenticated;
+select throws_ok(
+  $$select complete_transfer('00000000-0000-0000-0000-0000000006aa', 10)$$,
+  'P0001', 'NO_OPEN_SHIFT', 'carro da empresa sem turno aberto');
+select is((select transfer_status from rides where id = '00000000-0000-0000-0000-0000000006aa'), 'assigned', 'falha não conclui');
+reset role;
+-- carro próprio: conclui sem turno, shift_id nulo
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006d3","role":"authenticated"}';
+set local role authenticated;
+select is((select shift_id::text from complete_transfer('00000000-0000-0000-0000-0000000006a3', 10)), null, 'carro próprio: shift_id nulo');
+reset role;
+select is((select transfer_status || '/' || coalesce(consumption_km_l::text, 'null') from rides where id = '00000000-0000-0000-0000-0000000006a3'),
+  'completed/12.50', 'carro próprio: concluído com snapshot de consumo');
 
 select * from finish();
 rollback;

@@ -181,3 +181,46 @@ begin
     'km_off', v_off,
     'off_discount_estimate', round(v_off / s.consumption_km_l * v_price, 2));
 end $$;
+
+-- complete_transfer: carro da empresa exige turno aberto e liga o transfer a ele
+-- (km em serviço do turno = Uber + BlaBlaCar + Transfer); carro próprio fica sem turno
+create or replace function complete_transfer(p_ride_id uuid, p_km numeric)
+returns rides
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  r rides%rowtype;
+  v_type text;
+  v_shift uuid;
+begin
+  if not is_active_driver() then
+    raise exception 'FORBIDDEN' using errcode = 'P0001';
+  end if;
+
+  select * into r from rides
+    where id = p_ride_id and driver_id = auth.uid() and platform = 'transfer' for update;
+  if not found then
+    raise exception 'NOT_FOUND' using errcode = 'P0001';
+  end if;
+  if r.transfer_status = 'checked' then
+    raise exception 'ALREADY_CHECKED' using errcode = 'P0001';
+  end if;
+  if p_km is null or p_km < 0 then
+    raise exception 'INVALID_KM' using errcode = 'P0001';
+  end if;
+
+  select driver_type into v_type from profiles where id = r.driver_id;
+  if v_type = 'company_car' then
+    select id into v_shift from shifts
+      where driver_id = r.driver_id and ended_at is null
+      order by started_at desc limit 1;
+    if v_shift is null then
+      raise exception 'NO_OPEN_SHIFT' using errcode = 'P0001';
+    end if;
+  end if;
+
+  update rides set km = p_km, transfer_status = 'completed', reject_reason = null,
+                   shift_id = v_shift
+    where id = r.id
+    returning * into r;
+  return r;
+end $$;

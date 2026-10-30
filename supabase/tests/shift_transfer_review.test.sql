@@ -1,5 +1,5 @@
 begin;
-select plan(66);
+select plan(69);
 
 -- Personas do seed: admin ad01, João d001 (company_car, carro c001 da empresa), Maria d002 (own_car, carro c002 próprio)
 -- Fixtures de transfer/abastecimento (como postgres)
@@ -122,6 +122,13 @@ select is(
   'km_off não fica negativo');
 
 -- ===== João: concluir transfer =====
+-- carro da empresa: concluir exige turno aberto (Task 6)
+select throws_ok(
+  $$select complete_transfer('00000000-0000-0000-0000-0000000005a1', 10)$$,
+  'P0001', 'NO_OPEN_SHIFT', 'carro da empresa sem turno aberto');
+select lives_ok(
+  $$select start_shift('00000000-0000-0000-0000-0000000005b5','00000000-0000-0000-0000-00000000c001',1100,'p.jpg')$$,
+  'turno aberto para concluir transfers');
 select throws_ok(
   $$select complete_transfer('00000000-0000-0000-0000-0000000005a2', 10)$$,
   'P0001', 'NOT_FOUND', 'transfer de outro motorista');
@@ -144,6 +151,8 @@ select is((select km from rides where id = '00000000-0000-0000-0000-0000000005a1
 select is(
   (select km from complete_transfer('00000000-0000-0000-0000-0000000005a1', 50)),
   50.0, 'completed pode ser reenviado');
+select is((select shift_id from rides where id = '00000000-0000-0000-0000-0000000005a1'),
+  '00000000-0000-0000-0000-0000000005b5'::uuid, 'transfer ligado ao turno aberto');
 reset role;
 
 -- ===== Admin: conferência =====
