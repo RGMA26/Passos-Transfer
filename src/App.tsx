@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from './lib/auth'
 import LoginPage from './auth/LoginPage'
 import FirstAccessPage from './auth/FirstAccessPage'
 import DriverLayout from './driver/DriverLayout'
+import TodayTab from './driver/TodayTab'
+import LaunchTab from './driver/LaunchTab'
 import AdminLayout from './admin/AdminLayout'
 
 function Placeholder({ title }: { title: string }) {
@@ -63,8 +65,8 @@ export function AppRoutes() {
         }
       >
         <Route index element={<Navigate to="hoje" replace />} />
-        <Route path="hoje" element={<Placeholder title="Hoje" />} />
-        <Route path="lancar" element={<Placeholder title="Lançar" />} />
+        <Route path="hoje" element={<TodayTab />} />
+        <Route path="lancar" element={<LaunchTab />} />
         <Route path="transfers" element={<Placeholder title="Transfers" />} />
         <Route path="extrato" element={<Placeholder title="Extrato" />} />
       </Route>

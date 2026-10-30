@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Profile } from './types'
+import type { Car, Profile, Ride, Shift } from './types'
 import type { Database } from './database.types'
 
 export async function getMyProfile(userId: string): Promise<Profile | null> {
@@ -100,4 +100,55 @@ export async function completeTransfer(a: { ride_id: string; km: number }): Prom
     p_km: a.km,
   })
   if (error) fail(error, status)
+}
+
+export async function getOpenShift(driverId: string): Promise<Shift | null> {
+  const { data, error } = await supabase
+    .from('shifts')
+    .select('*')
+    .eq('driver_id', driverId)
+    .is('ended_at', null)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+export async function getShiftRides(shiftId: string): Promise<Ride[]> {
+  const { data, error } = await supabase.from('rides').select('*').eq('shift_id', shiftId)
+  if (error) throw error
+  return data ?? []
+}
+
+export interface TodaySummary {
+  byPlatform: { uber: number; blablacar: number; transfer: number }
+  kmService: number
+  fueled: number
+}
+
+export async function getTodaySummary(driverId: string, date: string): Promise<TodaySummary> {
+  const [rides, fuelings] = await Promise.all([
+    supabase.from('rides').select('platform, amount, km').eq('driver_id', driverId).eq('ride_date', date),
+    supabase.from('fuelings').select('amount').eq('driver_id', driverId).eq('fueled_on', date),
+  ])
+  if (rides.error) throw rides.error
+  if (fuelings.error) throw fuelings.error
+  const out: TodaySummary = {
+    byPlatform: { uber: 0, blablacar: 0, transfer: 0 },
+    kmService: 0,
+    fueled: 0,
+  }
+  for (const r of rides.data ?? []) {
+    if (r.platform === 'uber' || r.platform === 'blablacar' || r.platform === 'transfer') {
+      out.byPlatform[r.platform] += Number(r.amount)
+    }
+    out.kmService += Number(r.km ?? 0)
+  }
+  for (const f of fuelings.data ?? []) out.fueled += Number(f.amount)
+  return out
+}
+
+export async function getCar(carId: string): Promise<Car | null> {
+  const { data, error } = await supabase.from('cars').select('*').eq('id', carId).maybeSingle()
+  if (error) throw error
+  return data
 }
