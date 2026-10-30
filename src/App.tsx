@@ -9,6 +9,8 @@ import StatementTab from './driver/StatementTab'
 import TodayTab from './driver/TodayTab'
 import LaunchTab from './driver/LaunchTab'
 import AdminLayout from './admin/AdminLayout'
+import DriversPage from './admin/DriversPage'
+import CarsPage from './admin/CarsPage'
 
 function Placeholder({ title }: { title: string }) {
   return <h2>{title}</h2>
@@ -81,8 +83,8 @@ export function AppRoutes() {
         }
       >
         <Route index element={<Placeholder title="Início" />} />
-        <Route path="motoristas" element={<Placeholder title="Motoristas" />} />
-        <Route path="carros" element={<Placeholder title="Carros" />} />
+        <Route path="motoristas" element={<DriversPage />} />
+        <Route path="carros" element={<CarsPage />} />
         <Route path="transfers" element={<Placeholder title="Transfers" />} />
         <Route path="conferencia" element={<Placeholder title="Conferência" />} />
         <Route path="quinzenas" element={<Placeholder title="Quinzenas" />} />

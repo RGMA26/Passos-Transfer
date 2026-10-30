@@ -296,3 +296,140 @@ export async function getPeriod(periodId: string): Promise<Pick<Period, 'start_d
   if (error) throw error
   return data
 }
+
+// ---------- Admin: motoristas e carros ----------
+
+function must<T>(res: { data: T; error: { message: string; code?: string } | null }): T {
+  if (res.error) throw Object.assign(new Error(res.error.message), { code: res.error.code })
+  return res.data
+}
+
+function mustRow<T>(res: { data: T; error: { message: string; code?: string } | null }): NonNullable<T> {
+  const row = must(res)
+  if (row == null) throw Object.assign(new Error('NOT_FOUND'), { code: 'NOT_FOUND' })
+  return row as NonNullable<T>
+}
+
+export async function listDrivers(): Promise<Profile[]> {
+  const res = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('role', 'driver')
+    .order('seq_number', { ascending: true })
+  return must(res) ?? []
+}
+
+export interface NewDriverInput {
+  name: string
+  phone: string
+  driver_type: 'own_car' | 'company_car'
+  uber_pct?: number
+  transfer_pct: number
+  car_id?: string
+}
+
+export interface DriverAccess {
+  driver_id: string
+  login_code: string
+  temp_pin: string
+}
+
+/** Lê o código do corpo JSON de um erro HTTP da Edge Function. */
+async function functionErrorCode(error: unknown): Promise<string> {
+  try {
+    const ctx = (error as { context?: { json?: () => Promise<{ error?: string }> } }).context
+    const body = await ctx?.json?.()
+    if (body?.error) return body.error
+  } catch {
+    /* corpo ilegível */
+  }
+  return 'CREATE_FAILED'
+}
+
+export async function createDriver(input: NewDriverInput): Promise<DriverAccess> {
+  const { data, error } = await supabase.functions.invoke('create-driver', { body: input })
+  if (error) {
+    const code = await functionErrorCode(error)
+    throw Object.assign(new Error(code), { code })
+  }
+  return data as DriverAccess
+}
+
+export async function driverAccess(
+  driverId: string,
+  action: 'reset_password' | 'deactivate' | 'reactivate',
+): Promise<{ temp_pin?: string }> {
+  const { data, error } = await supabase.functions.invoke('driver-access', {
+    body: { driver_id: driverId, action },
+  })
+  if (error) {
+    const code = await functionErrorCode(error)
+    throw Object.assign(new Error(code), { code })
+  }
+  return (data ?? {}) as { temp_pin?: string }
+}
+
+export async function updateDriverPcts(
+  id: string,
+  uber_pct: number | null,
+  transfer_pct: number,
+): Promise<void> {
+  must(await supabase.from('profiles').update({ uber_pct, transfer_pct }).eq('id', id))
+}
+
+export async function listCars(): Promise<Car[]> {
+  const res = await supabase.from('cars').select('*').order('plate', { ascending: true })
+  return must(res) ?? []
+}
+
+export interface NewCarInput {
+  model: string
+  plate: string
+  consumption_km_l: number
+  ownership: 'own' | 'company'
+}
+
+function carError(error: { message: string; code?: string }): never {
+  if (error.code === '23505') throw Object.assign(new Error('PLATE_TAKEN'), { code: 'PLATE_TAKEN' })
+  throw Object.assign(new Error(error.message), { code: error.code })
+}
+
+export async function createCar(input: NewCarInput): Promise<void> {
+  const { error } = await supabase.from('cars').insert(input)
+  if (error) carError(error)
+}
+
+export async function updateCar(
+  id: string,
+  patch: { model?: string; consumption_km_l?: number },
+): Promise<void> {
+  const { error } = await supabase.from('cars').update(patch).eq('id', id)
+  if (error) carError(error)
+}
+
+/** Vincula (ou desvincula, com null) mantendo cars.current_driver_id e profiles.current_car_id coerentes. */
+export async function assignCar(carId: string, driverId: string | null): Promise<void> {
+  const car = mustRow(await supabase.from('cars').select('*').eq('id', carId).single())
+  let driverCarId: string | null = null
+  if (driverId) {
+    const drv = mustRow(
+      await supabase.from('profiles').select('id, driver_type, current_car_id').eq('id', driverId).single(),
+    )
+    const expected = car.ownership === 'company' ? 'company_car' : 'own_car'
+    if (drv.driver_type !== expected) {
+      throw Object.assign(new Error('TYPE_MISMATCH'), { code: 'TYPE_MISMATCH' })
+    }
+    driverCarId = drv.current_car_id
+  }
+  const prevDriver = car.current_driver_id
+  if (prevDriver && prevDriver !== driverId) {
+    must(await supabase.from('profiles').update({ current_car_id: null }).eq('id', prevDriver))
+  }
+  if (driverId && driverCarId && driverCarId !== carId) {
+    must(await supabase.from('cars').update({ current_driver_id: null }).eq('id', driverCarId))
+  }
+  must(await supabase.from('cars').update({ current_driver_id: driverId }).eq('id', carId))
+  if (driverId) {
+    must(await supabase.from('profiles').update({ current_car_id: carId }).eq('id', driverId))
+  }
+}
