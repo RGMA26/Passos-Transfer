@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from './lib/auth'
 import LoginPage from './auth/LoginPage'
 import FirstAccessPage from './auth/FirstAccessPage'
 import DriverLayout from './driver/DriverLayout'
+import TransfersTab from './driver/TransfersTab'
+import StatementTab from './driver/StatementTab'
 import TodayTab from './driver/TodayTab'
 import LaunchTab from './driver/LaunchTab'
 import AdminLayout from './admin/AdminLayout'
@@ -67,8 +69,8 @@ export function AppRoutes() {
         <Route index element={<Navigate to="hoje" replace />} />
         <Route path="hoje" element={<TodayTab />} />
         <Route path="lancar" element={<LaunchTab />} />
-        <Route path="transfers" element={<Placeholder title="Transfers" />} />
-        <Route path="extrato" element={<Placeholder title="Extrato" />} />
+        <Route path="transfers" element={<TransfersTab />} />
+        <Route path="extrato" element={<StatementTab />} />
       </Route>
       <Route
         path="/admin"

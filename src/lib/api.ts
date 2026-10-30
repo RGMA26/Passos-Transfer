@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Car, Profile, Ride, Shift } from './types'
+import type { Car, Profile, Ride, Period, RideExpense, Shift, Statement, StatementLines } from './types'
 import type { Database } from './database.types'
 
 export async function getMyProfile(userId: string): Promise<Profile | null> {
@@ -150,6 +150,149 @@ export async function getTodaySummary(driverId: string, date: string): Promise<T
 
 export async function getCar(carId: string): Promise<Car | null> {
   const { data, error } = await supabase.from('cars').select('*').eq('id', carId).maybeSingle()
+  if (error) throw error
+  return data
+}
+
+export async function listMyTransfers(driverId: string): Promise<Ride[]> {
+  const { data, error } = await supabase
+    .from('rides')
+    .select('*')
+    .eq('driver_id', driverId)
+    .eq('platform', 'transfer')
+    .order('scheduled_at', { ascending: true })
+  if (error) throw error
+  const rows = data ?? []
+  // atribuídas/concluídas primeiro, conferidas por último (ordem por data preservada)
+  const rank = (r: Ride) => (r.transfer_status === 'checked' ? 1 : 0)
+  return [...rows].sort((a, b) => rank(a) - rank(b))
+}
+
+export async function listExpenses(rideIds: string[]): Promise<RideExpense[]> {
+  if (rideIds.length === 0) return []
+  const { data, error } = await supabase
+    .from('ride_expenses')
+    .select('*')
+    .in('ride_id', rideIds)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getCurrentPeriodId(date: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc('period_for_date', { d: date })
+  if (error) throw error
+  return (data as string | null) ?? null
+}
+
+export async function computeStatement(
+  driverId: string,
+  periodId: string,
+): Promise<StatementLines> {
+  const { data, error } = await supabase.rpc('compute_statement', {
+    p_driver: driverId,
+    p_period: periodId,
+  })
+  if (error) throw error
+  return data as unknown as StatementLines
+}
+
+export interface StatementRow {
+  id: string
+  period_id: string
+  lines: StatementLines
+  total: number | null
+  paid_at: string | null
+  payment_method: string | null
+  start_date: string
+  end_date: string
+}
+
+export async function listMyStatements(driverId: string): Promise<StatementRow[]> {
+  const { data, error } = await supabase
+    .from('statements')
+    .select('*, periods!inner(start_date, end_date, status)')
+    .eq('driver_id', driverId)
+    .eq('periods.status', 'closed')
+  if (error) throw error
+  type Joined = Statement & { periods: { start_date: string; end_date: string } }
+  return ((data ?? []) as unknown as Joined[])
+    .map((s) => ({
+      id: s.id,
+      period_id: s.period_id,
+      lines: s.lines as unknown as StatementLines,
+      total: s.total,
+      paid_at: s.paid_at,
+      payment_method: s.payment_method,
+      start_date: s.periods.start_date,
+      end_date: s.periods.end_date,
+    }))
+    .sort((a, b) => b.start_date.localeCompare(a.start_date))
+}
+
+export interface RejectedItem {
+  kind: 'Abastecimento' | 'Transfer' | 'Pedágio' | 'Estacionamento'
+  date: string
+  amount: number
+  reason: string
+}
+
+export async function listRejectedItems(
+  driverId: string,
+  start: string,
+  end: string,
+): Promise<RejectedItem[]> {
+  const [f, r] = await Promise.all([
+    supabase
+      .from('fuelings')
+      .select('fueled_on, amount, reject_reason')
+      .eq('driver_id', driverId)
+      .not('reject_reason', 'is', null)
+      .gte('fueled_on', start)
+      .lte('fueled_on', end),
+    supabase
+      .from('rides')
+      .select('id, ride_date, amount, reject_reason, ride_expenses(kind, amount, reject_reason)')
+      .eq('driver_id', driverId)
+      .gte('ride_date', start)
+      .lte('ride_date', end),
+  ])
+  if (f.error) throw f.error
+  if (r.error) throw r.error
+  const out: RejectedItem[] = []
+  for (const x of f.data ?? []) {
+    out.push({ kind: 'Abastecimento', date: x.fueled_on, amount: Number(x.amount), reason: x.reject_reason! })
+  }
+  type RideJoined = {
+    ride_date: string
+    amount: number
+    reject_reason: string | null
+    ride_expenses: { kind: string; amount: number; reject_reason: string | null }[]
+  }
+  for (const x of (r.data ?? []) as unknown as RideJoined[]) {
+    if (x.reject_reason) {
+      out.push({ kind: 'Transfer', date: x.ride_date, amount: Number(x.amount), reason: x.reject_reason })
+    }
+    for (const e of x.ride_expenses ?? []) {
+      if (e.reject_reason) {
+        out.push({
+          kind: e.kind === 'toll' ? 'Pedágio' : 'Estacionamento',
+          date: x.ride_date,
+          amount: Number(e.amount),
+          reason: e.reject_reason,
+        })
+      }
+    }
+  }
+  return out
+}
+
+export async function getPeriod(periodId: string): Promise<Pick<Period, 'start_date' | 'end_date' | 'status'>> {
+  const { data, error } = await supabase
+    .from('periods')
+    .select('start_date, end_date, status')
+    .eq('id', periodId)
+    .single()
   if (error) throw error
   return data
 }
