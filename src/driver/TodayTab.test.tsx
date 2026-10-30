@@ -223,6 +223,30 @@ describe('TodayTab', () => {
     expect(mApi.endShift).not.toHaveBeenCalled()
   })
 
+  it('encerrar sem Uber enfileira uber_photo null', async () => {
+    const u = userEvent.setup()
+    mApi.getOpenShift.mockResolvedValue(openShift as never)
+    ui()
+    await u.type(await screen.findByLabelText('Odômetro final'), '1100')
+    await u.upload(screen.getByLabelText('Foto do odômetro final'), photoFile())
+    await u.click(screen.getByRole('button', { name: 'Encerrar turno' }))
+    await waitFor(() => expect(mEnqueue).toHaveBeenCalledTimes(1))
+    const op = mEnqueue.mock.calls[0][0]
+    expect(op.payload.uber_photo).toBeNull()
+    expect('uber_photo' in op.payload).toBe(true)
+  })
+
+  it('dois toques rápidos em Iniciar turno enfileiram uma vez', async () => {
+    const u = userEvent.setup()
+    ui()
+    await u.type(await screen.findByLabelText('Odômetro'), '1000')
+    await u.upload(screen.getByLabelText('Foto do odômetro'), photoFile())
+    const b = screen.getByRole('button', { name: 'Iniciar turno' })
+    await u.dblClick(b)
+    await waitFor(() => expect(mEnqueue).toHaveBeenCalledTimes(1))
+    expect(mEnqueue).toHaveBeenCalledTimes(1)
+  })
+
   it('carro próprio vê Transfers pendentes e não vê turno', async () => {
     profile = makeProfile({ driver_type: 'own_car', current_car_id: null })
     ui()

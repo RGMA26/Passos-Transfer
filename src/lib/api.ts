@@ -82,13 +82,14 @@ export async function endShift(a: {
   shift_id: string
   odometer: number
   photo: string
-  uber_photo: string
+  uber_photo?: string | null
 }): Promise<EndShiftResult> {
   const { data, error, status } = await supabase.rpc('end_shift', {
     p_shift_id: a.shift_id,
     p_odometer: a.odometer,
     p_photo: a.photo,
-    p_uber_photo: a.uber_photo,
+    // o parâmetro precisa estar sempre no corpo (PostgREST não resolve sem ele); null = sem print
+    p_uber_photo: (a.uber_photo ?? null) as string,
   })
   if (error) fail(error, status)
   return data as unknown as EndShiftResult

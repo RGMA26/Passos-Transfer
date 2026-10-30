@@ -74,7 +74,7 @@ export default function TodayTab() {
           onQueued={() => void refresh()}
         />
       ) : (
-        <StartShift uid={uid} carId={profile.current_car_id} onQueued={() => void refresh()} />
+        <StartShift uid={uid} carId={profile.current_car_id} onQueued={refresh} />
       )}
     </section>
   )
@@ -87,7 +87,7 @@ function StartShift({
 }: {
   uid: string
   carId: string | null
-  onQueued: () => void
+  onQueued: () => Promise<void>
 }) {
   const [car, setCar] = useState<Car | null>(null)
   const [odo, setOdo] = useState('')
@@ -124,10 +124,10 @@ function StartShift({
         payload: { id, car_id: carId, odometer },
         photos: [{ field: 'photo', photoId: crypto.randomUUID(), blob: photo }],
       })
-      onQueued()
+      // busy fica true: o botão some quando o turno derivado aparece
+      await onQueued()
     } catch {
       setError('Não foi possível salvar. Tente de novo.')
-    } finally {
       setBusy(false)
     }
   }
@@ -234,7 +234,7 @@ function OpenShift({
         id: crypto.randomUUID(),
         kind: 'end_shift',
         ownerId: uid,
-        payload: { shift_id: shift.id, odometer },
+        payload: { shift_id: shift.id, odometer, uber_photo: null },
         photos,
       })
       await onEnded({ shiftId: shift.id, start: shift.odometerStart, end: odometer })
@@ -297,7 +297,7 @@ function EndedSummary({
           shift_id: ended.shiftId,
           odometer: ended.end,
           photo: '',
-          uber_photo: '',
+          uber_photo: null,
         })
         if (alive) setResult(r)
       } catch {
