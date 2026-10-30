@@ -18,35 +18,42 @@ export async function clearMustChangePassword(): Promise<void> {
 }
 
 /** Erro do servidor: `message` do PostgREST é o código (ex.: PERIOD_CLOSED). */
-function fail(error: { message: string; code?: string }): never {
-  // supabase-js converte falha de rede em erro sem código
-  if (!error.code && /fetch|network|timeout|offline/i.test(error.message)) {
-    throw new TypeError(error.message)
-  }
-  throw Object.assign(new Error(error.message), { code: error.code })
+function fail(error: { message: string; code?: string }, status?: number): never {
+  const code = error.code || undefined
+  const clientError = status !== undefined && status >= 400 && status < 500
+  const transient =
+    status === 0 || // falha de rede (ex.: "TypeError: Load failed" no iOS)
+    status === 401 || // JWT expirado: o auth renova e a fila tenta depois
+    (status !== undefined && status >= 500) ||
+    code === 'PGRST301' ||
+    code === 'PGRST303' ||
+    (!code && !clientError) // sem código do servidor e sem 4xx: rede/gateway
+  // transitório vira TypeError, que a fila trata como "tentar depois"
+  if (transient) throw new TypeError(error.message)
+  throw Object.assign(new Error(error.message), { code, status })
 }
 
 type Tables = Database['public']['Tables']
 
 export async function insertRide(row: Tables['rides']['Insert']): Promise<void> {
-  const { error } = await supabase
+  const { error, status } = await supabase
     .from('rides')
     .upsert(row, { onConflict: 'id', ignoreDuplicates: true })
-  if (error) fail(error)
+  if (error) fail(error, status)
 }
 
 export async function insertFueling(row: Tables['fuelings']['Insert']): Promise<void> {
-  const { error } = await supabase
+  const { error, status } = await supabase
     .from('fuelings')
     .upsert(row, { onConflict: 'id', ignoreDuplicates: true })
-  if (error) fail(error)
+  if (error) fail(error, status)
 }
 
 export async function insertExpense(row: Tables['ride_expenses']['Insert']): Promise<void> {
-  const { error } = await supabase
+  const { error, status } = await supabase
     .from('ride_expenses')
     .upsert(row, { onConflict: 'id', ignoreDuplicates: true })
-  if (error) fail(error)
+  if (error) fail(error, status)
 }
 
 export async function startShift(a: {
@@ -55,13 +62,13 @@ export async function startShift(a: {
   odometer: number
   photo: string
 }): Promise<void> {
-  const { error } = await supabase.rpc('start_shift', {
+  const { error, status } = await supabase.rpc('start_shift', {
     p_id: a.id,
     p_car_id: a.car_id,
     p_odometer: a.odometer,
     p_photo: a.photo,
   })
-  if (error) fail(error)
+  if (error) fail(error, status)
 }
 
 export interface EndShiftResult {
@@ -77,20 +84,20 @@ export async function endShift(a: {
   photo: string
   uber_photo: string
 }): Promise<EndShiftResult> {
-  const { data, error } = await supabase.rpc('end_shift', {
+  const { data, error, status } = await supabase.rpc('end_shift', {
     p_shift_id: a.shift_id,
     p_odometer: a.odometer,
     p_photo: a.photo,
     p_uber_photo: a.uber_photo,
   })
-  if (error) fail(error)
+  if (error) fail(error, status)
   return data as unknown as EndShiftResult
 }
 
 export async function completeTransfer(a: { ride_id: string; km: number }): Promise<void> {
-  const { error } = await supabase.rpc('complete_transfer', {
+  const { error, status } = await supabase.rpc('complete_transfer', {
     p_ride_id: a.ride_id,
     p_km: a.km,
   })
-  if (error) fail(error)
+  if (error) fail(error, status)
 }

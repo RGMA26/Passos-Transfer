@@ -12,17 +12,22 @@ const api = vi.hoisted(() => ({
 const photos = vi.hoisted(() => ({ uploadPhoto: vi.fn() }))
 vi.mock('../api', () => api)
 vi.mock('../photos', () => photos)
+let uid: string | null = 'u1'
+vi.mock('../supabase', () => ({
+  supabase: { auth: { getSession: async () => ({ data: { session: uid ? { user: { id: uid } } : null } }) } },
+}))
 
-import { enqueue, flush, listOps, discardOp, onQueueChange } from './queue'
+import { enqueue, flush, listOps, discardOp, onQueueChange, retryOp } from './queue'
 import type { QueuedOp } from './queue'
 
 function op(id: string, over: Partial<QueuedOp> = {}): Omit<QueuedOp, 'status' | 'createdAt'> {
-  return { id, kind: 'insert_ride', payload: { id, amount: 10 }, photos: [], ...over }
+  return { id, kind: 'insert_ride', ownerId: 'u1', payload: { id, amount: 10 }, photos: [], ...over }
 }
 const codeErr = (code: string) => Object.assign(new Error(code), { code })
 
 describe('fila offline', () => {
   beforeEach(async () => {
+    uid = 'u1'
     Object.values(api).forEach((f) => f.mockReset().mockResolvedValue(undefined))
     photos.uploadPhoto.mockReset().mockImplementation(async (_b, d, p) => `${d}/${p}.jpg`)
     for (const o of await listOps()) await discardOp(o.id)
@@ -93,14 +98,15 @@ describe('fila offline', () => {
   })
 
   it('foto é enviada antes da op e o path vai no payload', async () => {
+    uid = 'drv'
     const calls: string[] = []
     photos.uploadPhoto.mockImplementation(async (_b, d, p) => (calls.push('upload'), `${d}/${p}.jpg`))
     api.insertFueling.mockImplementation(async () => void calls.push('op'))
     await enqueue(
       op('f', {
         kind: 'insert_fueling',
-        payload: { id: 'f', driver_id: 'drv' },
-        driverId: 'drv',
+        payload: { id: 'f' },
+        ownerId: 'drv',
         photos: [{ field: 'photo_path', photoId: 'p1', blob: new Blob(['x']) }],
       }),
     )
@@ -122,5 +128,44 @@ describe('fila offline', () => {
     await discardOp('t')
     expect(await listOps()).toEqual([])
     off()
+  })
+
+  it('foto da op do usuário drv usa o ownerId (sessão drv)', async () => {
+    uid = 'drv'
+    await enqueue(op('o', { ownerId: 'drv', photos: [{ field: 'photo', photoId: 'p', blob: new Blob(['x']) }] }))
+    await flush()
+    expect(photos.uploadPhoto).toHaveBeenCalledWith(expect.anything(), 'drv', 'p')
+  })
+
+  it('sem sessão nada é enviado', async () => {
+    uid = null
+    await enqueue(op('a'))
+    await flush()
+    expect(api.insertRide).not.toHaveBeenCalled()
+    expect(await listOps()).toHaveLength(1)
+  })
+
+  it('op de outro usuário não é enviada nem listada para o usuário atual', async () => {
+    uid = 'userB'
+    await enqueue(op('a', { ownerId: 'userA' }))
+    await flush()
+    expect(api.insertRide).not.toHaveBeenCalled()
+    expect(await listOps('userB')).toEqual([])
+    expect(await listOps('userA')).toHaveLength(1)
+  })
+
+  it('enqueue sem ownerId lança', async () => {
+    await expect(enqueue(op('a', { ownerId: '' }))).rejects.toThrow()
+  })
+
+  it('retryOp reenvia uma op failed', async () => {
+    api.insertRide.mockRejectedValueOnce(codeErr('PERIOD_CLOSED'))
+    await enqueue(op('a'))
+    await flush()
+    expect((await listOps())[0].status).toBe('failed')
+    await retryOp('a')
+    await flush()
+    expect(api.insertRide).toHaveBeenCalledTimes(2)
+    expect(await listOps()).toEqual([])
   })
 })

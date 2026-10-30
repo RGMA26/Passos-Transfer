@@ -1,6 +1,7 @@
 import { openDB } from 'idb'
 import * as api from '../api'
 import { uploadPhoto } from '../photos'
+import { supabase } from '../supabase'
 
 export type QueuedOp = {
   id: string
@@ -12,8 +13,8 @@ export type QueuedOp = {
     | 'end_shift'
     | 'complete_transfer'
   payload: Record<string, unknown>
-  /** Dono das fotos (auth.uid()): o path no bucket é `${driverId}/${photoId}.jpg`. */
-  driverId?: string
+  /** Dono da op (auth.uid()): só ele envia/vê; path das fotos: `${ownerId}/${photoId}.jpg`. */
+  ownerId: string
   photos: { field: string; photoId: string; blob: Blob }[]
   status: 'pending' | 'failed'
   error?: string
@@ -35,6 +36,7 @@ export function onQueueChange(cb: () => void): () => void {
 
 let seq = 0
 export async function enqueue(op: Omit<QueuedOp, 'status' | 'createdAt'>): Promise<void> {
+  if (!op.ownerId) throw new Error('ownerId obrigatório')
   const db = await dbp
   // seq garante ordem FIFO estável mesmo com enqueues no mesmo milissegundo
   await db.put('ops', { ...op, status: 'pending', createdAt: Date.now() * 1000 + (seq++ % 1000) })
@@ -42,9 +44,19 @@ export async function enqueue(op: Omit<QueuedOp, 'status' | 'createdAt'>): Promi
   void flush()
 }
 
-export async function listOps(): Promise<QueuedOp[]> {
+export async function listOps(ownerId?: string): Promise<QueuedOp[]> {
   const db = await dbp
-  return db.getAllFromIndex('ops', 'createdAt')
+  const all = await db.getAllFromIndex('ops', 'createdAt')
+  return ownerId ? all.filter((o) => o.ownerId === ownerId) : all
+}
+
+export async function retryOp(id: string): Promise<void> {
+  const db = await dbp
+  const op = await db.get('ops', id)
+  if (!op || op.status !== 'failed') return
+  await db.put('ops', { ...op, status: 'pending', error: undefined })
+  notify()
+  void flush()
 }
 
 export async function discardOp(id: string): Promise<void> {
@@ -68,8 +80,8 @@ function isTransient(e: unknown): boolean {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return true
   if (e instanceof TypeError) return true
   const { code, status } = (e ?? {}) as Err
-  if (code) return false
-  return status === 0 || (status !== undefined && status >= 500)
+  if (code) return code === 'PGRST301' || code === 'PGRST303'
+  return status === 0 || status === 401 || (status !== undefined && status >= 500)
 }
 
 function errorMessage(e: unknown): string {
@@ -99,13 +111,15 @@ async function dispatch(kind: QueuedOp['kind'], p: Record<string, unknown>): Pro
 
 async function pass(): Promise<void> {
   const db = await dbp
-  for (const op of await listOps()) {
+  const { data } = await supabase.auth.getSession()
+  const uid = data.session?.user.id
+  if (!uid) return // sem sessão: nada é enviado
+  for (const op of await listOps(uid)) {
     if (op.status === 'failed') continue
     try {
       const payload = { ...op.payload }
       for (const ph of op.photos) {
-        const owner = op.driverId ?? String(op.payload.driver_id ?? '')
-        payload[ph.field] = await uploadPhoto(ph.blob, owner, ph.photoId)
+        payload[ph.field] = await uploadPhoto(ph.blob, op.ownerId, ph.photoId)
       }
       await dispatch(op.kind, payload)
       await db.delete('ops', op.id)
