@@ -1,0 +1,30 @@
+:root { --primary: #1e3a8a; --bg: #f3f4f6; --text: #111827; --err: #b91c1c; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 16px; }
+h1, h2 { margin: 0 0 0.75rem; }
+.loading { padding: 2rem; text-align: center; }
+.auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+.card { background: #fff; padding: 1.5rem; border-radius: 12px; width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 0.5rem; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }
+.card h1 { color: var(--primary); }
+label { font-weight: 600; margin-top: 0.5rem; }
+input { font-size: 1rem; padding: 0.75rem; border: 1px solid #9ca3af; border-radius: 8px; }
+button { font-size: 1rem; padding: 0.85rem 1rem; border: 0; border-radius: 8px; background: var(--primary); color: #fff; font-weight: 600; cursor: pointer; margin-top: 0.75rem; }
+button:disabled { opacity: 0.6; }
+button.link { background: none; color: inherit; margin: 0; padding: 0.5rem; text-decoration: underline; }
+.error { color: var(--err); margin: 0.25rem 0 0; }
+.content { padding: 1rem; }
+.driver-shell { min-height: 100vh; padding-bottom: 4.5rem; }
+.topbar { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 1rem; background: var(--primary); color: #fff; }
+.tabbar { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: #fff; border-top: 1px solid #d1d5db; }
+.tab { flex: 1; text-align: center; padding: 1rem 0.25rem; min-height: 56px; color: #374151; text-decoration: none; font-weight: 600; }
+.tab.active { color: var(--primary); border-top: 3px solid var(--primary); }
+.adminnav { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1rem; padding: 0.5rem 1rem; background: var(--primary); color: #fff; }
+.navlink { color: #dbeafe; text-decoration: none; padding: 0.5rem; }
+.navlink.active { color: #fff; font-weight: 700; border-bottom: 2px solid #fff; }
+.adminnav .link { margin-left: auto; }
+@media (min-width: 900px) {
+  .admin-shell { display: flex; min-height: 100vh; }
+  .adminnav { flex-direction: column; align-items: stretch; width: 200px; flex-shrink: 0; }
+  .adminnav .link { margin: auto 0 0; text-align: left; }
+  .admin-shell .content { flex: 1; }
+}
