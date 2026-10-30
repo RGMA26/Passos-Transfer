@@ -1,5 +1,5 @@
 begin;
-select plan(69);
+select plan(71);
 
 -- Fixtures próprias (uuids 7xx, seq 97xx). Admin do seed: ad01.
 -- 01 d1 cenário completo | 02 d2 turno só com km por fora | 03 d3 carro próprio
@@ -245,6 +245,12 @@ select is((select total from statements where id = (select id from stid)), 213.0
 select is((select period_summary('00000000-0000-0000-0000-000000007e01')), (select j from sum_open), 'resumo da quinzena fechada igual ao calculado antes');
 select is((select count(*)::int from admin_alerts() where driver_id = '00000000-0000-0000-0000-000000000702'), 0, 'turno de quinzena fechada some dos alertas');
 select is((select count(*)::int from admin_alerts() where driver_id = '00000000-0000-0000-0000-000000000711'), 1, 'alertas de quinzena aberta seguem');
+
+-- ===== Corrida com close_period: helper trava a quinzena (FOR SHARE) =====
+select ok(pg_get_functiondef('row_in_closed_period(text,jsonb)'::regprocedure) ilike '%for share%',
+  'row_in_closed_period lê a quinzena com FOR SHARE');
+select is((select provolatile::text from pg_proc where oid = 'row_in_closed_period(text,jsonb)'::regprocedure), 'v',
+  'row_in_closed_period é volatile (exigência do FOR SHARE)');
 
 select * from finish();
 rollback;

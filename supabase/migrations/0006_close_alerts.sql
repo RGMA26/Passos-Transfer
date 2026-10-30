@@ -250,3 +250,34 @@ begin
     execute format('grant execute on function %s to authenticated', f);
   end loop;
 end $$;
+
+-- Corrida contra close_period: o helper do 0003 lia periods sem lock, então uma escrita
+-- concorrente podia passar na checagem "não fechada" e commitar depois do congelamento.
+-- Agora lê a quinzena com FOR SHARE: espera o FOR UPDATE do close_period e, ao liberar,
+-- reavalia a linha (status = 'closed'). Precisa ser volatile (FOR SHARE é proibido em stable).
+create or replace function row_in_closed_period(p_table text, r jsonb) returns boolean
+language plpgsql volatile security definer set search_path = public, pg_temp as $$
+declare
+  d date;
+  v_id uuid;
+begin
+  case p_table
+    when 'rides' then d := (r->>'ride_date')::date;
+    when 'fuelings' then d := (r->>'fueled_on')::date;
+    when 'shifts' then d := (r->>'start_date')::date;
+    when 'ride_expenses' then
+      select ride_date into d from rides where id = (r->>'ride_id')::uuid;
+    when 'adjustments' then
+      select id into v_id from periods
+        where id = (r->>'period_id')::uuid and status = 'closed' for share;
+      return v_id is not null;
+    else
+      return false;
+  end case;
+  if d is null then
+    return false;
+  end if;
+  select id into v_id from periods
+    where status = 'closed' and d between start_date and end_date for share;
+  return v_id is not null;
+end $$;
