@@ -55,3 +55,34 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; flex
   body { background: #fff; }
   .panel { box-shadow: none; border: 1px solid #ccc; }
 }
+
+/* ---- motorista: cartões, selos, extrato e fila offline ---- */
+h3 { margin: 1rem 0 0.5rem; font-size: 1.05rem; }
+.panel strong { font-size: 1.05rem; }
+.panel ul { margin: 0.25rem 0; padding-left: 1.25rem; }
+.panel li { margin: 0.25rem 0; }
+.panel > button[aria-expanded] { margin-top: 0; text-align: left; }
+.hint { font-size: 0.95rem; }
+.seg { flex-wrap: wrap; }
+.seg button, .seg a.btn { min-width: 8rem; }
+.card-head { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; width: 100%; margin: 0; padding: 0.25rem 0; background: none; color: inherit; font-weight: 400; text-align: left; min-height: 48px; }
+.card-head strong { font-size: 1.1rem; }
+.card-head .error { font-weight: 600; }
+.badge { display: inline-block; align-self: flex-start; padding: 0.3rem 0.75rem; border-radius: 999px; font-size: 0.9rem; font-weight: 700; background: #dbeafe; color: var(--primary); }
+.badge.estimate { background: #fef3c7; color: #92400e; }
+.badge.ok { background: #d1fae5; color: #065f46; }
+.statement { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+.statement dl { margin: 0; }
+.stmt-row { display: flex; justify-content: space-between; gap: 1rem; padding: 0.5rem 0; border-bottom: 1px solid #e5e7eb; }
+.stmt-row dt { font-weight: 400; }
+.stmt-row dd { margin: 0; font-weight: 600; white-space: nowrap; }
+.stmt-row.total { border-bottom: 0; border-top: 2px solid var(--primary); font-size: 1.15rem; }
+.stmt-row.total dt, .stmt-row.total dd { font-weight: 700; color: var(--primary); }
+dl.panel dt { font-weight: 400; color: #4b5563; }
+dl.panel dd { margin: 0 0 0.5rem; font-size: 1.15rem; font-weight: 700; }
+.sync-badge { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.5rem 1rem 0; padding: 0.75rem 1rem; border-radius: 12px; background: #fef3c7; color: #92400e; font-weight: 600; }
+.sync-badge ul { margin: 0; padding-left: 1rem; color: var(--err); }
+.sync-badge button { margin: 0.25rem 0.25rem 0 0; padding: 0.5rem 0.75rem; min-height: 44px; }
+.review-item { display: flex; flex-direction: column; gap: 0.25rem; padding-bottom: 0.5rem; }
+textarea { font: inherit; padding: 0.75rem; border: 1px solid #9ca3af; border-radius: 8px; }
+input[type='file'] { padding: 0.5rem; background: #fff; }
