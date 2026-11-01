@@ -4,7 +4,8 @@ import path from 'node:path'
 import { defineConfig, devices } from '@playwright/test'
 
 // E2E contra o Supabase local (npx supabase start) + `npm run dev`.
-// O globalSetup roda `npx supabase db reset` para o teste ser repetível.
+// globalSetup e globalTeardown rodam `npx supabase db reset`: o teste é repetível e
+// o banco volta ao seed (os testes pgTAP dependem dele).
 
 /** PATH com o Docker Desktop (a CLI do Supabase precisa do `docker`). */
 export function envWithDocker(): NodeJS.ProcessEnv {
@@ -26,6 +27,7 @@ const sb = localSupabase()
 export default defineConfig({
   testDir: './e2e',
   globalSetup: './e2e/global-setup.ts',
+  globalTeardown: './e2e/global-setup.ts',
   timeout: 240_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
