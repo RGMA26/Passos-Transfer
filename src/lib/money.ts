@@ -14,3 +14,9 @@ const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' 
 export function formatBRL(value: number): string {
   return brl.format(value)
 }
+
+/** Número decimal com vírgula ou ponto (ex.: litros "40,5", preço "6.199"), ou null. */
+export function parseDecimal(input: string): number | null {
+  const t = input.trim().replace(',', '.')
+  return /^\d+(\.\d+)?$/.test(t) ? Number(t) : null
+}
