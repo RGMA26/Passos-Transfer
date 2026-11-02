@@ -2,7 +2,7 @@
 -- §3.2, §9.1). Também: quinzenas do mesmo motorista não se sobrepõem (exclusion) e
 -- cycle_start_date só muda pela retomada (CYCLE_START_LOCKED).
 
-create extension if not exists btree_gist;
+create extension if not exists btree_gist with schema extensions;
 
 -- ===== Quinzenas do motorista não se sobrepõem =====
 alter table driver_periods add constraint driver_periods_no_overlap
@@ -55,12 +55,17 @@ begin
   return v_id;
 end $$;
 
--- ===== cycle_start_date: só muda pela retomada =====
--- resume_driver liga a flag de sessão passos.resume_driver (local à transação) e, no mesmo
--- UPDATE, tira o perfil da pausa; a flag sozinha não basta (exige paused true → false).
+-- ===== cycle_start_date e paused: só mudam por pause_driver/resume_driver =====
+-- paused: só com a flag de sessão passos.pause_driver (ligada por pause_driver e resume_driver)
+-- → senão PAUSED_LOCKED. cycle_start_date: resume_driver liga também passos.resume_driver e, no
+-- mesmo UPDATE, tira o perfil da pausa; a flag sozinha não basta (exige paused true → false).
 create function profiles_cycle_lock() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 begin
+  if new.paused is distinct from old.paused
+     and coalesce(current_setting('passos.pause_driver', true), '') <> 'on' then
+    raise exception 'PAUSED_LOCKED' using errcode = 'P0001';
+  end if;
   if new.cycle_start_date is distinct from old.cycle_start_date
      and not (coalesce(current_setting('passos.resume_driver', true), '') = 'on'
               and old.paused and not new.paused) then
@@ -205,6 +210,8 @@ end $$;
 -- Motoristas ativos. Não pausado: a quinzena de hoje é resolvida (criada se preciso);
 -- 🔴 se há quinzena aberta com end_date < hoje; senão 🟡 se end_date − hoje ≤ 5.
 -- Pausado: quinzena de hoje só se existir; apenas 🔴.
+-- Resiliente: erro ao resolver um motorista (estado inconsistente) não derruba a lista;
+-- ele sai com quinzena e sinal nulos.
 create function driver_period_signals()
 returns table(driver_id uuid, name text, paused boolean, current_period_id uuid,
               start_date date, end_date date, days_left int, signal text)
@@ -225,30 +232,38 @@ begin
      where p.role = 'driver' and p.active
      order by p.name, p.id
   loop
-    v_pid := null;
-    if not drv.paused and drv.cycle_start_date is not null and v_today >= drv.cycle_start_date then
-      v_pid := resolve_driver_period(drv.id, v_today);
-    else
-      select dp.id into v_pid from driver_periods dp
-       where dp.driver_id = drv.id and v_today between dp.start_date and dp.end_date;
-    end if;
-    per := null;
-    if v_pid is not null then
-      select * into per from driver_periods dp where dp.id = v_pid;
-    end if;
-    v_red := exists (select 1 from driver_periods dp
-                      where dp.driver_id = drv.id and dp.status = 'open' and dp.end_date < v_today);
-
     driver_id := drv.id;
     name := drv.name;
     paused := drv.paused;
-    current_period_id := v_pid;
-    start_date := per.start_date;
-    end_date := per.end_date;
-    days_left := per.end_date - v_today;
-    signal := case
-      when v_red then 'red'
-      when not drv.paused and per.status = 'open' and per.end_date - v_today <= 5 then 'yellow'
+    begin
+      v_pid := null;
+      if not drv.paused and drv.cycle_start_date is not null and v_today >= drv.cycle_start_date then
+        v_pid := resolve_driver_period(drv.id, v_today);
+      else
+        select dp.id into v_pid from driver_periods dp
+         where dp.driver_id = drv.id and v_today between dp.start_date and dp.end_date;
+      end if;
+      per := null;
+      if v_pid is not null then
+        select * into per from driver_periods dp where dp.id = v_pid;
+      end if;
+      v_red := exists (select 1 from driver_periods dp
+                        where dp.driver_id = drv.id and dp.status = 'open' and dp.end_date < v_today);
+
+      current_period_id := v_pid;
+      start_date := per.start_date;
+      end_date := per.end_date;
+      days_left := per.end_date - v_today;
+      signal := case
+        when v_red then 'red'
+        when not drv.paused and per.status = 'open' and per.end_date - v_today <= 5 then 'yellow'
+      end;
+    exception when others then
+      current_period_id := null;
+      start_date := null;
+      end_date := null;
+      days_left := null;
+      signal := null;
     end;
     return next;
   end loop;
@@ -276,7 +291,8 @@ begin
   if exists (select 1 from shifts where driver_id = p_driver and ended_at is null) then
     raise exception 'OPEN_SHIFTS' using errcode = 'P0001';
   end if;
-  if p_paused_on is null then
+  -- pausa não pode ser marcada para o futuro
+  if p_paused_on is null or p_paused_on > (now() at time zone 'America/Sao_Paulo')::date then
     raise exception 'INVALID_DATE' using errcode = 'P0001';
   end if;
 
@@ -296,7 +312,9 @@ begin
   update driver_periods set end_date = p_paused_on
    where id = v_period and end_date <> p_paused_on;
 
+  perform set_config('passos.pause_driver', 'on', true);
   update profiles set paused = true where id = p_driver;
+  perform set_config('passos.pause_driver', '', true);
   insert into driver_pauses (driver_id, paused_on, reason)
     values (p_driver, p_paused_on, nullif(btrim(p_reason), ''));
 end $$;
@@ -329,7 +347,9 @@ begin
   end if;
 
   perform set_config('passos.resume_driver', 'on', true);
+  perform set_config('passos.pause_driver', 'on', true);
   update profiles set cycle_start_date = p_resume_on, paused = false where id = p_driver;
+  perform set_config('passos.pause_driver', '', true);
   perform set_config('passos.resume_driver', '', true);
 
   if pz.id is not null then

@@ -1,5 +1,5 @@
 begin;
-select plan(89);
+select plan(96);
 -- Endereço padrão dos Transfers destas fixtures (check de origem/destino da 0012; revertido no rollback).
 alter table rides
   alter column origin_street set default 'Rua A, 1', alter column origin_district set default 'Centro',
@@ -9,8 +9,8 @@ alter table rides
 
 -- Fixtures próprias (uuids 4xxx). Admin do seed: ad01.
 -- A (4a01), B (4a02): carro próprio, ciclo 01/07 | C (4a03): ciclo hoje−3 (quinzena em andamento)
--- P (4a10): carro próprio, ciclo 10/11 (pausa/retomada) | Q (4a11): carro da empresa, turno aberto
--- S1..S6 (4a21..4a26): sinais com datas relativas a hoje (SP)
+-- P (4a10): carro próprio, ciclo 10/10 (pausa/retomada) | Q (4a11): carro da empresa, turno aberto
+-- S1..S7 (4a21..4a27): sinais com datas relativas a hoje (SP); S7 em estado inconsistente
 create temp table td as select (now() at time zone 'America/Sao_Paulo')::date as d;
 grant select on td to authenticated;
 
@@ -20,7 +20,7 @@ insert into auth.users (id) values
   ('00000000-0000-0000-0000-000000004a11'), ('00000000-0000-0000-0000-000000004a21'),
   ('00000000-0000-0000-0000-000000004a22'), ('00000000-0000-0000-0000-000000004a23'),
   ('00000000-0000-0000-0000-000000004a24'), ('00000000-0000-0000-0000-000000004a25'),
-  ('00000000-0000-0000-0000-000000004a26');
+  ('00000000-0000-0000-0000-000000004a26'), ('00000000-0000-0000-0000-000000004a27');
 
 insert into cars (id, model, plate, fuel_type, km_per_l_gasolina, ownership) values
   ('00000000-0000-0000-0000-000000004c01','Onix','DCL0A01','flex',10.0,'company'),
@@ -31,14 +31,15 @@ insert into profiles (id, role, login_code, seq_number, name, driver_type, uber_
   ('00000000-0000-0000-0000-000000004a01','driver','dcl-01',9401,'A','own_car',null,30,'00000000-0000-0000-0000-000000004c02',true,'40000000124','2026-07-01'),
   ('00000000-0000-0000-0000-000000004a02','driver','dcl-02',9402,'B','own_car',null,30,'00000000-0000-0000-0000-000000004c03',true,'40000000205','2026-07-01'),
   ('00000000-0000-0000-0000-000000004a03','driver','dcl-03',9403,'C','own_car',null,30,'00000000-0000-0000-0000-000000004c02',true,'40000000396',(select d from td) - 3),
-  ('00000000-0000-0000-0000-000000004a10','driver','dcl-10',9410,'P','own_car',null,30,'00000000-0000-0000-0000-000000004c02',true,'40000000477','2026-11-10'),
+  ('00000000-0000-0000-0000-000000004a10','driver','dcl-10',9410,'P','own_car',null,30,'00000000-0000-0000-0000-000000004c02',true,'40000000477','2026-10-10'),
   ('00000000-0000-0000-0000-000000004a11','driver','dcl-11',9411,'Q','company_car',40,30,'00000000-0000-0000-0000-000000004c01',true,'40000000558','2026-11-01'),
   ('00000000-0000-0000-0000-000000004a21','driver','dcl-21',9421,'S1','own_car',null,30,'00000000-0000-0000-0000-000000004c02',true,'40000000639',(select d from td) - 9),
   ('00000000-0000-0000-0000-000000004a22','driver','dcl-22',9422,'S2','own_car',null,30,'00000000-0000-0000-0000-000000004c02',true,'40000000710',(select d from td) - 8),
   ('00000000-0000-0000-0000-000000004a23','driver','dcl-23',9423,'S3','own_car',null,30,'00000000-0000-0000-0000-000000004c02',true,'40000000809',(select d from td) - 15),
   ('00000000-0000-0000-0000-000000004a24','driver','dcl-24',9424,'S4','own_car',null,30,'00000000-0000-0000-0000-000000004c02',true,'40000000981',(select d from td) - 9),
   ('00000000-0000-0000-0000-000000004a25','driver','dcl-25',9425,'S5','own_car',null,30,'00000000-0000-0000-0000-000000004c02',false,'40000001015',(select d from td) - 9),
-  ('00000000-0000-0000-0000-000000004a26','driver','dcl-26',9426,'S6','own_car',null,30,'00000000-0000-0000-0000-000000004c02',true,'40000001104',(select d from td) - 15);
+  ('00000000-0000-0000-0000-000000004a26','driver','dcl-26',9426,'S6','own_car',null,30,'00000000-0000-0000-0000-000000004c02',true,'40000001104',(select d from td) - 15),
+  ('00000000-0000-0000-0000-000000004a27','driver','dcl-27',9427,'S7','own_car',null,30,'00000000-0000-0000-0000-000000004c02',true,'40000001287',(select d from td) - 9);
 
 -- ===== Funções e privilégios =====
 select has_function('public', 'close_driver_period', array['uuid','boolean','boolean'], 'close_driver_period existe');
@@ -122,13 +123,13 @@ select is((select paid_at from statements where id = (select id from sa1)), '202
 reset role;
 
 -- ===== Pausa e retomada =====
-create temp table pp1 as select driver_period_for('00000000-0000-0000-0000-000000004a10', '2026-11-12') as id;
+create temp table pp1 as select driver_period_for('00000000-0000-0000-0000-000000004a10', '2026-10-12') as id;
 grant select on pp1 to authenticated;
 insert into rides (id, driver_id, platform, ride_date, amount, client_name, transfer_status) values
-  ('00000000-0000-0000-0000-000000004b01','00000000-0000-0000-0000-000000004a10','transfer','2026-11-12',100,'T1','assigned'),
-  ('00000000-0000-0000-0000-000000004b02','00000000-0000-0000-0000-000000004a10','transfer','2026-11-12',100,'T2','assigned'),
-  ('00000000-0000-0000-0000-000000004b03','00000000-0000-0000-0000-000000004a01','transfer','2026-11-12',100,'T3','assigned'),
-  ('00000000-0000-0000-0000-000000004b04','00000000-0000-0000-0000-000000004a10','transfer','2026-11-20',100,'T4','assigned');
+  ('00000000-0000-0000-0000-000000004b01','00000000-0000-0000-0000-000000004a10','transfer','2026-10-12',100,'T1','assigned'),
+  ('00000000-0000-0000-0000-000000004b02','00000000-0000-0000-0000-000000004a10','transfer','2026-10-12',100,'T2','assigned'),
+  ('00000000-0000-0000-0000-000000004b03','00000000-0000-0000-0000-000000004a01','transfer','2026-10-12',100,'T3','assigned'),
+  ('00000000-0000-0000-0000-000000004b04','00000000-0000-0000-0000-000000004a10','transfer','2026-10-20',100,'T4','assigned');
 insert into shifts (driver_id, car_id, start_date, odometer_start) values
   ('00000000-0000-0000-0000-000000004a11','00000000-0000-0000-0000-000000004c01','2026-11-02',1000);
 
@@ -137,28 +138,34 @@ set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000004a10","r
 select lives_ok($$select start_transfer('00000000-0000-0000-0000-000000004b02', 5000, 'a.jpg')$$, 'P inicia T2 antes da pausa');
 
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
-select throws_ok($$select pause_driver('00000000-0000-0000-0000-000000004a10', '2026-11-15', 'Férias')$$,
+select throws_ok($$select pause_driver('00000000-0000-0000-0000-000000004a10', '2026-10-15', 'Férias')$$,
   'P0001', 'ENTRIES_AFTER_PAUSE', 'lançamento depois da data da pausa impede pausar');
 select throws_ok($$select pause_driver('00000000-0000-0000-0000-000000004a11', (select d from td), null)$$,
   'P0001', 'OPEN_SHIFTS', 'turno aberto impede pausar');
-select throws_ok($$select pause_driver('00000000-0000-0000-0000-00000000ffff', '2026-11-15', null)$$,
+select throws_ok($$select pause_driver('00000000-0000-0000-0000-00000000ffff', '2026-10-15', null)$$,
   'P0001', 'NOT_FOUND', 'motorista inexistente');
 select lives_ok($$delete from rides where id = '00000000-0000-0000-0000-000000004b04'$$, 'admin remove T4');
-select lives_ok($$select pause_driver('00000000-0000-0000-0000-000000004a10', '2026-11-15', 'Férias')$$, 'pausa em 15/11');
+select lives_ok($$select pause_driver('00000000-0000-0000-0000-000000004a10', '2026-10-15', 'Férias')$$, 'pausa em 15/10');
 select results_eq($$select start_date, end_date from driver_periods where id = (select id from pp1)$$,
-  $$values ('2026-11-10'::date, '2026-11-15'::date)$$, 'quinzena 10/11–24/11 encurtada até 15/11');
+  $$values ('2026-10-10'::date, '2026-10-15'::date)$$, 'quinzena 10/10–24/10 encurtada até 15/10');
 select is((select paused from profiles where id = '00000000-0000-0000-0000-000000004a10'), true, 'perfil pausado');
 select results_eq($$select paused_on, resumed_on, reason from driver_pauses where driver_id = '00000000-0000-0000-0000-000000004a10'$$,
-  $$values ('2026-11-15'::date, null::date, 'Férias'::text)$$, 'histórico da pausa');
-select throws_ok($$select pause_driver('00000000-0000-0000-0000-000000004a10', '2026-11-16', null)$$,
+  $$values ('2026-10-15'::date, null::date, 'Férias'::text)$$, 'histórico da pausa');
+select throws_ok($$select pause_driver('00000000-0000-0000-0000-000000004a10', '2026-10-16', null)$$,
   'P0001', 'ALREADY_PAUSED', 'pausar de novo');
+select throws_ok($$select pause_driver('00000000-0000-0000-0000-000000004a01', (select d from td) + 1, null)$$,
+  'P0001', 'INVALID_DATE', 'pausa com data futura');
+select throws_ok($$update profiles set paused = false where id = '00000000-0000-0000-0000-000000004a10'$$,
+  'P0001', 'PAUSED_LOCKED', 'admin não tira a pausa direto');
+select throws_ok($$update profiles set paused = true where id = '00000000-0000-0000-0000-000000004a01'$$,
+  'P0001', 'PAUSED_LOCKED', 'admin não pausa direto');
 
 -- admin: nunca bloqueado pela pausa, mas não atribui Transfer a pausado
 select lives_ok($$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
-  values ('00000000-0000-0000-0000-000000004a10','00000000-0000-0000-0000-000000004c02','2026-11-14','gasolina',60,10,6.000,'x')$$,
+  values ('00000000-0000-0000-0000-000000004a10','00000000-0000-0000-0000-000000004c02','2026-10-14','gasolina',60,10,6.000,'x')$$,
   'admin lança para o pausado dentro da quinzena');
 select throws_ok($$insert into rides (driver_id, platform, ride_date, amount, client_name, transfer_status)
-  values ('00000000-0000-0000-0000-000000004a10','transfer','2026-11-14',100,'T5','assigned')$$,
+  values ('00000000-0000-0000-0000-000000004a10','transfer','2026-10-14',100,'T5','assigned')$$,
   'P0001', 'DRIVER_PAUSED', 'não atribui Transfer novo a pausado');
 select throws_ok($$update rides set driver_id = '00000000-0000-0000-0000-000000004a10' where id = '00000000-0000-0000-0000-000000004b03'$$,
   'P0001', 'DRIVER_PAUSED', 'não reatribui Transfer a pausado');
@@ -168,11 +175,11 @@ select lives_ok($$update rides set amount = 120 where id = '00000000-0000-0000-0
 -- motorista pausado
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000004a10","role":"authenticated"}';
 select throws_ok($$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
-  values (auth.uid(),'00000000-0000-0000-0000-000000004c02','2026-11-16','gasolina',60,10,6.000,'x')$$,
-  'P0001', 'DRIVER_PAUSED', 'lançamento em 16/11 (depois da pausa)');
+  values (auth.uid(),'00000000-0000-0000-0000-000000004c02','2026-10-16','gasolina',60,10,6.000,'x')$$,
+  'P0001', 'DRIVER_PAUSED', 'lançamento em 16/10 (depois da pausa)');
 select lives_ok($$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
-  values (auth.uid(),'00000000-0000-0000-0000-000000004c02','2026-11-15','gasolina',60,10,6.000,'x')$$,
-  'lançamento em 15/11 (offline, último dia) entra');
+  values (auth.uid(),'00000000-0000-0000-0000-000000004c02','2026-10-15','gasolina',60,10,6.000,'x')$$,
+  'lançamento em 15/10 (offline, último dia) entra');
 select throws_ok($$select start_transfer('00000000-0000-0000-0000-000000004b01', 5100, 'a.jpg')$$,
   'P0001', 'DRIVER_PAUSED', 'pausado não inicia Transfer');
 select throws_ok($$select complete_transfer('00000000-0000-0000-0000-000000004b02', 5100, 'b.jpg')$$,
@@ -182,52 +189,52 @@ select throws_ok($$select start_shift(null, '00000000-0000-0000-0000-000000004c0
 
 -- retomada
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
-select throws_ok($$select resume_driver('00000000-0000-0000-0000-000000004a10', '2026-11-15')$$,
+select throws_ok($$select resume_driver('00000000-0000-0000-0000-000000004a10', '2026-10-15')$$,
   'P0001', 'INVALID_DATE', 'retomar no dia da pausa');
-select throws_ok($$select resume_driver('00000000-0000-0000-0000-000000004a10', '2026-11-01')$$,
+select throws_ok($$select resume_driver('00000000-0000-0000-0000-000000004a10', '2026-10-01')$$,
   'P0001', 'INVALID_DATE', 'retomar antes da pausa');
 select throws_ok($$select resume_driver('00000000-0000-0000-0000-000000004a10', null)$$,
   'P0001', 'INVALID_DATE', 'retomar sem data');
-select throws_ok($$select resume_driver('00000000-0000-0000-0000-000000004a01', '2026-12-01')$$,
+select throws_ok($$select resume_driver('00000000-0000-0000-0000-000000004a01', '2026-11-01')$$,
   'P0001', 'NOT_PAUSED', 'retomar quem não está pausado');
-select lives_ok($$select resume_driver('00000000-0000-0000-0000-000000004a10', '2026-12-01')$$, 'retoma em 01/12');
+select lives_ok($$select resume_driver('00000000-0000-0000-0000-000000004a10', '2026-11-01')$$, 'retoma em 01/11');
 select results_eq($$select paused, cycle_start_date from profiles where id = '00000000-0000-0000-0000-000000004a10'$$,
-  $$values (false, '2026-12-01'::date)$$, 'perfil retomado com novo ciclo');
-select is((select resumed_on from driver_pauses where driver_id = '00000000-0000-0000-0000-000000004a10'), '2026-12-01'::date,
+  $$values (false, '2026-11-01'::date)$$, 'perfil retomado com novo ciclo');
+select is((select resumed_on from driver_pauses where driver_id = '00000000-0000-0000-0000-000000004a10'), '2026-11-01'::date,
   'resumed_on preenchido');
 reset role;
-create temp table pp2 as select driver_period_for('00000000-0000-0000-0000-000000004a10', '2026-12-01') as id;
-create temp table pp3 as select driver_period_for('00000000-0000-0000-0000-000000004a10', '2026-12-16') as id;
+create temp table pp2 as select driver_period_for('00000000-0000-0000-0000-000000004a10', '2026-11-01') as id;
+create temp table pp3 as select driver_period_for('00000000-0000-0000-0000-000000004a10', '2026-11-16') as id;
 select results_eq($$select start_date, end_date from driver_periods where id = (select id from pp2)$$,
-  $$values ('2026-12-01'::date, '2026-12-15'::date)$$, 'nova quinzena 01/12–15/12');
+  $$values ('2026-11-01'::date, '2026-11-15'::date)$$, 'nova quinzena 01/11–15/11');
 select results_eq($$select start_date, end_date from driver_periods where id = (select id from pp3)$$,
-  $$values ('2026-12-16'::date, '2026-12-30'::date)$$, 'seguinte 16/12–30/12');
-select throws_ok($$select driver_period_for('00000000-0000-0000-0000-000000004a10', '2026-11-20')$$,
+  $$values ('2026-11-16'::date, '2026-11-30'::date)$$, 'seguinte 16/11–30/11');
+select throws_ok($$select driver_period_for('00000000-0000-0000-0000-000000004a10', '2026-10-20')$$,
   'P0001', 'BEFORE_CYCLE_START', 'data dentro da pausa não tem quinzena');
-select is(driver_period_for('00000000-0000-0000-0000-000000004a10', '2026-11-14'), (select id from pp1),
+select is(driver_period_for('00000000-0000-0000-0000-000000004a10', '2026-10-14'), (select id from pp1),
   'data antes da pausa segue na quinzena encurtada');
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000004a10","role":"authenticated"}';
 select lives_ok($$select start_transfer('00000000-0000-0000-0000-000000004b01', 5100, 'a.jpg')$$, 'retomado: inicia Transfer');
 select throws_ok($$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
-  values (auth.uid(),'00000000-0000-0000-0000-000000004c02','2026-11-25','gasolina',60,10,6.000,'x')$$,
+  values (auth.uid(),'00000000-0000-0000-0000-000000004c02','2026-10-25','gasolina',60,10,6.000,'x')$$,
   'P0001', 'BEFORE_CYCLE_START', 'lançamento no intervalo da pausa recusado');
 
 -- ===== cycle_start_date travado; quinzenas não se sobrepõem =====
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
-select throws_ok($$update profiles set cycle_start_date = '2026-12-05' where id = '00000000-0000-0000-0000-000000004a10'$$,
+select throws_ok($$update profiles set cycle_start_date = '2026-11-05' where id = '00000000-0000-0000-0000-000000004a10'$$,
   'P0001', 'CYCLE_START_LOCKED', 'admin não muda o ciclo direto');
 select lives_ok($$update profiles set name = 'P2' where id = '00000000-0000-0000-0000-000000004a10'$$, 'outras colunas seguem editáveis');
 reset role;
 set local request.jwt.claims = '{}';
-select throws_ok($$update profiles set cycle_start_date = '2026-12-05' where id = '00000000-0000-0000-0000-000000004a10'$$,
+select throws_ok($$update profiles set cycle_start_date = '2026-11-05' where id = '00000000-0000-0000-0000-000000004a10'$$,
   'P0001', 'CYCLE_START_LOCKED', 'nem a manutenção muda o ciclo direto');
 select set_config('passos.resume_driver', 'on', true);
-select throws_ok($$update profiles set cycle_start_date = '2026-12-05' where id = '00000000-0000-0000-0000-000000004a11'$$,
+select throws_ok($$update profiles set cycle_start_date = '2026-11-05' where id = '00000000-0000-0000-0000-000000004a11'$$,
   'P0001', 'CYCLE_START_LOCKED', 'a flag sozinha não destrava (só junto da retomada)');
 select set_config('passos.resume_driver', '', true);
 select throws_ok($$insert into driver_periods (driver_id, start_date, end_date)
-  values ('00000000-0000-0000-0000-000000004a10', '2026-12-10', '2026-12-20')$$,
+  values ('00000000-0000-0000-0000-000000004a10', '2026-11-10', '2026-11-20')$$,
   '23P01', null, 'quinzenas sobrepostas do mesmo motorista são recusadas');
 select lives_ok($$insert into driver_periods (driver_id, start_date, end_date)
   values ('00000000-0000-0000-0000-000000004a10', '2030-01-10', '2030-01-20')$$, 'quinzena sem sobreposição é aceita');
@@ -240,6 +247,15 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
 select lives_ok($$select pause_driver('00000000-0000-0000-0000-000000004a24', (select d from td), null)$$, 'S4 pausado hoje');
 select lives_ok($$select pause_driver('00000000-0000-0000-0000-000000004a26', (select d from td), null)$$, 'S6 pausado hoje');
+select lives_ok($$select pause_driver('00000000-0000-0000-0000-000000004a27', (select d from td) - 1, null)$$, 'S7 pausado ontem');
+reset role;
+select throws_ok($$update profiles set paused = false where id = '00000000-0000-0000-0000-000000004a27'$$,
+  'P0001', 'PAUSED_LOCKED', 'nem a manutenção muda paused direto');
+-- estado inconsistente simulado (fixture): S7 despausado sem retomada → hoje cai na vaga encurtada (NO_PERIOD)
+select set_config('passos.pause_driver', 'on', true);
+update profiles set paused = false where id = '00000000-0000-0000-0000-000000004a27';
+select set_config('passos.pause_driver', '', true);
+set local role authenticated;
 create temp table sig as select * from driver_period_signals();
 reset role;
 select results_eq($$select end_date - (select d from td), days_left, signal from sig where driver_id = '00000000-0000-0000-0000-000000004a21'$$,
@@ -257,6 +273,9 @@ select is((select current_period_id from sig where driver_id = '00000000-0000-00
   (select id from driver_periods where driver_id = '00000000-0000-0000-0000-000000004a21' and (select d from td) between start_date and end_date),
   'current_period_id é a quinzena de hoje');
 select is((select name from sig where driver_id = '00000000-0000-0000-0000-000000004a21'), 'S1', 'nome do motorista');
+select results_eq($$select current_period_id, signal from sig where driver_id = '00000000-0000-0000-0000-000000004a27'$$,
+  $$values (null::uuid, null::text)$$, 'motorista inconsistente sai sem quinzena e sem sinal (não derruba a lista)');
+select ok((select count(*) from sig where signal is not null) >= 3, 'demais motoristas seguem com sinais');
 
 select * from finish();
 rollback;

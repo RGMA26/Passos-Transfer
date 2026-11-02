@@ -346,7 +346,9 @@ select lives_ok($$select start_transfer('00000000-0000-0000-0000-0000000031a6', 
 reset role;
 -- pausa no dia 18/03: quinzena 17/03–31/03 encurtada (como a pausa fará)
 update driver_periods set end_date = '2026-03-18' where driver_id = '00000000-0000-0000-0000-00000000d002' and start_date = '2026-03-17';
+select set_config('passos.pause_driver', 'on', true);  -- fixture: pausa direta (pause_driver testado em driver_close)
 update profiles set paused = true where id = '00000000-0000-0000-0000-00000000d002';
+select set_config('passos.pause_driver', '', true);
 set local role authenticated;
 select throws_ok(
   $$select start_transfer('00000000-0000-0000-0000-0000000031a5', 30100, 'a.jpg')$$,

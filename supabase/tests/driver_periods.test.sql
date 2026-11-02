@@ -153,7 +153,9 @@ select throws_ok($$select driver_period_for('00000000-0000-0000-0000-000000001a0
 reset role;
 
 -- ===== Pausa =====
+select set_config('passos.pause_driver', 'on', true);  -- fixture: pausa direta (pause_driver testado em driver_close)
 update profiles set paused = true where id = '00000000-0000-0000-0000-000000001a02';
+select set_config('passos.pause_driver', '', true);
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000001a02","role":"authenticated"}';
 select lives_ok(
