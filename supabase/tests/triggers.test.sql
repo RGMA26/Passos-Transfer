@@ -24,9 +24,9 @@ insert into profiles (id, role, login_code, seq_number, name, driver_type, trans
   ('00000000-0000-0000-0000-0000000000a2','driver','d2',2,'B','own_car',25,null,'10000001171','2026-01-01'),
   ('00000000-0000-0000-0000-0000000000a3','driver','d3',3,'C','company_car',30,40,'10000001252','2026-01-01');
 
-insert into cars (id, model, plate, consumption_km_l, ownership) values
-  ('00000000-0000-0000-0000-0000000000c1','Onix','AAA0A00',10,'company'),
-  ('00000000-0000-0000-0000-0000000000c2','HB20','BBB0B00',12.5,'own');
+insert into cars (id, model, plate, fuel_type, km_per_l_gasolina, ownership) values
+  ('00000000-0000-0000-0000-0000000000c1','Onix','AAA0A00','flex',10,'company'),
+  ('00000000-0000-0000-0000-0000000000c2','HB20','BBB0B00','flex',12.5,'own');
 
 update profiles set current_car_id = '00000000-0000-0000-0000-0000000000c2'
  where id = '00000000-0000-0000-0000-0000000000a2';
@@ -43,9 +43,9 @@ select throws_ok(
     values ('00000000-0000-0000-0000-0000000000a2','uber',current_date,50)$$,
   'P0001', 'PLATFORM_NOT_ALLOWED', 'uber own_car recusado');
 
-insert into shifts (id, driver_id, car_id, consumption_km_l, start_date, odometer_start)
+insert into shifts (id, driver_id, car_id, start_date, odometer_start)
 values ('00000000-0000-0000-0000-0000000000f1','00000000-0000-0000-0000-0000000000a1',
-        '00000000-0000-0000-0000-0000000000c1',10,current_date,100);
+        '00000000-0000-0000-0000-0000000000c1',current_date,100);
 
 -- turno de outro motorista não serve
 select throws_ok(
@@ -78,9 +78,9 @@ update rides set driver_id = '00000000-0000-0000-0000-0000000000a2'
  where id = '00000000-0000-0000-0000-0000000000d3';
 
 select results_eq(
-  $$select driver_pct, consumption_km_l from rides where id = '00000000-0000-0000-0000-0000000000d3'$$,
-  $$values (25.00::numeric, 12.50::numeric)$$,
-  'transfer reatribuído: pct 25 e consumo 12.5');
+  $$select driver_pct from rides where id = '00000000-0000-0000-0000-0000000000d3'$$,
+  $$values (25.00::numeric)$$,
+  'transfer reatribuído: pct 25');
 
 -- edição após fim do turno
 update shifts set ended_at = now(), odometer_end = 150

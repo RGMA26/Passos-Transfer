@@ -12,17 +12,17 @@ insert into profiles (id, role, login_code, seq_number, name, driver_type, trans
   ('00000000-0000-0000-0000-0000000000b1','driver','rls-a',9002,'A','company_car',30,40,'10000000523','2026-01-01'),
   ('00000000-0000-0000-0000-0000000000b2','driver','rls-b',9003,'B','company_car',30,40,'10000000604','2026-01-01');
 
-insert into cars (id, model, plate, consumption_km_l, ownership, current_driver_id) values
-  ('00000000-0000-0000-0000-0000000000d1','Onix','RLS0A01',10,'company','00000000-0000-0000-0000-0000000000b1'),
-  ('00000000-0000-0000-0000-0000000000d2','HB20','RLS0B02',12,'company','00000000-0000-0000-0000-0000000000b2'),
-  ('00000000-0000-0000-0000-0000000000d3','Gol','RLS0C03',11,'company',null);
+insert into cars (id, model, plate, fuel_type, km_per_l_gasolina, ownership, current_driver_id) values
+  ('00000000-0000-0000-0000-0000000000d1','Onix','RLS0A01','flex',10,'company','00000000-0000-0000-0000-0000000000b1'),
+  ('00000000-0000-0000-0000-0000000000d2','HB20','RLS0B02','flex',12,'company','00000000-0000-0000-0000-0000000000b2'),
+  ('00000000-0000-0000-0000-0000000000d3','Gol','RLS0C03','flex',11,'company',null);
 
 update profiles set current_car_id = '00000000-0000-0000-0000-0000000000d1' where id = '00000000-0000-0000-0000-0000000000b1';
 update profiles set current_car_id = '00000000-0000-0000-0000-0000000000d2' where id = '00000000-0000-0000-0000-0000000000b2';
 
-insert into shifts (id, driver_id, car_id, consumption_km_l, start_date, odometer_start) values
-  ('00000000-0000-0000-0000-0000000000f1','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1',10,'2026-02-05',100),
-  ('00000000-0000-0000-0000-0000000000f2','00000000-0000-0000-0000-0000000000b2','00000000-0000-0000-0000-0000000000d2',12,'2026-02-05',100);
+insert into shifts (id, driver_id, car_id, start_date, odometer_start) values
+  ('00000000-0000-0000-0000-0000000000f1','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-05',100),
+  ('00000000-0000-0000-0000-0000000000f2','00000000-0000-0000-0000-0000000000b2','00000000-0000-0000-0000-0000000000d2','2026-02-05',100);
 
 insert into rides (id, driver_id, platform, ride_date, amount) values
   ('00000000-0000-0000-0000-000000000a01','00000000-0000-0000-0000-0000000000b1','uber','2026-02-05',50),
@@ -36,10 +36,10 @@ insert into ride_expenses (id, ride_id, kind, amount, photo_path) values
   ('00000000-0000-0000-0000-000000000e01','00000000-0000-0000-0000-000000000a11','toll',10,'x'),
   ('00000000-0000-0000-0000-000000000e02','00000000-0000-0000-0000-000000000a12','toll',10,'x');
 
-insert into fuelings (id, driver_id, car_id, fueled_on, amount, liters, photo_path, review_status) values
-  ('00000000-0000-0000-0000-000000000f01','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-05',100,20,'x','pending'),
-  ('00000000-0000-0000-0000-000000000f02','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-05',100,20,'x','approved'),
-  ('00000000-0000-0000-0000-000000000f03','00000000-0000-0000-0000-0000000000b2','00000000-0000-0000-0000-0000000000d2','2026-02-05',100,20,'x','pending');
+insert into fuelings (id, driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path, review_status) values
+  ('00000000-0000-0000-0000-000000000f01','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-05','gasolina',100,20,5.000,'x','pending'),
+  ('00000000-0000-0000-0000-000000000f02','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-05','gasolina',100,20,5.000,'x','approved'),
+  ('00000000-0000-0000-0000-000000000f03','00000000-0000-0000-0000-0000000000b2','00000000-0000-0000-0000-0000000000d2','2026-02-05','gasolina',100,20,5.000,'x','pending');
 
 
 insert into adjustments (driver_id, effective_date, kind, amount, description)
@@ -51,28 +51,28 @@ select d, driver_period_for(d, '2026-02-05')
 from unnest(array['00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000b2']::uuid[]) d;
 
 -- Turno aprovado (ride já conferida)
-insert into shifts (id, driver_id, car_id, consumption_km_l, started_at, start_date, odometer_start) values
-  ('00000000-0000-0000-0000-0000000000f4','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1',10,'2026-02-04 08:00+00','2026-02-04',100);
+insert into shifts (id, driver_id, car_id, started_at, start_date, odometer_start) values
+  ('00000000-0000-0000-0000-0000000000f4','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-04 08:00+00','2026-02-04',100);
 insert into rides (id, driver_id, platform, ride_date, amount, shift_id) values
   ('00000000-0000-0000-0000-000000000a31','00000000-0000-0000-0000-0000000000b1','uber','2026-02-04',30,'00000000-0000-0000-0000-0000000000f4');
 update shifts set ended_at = now(), odometer_end = 120, review_status = 'approved'
  where id = '00000000-0000-0000-0000-0000000000f4';
 
 -- Turno recusado (ride reaberta para correção)
-insert into shifts (id, driver_id, car_id, consumption_km_l, started_at, start_date, odometer_start) values
-  ('00000000-0000-0000-0000-0000000000f5','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1',10,'2026-02-03 08:00+00','2026-02-03',100);
+insert into shifts (id, driver_id, car_id, started_at, start_date, odometer_start) values
+  ('00000000-0000-0000-0000-0000000000f5','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-03 08:00+00','2026-02-03',100);
 insert into rides (id, driver_id, platform, ride_date, amount, shift_id) values
   ('00000000-0000-0000-0000-000000000a41','00000000-0000-0000-0000-0000000000b1','uber','2026-02-03',30,'00000000-0000-0000-0000-0000000000f5');
 update shifts set ended_at = now(), odometer_end = 120, review_status = 'rejected', reject_reason = 'x'
  where id = '00000000-0000-0000-0000-0000000000f5';
 
 -- Fixtures na quinzena que será fechada
-insert into shifts (id, driver_id, car_id, consumption_km_l, start_date, odometer_start) values
-  ('00000000-0000-0000-0000-0000000000f3','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1',10,'2026-01-05',100);
+insert into shifts (id, driver_id, car_id, start_date, odometer_start) values
+  ('00000000-0000-0000-0000-0000000000f3','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-01-05',100);
 insert into rides (id, driver_id, platform, ride_date, amount, shift_id) values
   ('00000000-0000-0000-0000-000000000a21','00000000-0000-0000-0000-0000000000b1','uber','2026-01-05',50,'00000000-0000-0000-0000-0000000000f3');
-insert into fuelings (id, driver_id, car_id, fueled_on, amount, liters, photo_path) values
-  ('00000000-0000-0000-0000-000000000f11','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-01-05',100,20,'x');
+insert into fuelings (id, driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path) values
+  ('00000000-0000-0000-0000-000000000f11','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-01-05','gasolina',100,20,5.000,'x');
 insert into ride_expenses (id, ride_id, kind, amount, photo_path) values
   ('00000000-0000-0000-0000-000000000e11','00000000-0000-0000-0000-000000000a21','toll',10,'x');
 
@@ -136,10 +136,10 @@ select is_empty(
 
 -- snapshots imutáveis e ride conferida
 select lives_ok(
-  $$update rides set driver_pct = 100, consumption_km_l = 9 where id = '00000000-0000-0000-0000-000000000a01'$$,
-  'A tenta editar driver_pct/consumption');
+  $$update rides set driver_pct = 100 where id = '00000000-0000-0000-0000-000000000a01'$$,
+  'A tenta editar driver_pct');
 select is((select driver_pct from rides where id = '00000000-0000-0000-0000-000000000a01'), 40.00, 'driver_pct continua 40');
-select is((select consumption_km_l from rides where id = '00000000-0000-0000-0000-000000000a01'), null, 'consumption_km_l continua nulo');
+select hasnt_column('public', 'rides', 'consumption_km_l', 'corrida não guarda mais consumo');
 select is_empty(
   $$update rides set amount = 1 where id = '00000000-0000-0000-0000-000000000a31' returning id$$,
   'A não edita ride de turno aprovado');
@@ -180,16 +180,16 @@ select throws_ok(
   $$update ride_expenses set review_status = 'approved' where id = '00000000-0000-0000-0000-000000000e01'$$,
   'P0001', 'FORBIDDEN_FIELD', 'A não aprova a própria despesa');
 select throws_ok(
-  $$insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path, review_status)
-    values ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-06',10,2,'x','approved')$$,
+  $$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path, review_status)
+    values ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-06','gasolina',10,2,5.000,'x','approved')$$,
   '42501', null, 'A não insere abastecimento já aprovado');
 select throws_ok(
-  $$insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path)
-    values ('00000000-0000-0000-0000-0000000000b2','00000000-0000-0000-0000-0000000000d2','2026-02-06',10,2,'x')$$,
+  $$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
+    values ('00000000-0000-0000-0000-0000000000b2','00000000-0000-0000-0000-0000000000d2','2026-02-06','gasolina',10,2,5.000,'x')$$,
   '42501', null, 'A não insere abastecimento para B');
 select lives_ok(
-  $$insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path)
-    values ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-06',10,2,'x')$$,
+  $$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
+    values ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-06','gasolina',10,2,5.000,'x')$$,
   'A insere abastecimento próprio');
 select throws_ok(
   $$update fuelings set driver_id = '00000000-0000-0000-0000-0000000000b2' where id = '00000000-0000-0000-0000-000000000f01'$$,
@@ -217,8 +217,8 @@ select is_empty(
   $$update profiles set role = 'admin' where id = auth.uid() returning id$$,
   'A não vira admin');
 select throws_ok(
-  $$insert into shifts (driver_id, car_id, consumption_km_l, start_date, odometer_start)
-    values ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1',10,'2026-02-06',1)$$,
+  $$insert into shifts (driver_id, car_id, start_date, odometer_start)
+    values ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-06',1)$$,
   '42501', null, 'A não insere turno direto');
 select is_empty(
   $$update shifts set odometer_start = 5 where id = '00000000-0000-0000-0000-0000000000f1' returning id$$,
@@ -311,8 +311,8 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000b1","role":"authenticated"}';
 select is((select count(*)::int from rides), 0, 'motorista inativo não vê rides');
 select throws_ok(
-  $$insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path)
-    values ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-07',10,2,'x')$$,
+  $$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
+    values ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-07','gasolina',10,2,5.000,'x')$$,
   '42501', null, 'motorista inativo não insere');
 reset role;
 

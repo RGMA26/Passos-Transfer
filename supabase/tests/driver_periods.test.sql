@@ -8,8 +8,8 @@ insert into auth.users (id) values
   ('00000000-0000-0000-0000-000000001a03'), ('00000000-0000-0000-0000-000000001a04'),
   ('00000000-0000-0000-0000-000000001a05');
 
-insert into cars (id, model, plate, consumption_km_l, ownership) values
-  ('00000000-0000-0000-0000-000000001c01','Gol','DPR0A01',12,'own');
+insert into cars (id, model, plate, fuel_type, km_per_l_gasolina, ownership) values
+  ('00000000-0000-0000-0000-000000001c01','Gol','DPR0A01','flex',12,'own');
 
 -- ===== Tabelas/funções removidas e criadas =====
 select has_table('public', 'driver_periods', 'driver_periods existe');
@@ -150,12 +150,12 @@ update profiles set paused = true where id = '00000000-0000-0000-0000-000000001a
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000001a02","role":"authenticated"}';
 select lives_ok(
-  $$insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path)
-    values (auth.uid(), '00000000-0000-0000-0000-000000001c01', '2026-11-20', 100, 20, 'x')$$,
+  $$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
+    values (auth.uid(), '00000000-0000-0000-0000-000000001c01', '2026-11-20','gasolina',100,20,5.000,'x')$$,
   'pausado ainda lança dentro da última quinzena');
 select throws_ok(
-  $$insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path)
-    values (auth.uid(), '00000000-0000-0000-0000-000000001c01', '2026-11-26', 100, 20, 'x')$$,
+  $$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
+    values (auth.uid(), '00000000-0000-0000-0000-000000001c01', '2026-11-26','gasolina',100,20,5.000,'x')$$,
   'P0001', 'DRIVER_PAUSED', 'pausado não lança depois do fim da última quinzena');
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
 select lives_ok(

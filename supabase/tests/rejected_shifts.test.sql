@@ -6,8 +6,8 @@ select plan(14);
 -- TODO Task 3: close_period foi removido na 0010; as checagens de fechamento estão em skip
 -- até close_driver_period existir.
 
-insert into shifts (id, driver_id, car_id, consumption_km_l, start_date, odometer_start) values
-  ('00000000-0000-0000-0000-0000000008b1','00000000-0000-0000-0000-00000000d001','00000000-0000-0000-0000-00000000c001',10,'2026-06-05',1000);
+insert into shifts (id, driver_id, car_id, start_date, odometer_start) values
+  ('00000000-0000-0000-0000-0000000008b1','00000000-0000-0000-0000-00000000d001','00000000-0000-0000-0000-00000000c001','2026-06-05',1000);
 insert into rides (id, driver_id, platform, ride_date, amount, km) values
   ('00000000-0000-0000-0000-0000000008a1','00000000-0000-0000-0000-00000000d001','uber','2026-06-05',100,50),
   ('00000000-0000-0000-0000-0000000008a2','00000000-0000-0000-0000-00000000d001','blablacar','2026-06-05',40,20);

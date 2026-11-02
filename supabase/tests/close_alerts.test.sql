@@ -22,9 +22,9 @@ insert into auth.users (id) values
   ('00000000-0000-0000-0000-000000000713'), ('00000000-0000-0000-0000-000000000714'),
   ('00000000-0000-0000-0000-000000000715');
 
-insert into cars (id, model, plate, consumption_km_l, ownership) values
-  ('00000000-0000-0000-0000-0000000007c1','Onix','CLA0A01',10.0,'company'),
-  ('00000000-0000-0000-0000-0000000007c2','HB20','CLA0B02',12.5,'own');
+insert into cars (id, model, plate, fuel_type, km_per_l_gasolina, ownership) values
+  ('00000000-0000-0000-0000-0000000007c1','Onix','CLA0A01','flex',10.0,'company'),
+  ('00000000-0000-0000-0000-0000000007c2','HB20','CLA0B02','flex',12.5,'own');
 
 insert into profiles (id, role, login_code, seq_number, name, driver_type, uber_pct, transfer_pct, current_car_id, active) values
   ('00000000-0000-0000-0000-000000000701','driver','cla-01',9701,'D1','company_car',40,30,'00000000-0000-0000-0000-0000000007c1',true),
@@ -53,9 +53,9 @@ insert into periods (id, start_date, end_date, reference_fuel_price) values
   ('00000000-0000-0000-0000-000000007e09','2026-12-01','2026-12-15',6.00);
 
 -- ===== Quinzena 1 (julho): cenário completo da Task 6, pronto para fechar =====
-insert into shifts (id, driver_id, car_id, consumption_km_l, start_date, odometer_start) values
-  ('00000000-0000-0000-0000-0000000007b1','00000000-0000-0000-0000-000000000701','00000000-0000-0000-0000-0000000007c1',10,'2026-07-05',1000),
-  ('00000000-0000-0000-0000-0000000007b2','00000000-0000-0000-0000-000000000702','00000000-0000-0000-0000-0000000007c1',10,'2026-07-06',1000);
+insert into shifts (id, driver_id, car_id, start_date, odometer_start) values
+  ('00000000-0000-0000-0000-0000000007b1','00000000-0000-0000-0000-000000000701','00000000-0000-0000-0000-0000000007c1','2026-07-05',1000),
+  ('00000000-0000-0000-0000-0000000007b2','00000000-0000-0000-0000-000000000702','00000000-0000-0000-0000-0000000007c1','2026-07-06',1000);
 insert into rides (driver_id, platform, ride_date, amount, km) values
   ('00000000-0000-0000-0000-000000000701','uber','2026-07-05',100,50),
   ('00000000-0000-0000-0000-000000000701','uber','2026-07-05',50,30),
@@ -64,9 +64,9 @@ insert into rides (driver_id, platform, ride_date, amount, km) values
 insert into rides (id, driver_id, platform, ride_date, amount, client_name, transfer_status) values
   ('00000000-0000-0000-0000-0000000007a1','00000000-0000-0000-0000-000000000701',
    'transfer','2026-07-05',300,'Cli','assigned');
-insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path, review_status) values
-  ('00000000-0000-0000-0000-000000000701','00000000-0000-0000-0000-0000000007c1','2026-07-05',100,16,'x','approved'),
-  ('00000000-0000-0000-0000-000000000701','00000000-0000-0000-0000-0000000007c1','2026-07-06',50,8,'x','rejected');
+insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path, review_status) values
+  ('00000000-0000-0000-0000-000000000701','00000000-0000-0000-0000-0000000007c1','2026-07-05','gasolina',100,16,6.250,'x','approved'),
+  ('00000000-0000-0000-0000-000000000701','00000000-0000-0000-0000-0000000007c1','2026-07-06','gasolina',50,8,6.250,'x','rejected');
 insert into ride_expenses (ride_id, kind, amount, photo_path, review_status) values
   ('00000000-0000-0000-0000-0000000007a1','toll',15.50,'x','approved'),
   ('00000000-0000-0000-0000-0000000007a1','parking',20.00,'x','rejected');
@@ -88,33 +88,33 @@ update rides set transfer_status = 'checked' where id = '00000000-0000-0000-0000
 
 -- ===== Quinzenas com erro =====
 -- p2: turno aberto + transfer assigned + abastecimento pendente (OPEN_SHIFTS vence)
-insert into shifts (driver_id, car_id, consumption_km_l, start_date, odometer_start) values
-  ('00000000-0000-0000-0000-000000000704','00000000-0000-0000-0000-0000000007c1',10,'2026-08-05',1000);
+insert into shifts (driver_id, car_id, start_date, odometer_start) values
+  ('00000000-0000-0000-0000-000000000704','00000000-0000-0000-0000-0000000007c1','2026-08-05',1000);
 insert into rides (driver_id, platform, ride_date, amount, client_name, transfer_status) values
   ('00000000-0000-0000-0000-000000000704','transfer','2026-08-06',100,'Cli','assigned');
-insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path) values
-  ('00000000-0000-0000-0000-000000000704','00000000-0000-0000-0000-0000000007c1','2026-08-06',50,8,'x');
+insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path) values
+  ('00000000-0000-0000-0000-000000000704','00000000-0000-0000-0000-0000000007c1','2026-08-06','gasolina',50,8,6.250,'x');
 -- p3: turno encerrado aprovado (20 km por fora, sem preço) + assigned + pendente (ASSIGNED vence)
-insert into shifts (driver_id, car_id, consumption_km_l, start_date, odometer_start, ended_at, odometer_end, review_status) values
-  ('00000000-0000-0000-0000-000000000705','00000000-0000-0000-0000-0000000007c1',10,'2026-08-20',1000,'2026-08-20 20:00-03',1020,'approved');
+insert into shifts (driver_id, car_id, start_date, odometer_start, ended_at, odometer_end, review_status) values
+  ('00000000-0000-0000-0000-000000000705','00000000-0000-0000-0000-0000000007c1','2026-08-20',1000,'2026-08-20 20:00-03',1020,'approved');
 insert into rides (driver_id, platform, ride_date, amount, client_name, transfer_status) values
   ('00000000-0000-0000-0000-000000000705','transfer','2026-08-21',100,'Cli','assigned');
-insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path) values
-  ('00000000-0000-0000-0000-000000000705','00000000-0000-0000-0000-0000000007c1','2026-08-21',50,8,'x');
+insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path) values
+  ('00000000-0000-0000-0000-000000000705','00000000-0000-0000-0000-0000000007c1','2026-08-21','gasolina',50,8,6.250,'x');
 -- p4: turno encerrado aprovado (sem preço) + abastecimento pendente (PENDING vence MISSING)
-insert into shifts (driver_id, car_id, consumption_km_l, start_date, odometer_start, ended_at, odometer_end, review_status) values
-  ('00000000-0000-0000-0000-000000000706','00000000-0000-0000-0000-0000000007c1',10,'2026-09-05',1000,'2026-09-05 20:00-03',1020,'approved');
-insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path) values
-  ('00000000-0000-0000-0000-000000000706','00000000-0000-0000-0000-0000000007c1','2026-09-06',50,8,'x');
+insert into shifts (driver_id, car_id, start_date, odometer_start, ended_at, odometer_end, review_status) values
+  ('00000000-0000-0000-0000-000000000706','00000000-0000-0000-0000-0000000007c1','2026-09-05',1000,'2026-09-05 20:00-03',1020,'approved');
+insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path) values
+  ('00000000-0000-0000-0000-000000000706','00000000-0000-0000-0000-0000000007c1','2026-09-06','gasolina',50,8,6.250,'x');
 -- p5: só falta o preço de referência (20 km por fora, sem abastecimento)
-insert into shifts (driver_id, car_id, consumption_km_l, start_date, odometer_start, ended_at, odometer_end, review_status) values
-  ('00000000-0000-0000-0000-000000000707','00000000-0000-0000-0000-0000000007c1',10,'2026-09-20',1000,'2026-09-20 20:00-03',1020,'approved');
+insert into shifts (driver_id, car_id, start_date, odometer_start, ended_at, odometer_end, review_status) values
+  ('00000000-0000-0000-0000-000000000707','00000000-0000-0000-0000-0000000007c1','2026-09-20',1000,'2026-09-20 20:00-03',1020,'approved');
 -- p6: transfer concluído (carro próprio) ainda sem conferência
 insert into rides (driver_id, platform, ride_date, amount, km, client_name, transfer_status) values
   ('00000000-0000-0000-0000-000000000703','transfer','2026-10-05',200,50,'Cli','completed');
 -- p7: turno encerrado ainda pendente
-insert into shifts (driver_id, car_id, consumption_km_l, start_date, odometer_start, ended_at, odometer_end) values
-  ('00000000-0000-0000-0000-000000000708','00000000-0000-0000-0000-0000000007c1',10,'2026-11-05',1000,'2026-11-05 20:00-03',1000);
+insert into shifts (driver_id, car_id, start_date, odometer_start, ended_at, odometer_end) values
+  ('00000000-0000-0000-0000-000000000708','00000000-0000-0000-0000-0000000007c1','2026-11-05',1000,'2026-11-05 20:00-03',1000);
 -- p8: transfer conferido com despesa pendente
 insert into rides (id, driver_id, platform, ride_date, amount, km, client_name, transfer_status) values
   ('00000000-0000-0000-0000-0000000007a8','00000000-0000-0000-0000-000000000703','transfer','2026-11-20',200,50,'Cli','checked');
@@ -123,10 +123,10 @@ insert into ride_expenses (ride_id, kind, amount, photo_path) values
 -- p9: vazia
 
 -- ===== Alertas (turnos em março, sem quinzena fechada) =====
-insert into shifts (id, driver_id, car_id, consumption_km_l, start_date, odometer_start) values
-  ('00000000-0000-0000-0000-0000000007d1','00000000-0000-0000-0000-000000000711','00000000-0000-0000-0000-0000000007c1',10,'2026-03-05',1000),
-  ('00000000-0000-0000-0000-0000000007d2','00000000-0000-0000-0000-000000000712','00000000-0000-0000-0000-0000000007c1',10,'2026-03-05',1000),
-  ('00000000-0000-0000-0000-0000000007d3','00000000-0000-0000-0000-000000000713','00000000-0000-0000-0000-0000000007c1',10,'2026-03-05',1000);
+insert into shifts (id, driver_id, car_id, start_date, odometer_start) values
+  ('00000000-0000-0000-0000-0000000007d1','00000000-0000-0000-0000-000000000711','00000000-0000-0000-0000-0000000007c1','2026-03-05',1000),
+  ('00000000-0000-0000-0000-0000000007d2','00000000-0000-0000-0000-000000000712','00000000-0000-0000-0000-0000000007c1','2026-03-05',1000),
+  ('00000000-0000-0000-0000-0000000007d3','00000000-0000-0000-0000-000000000713','00000000-0000-0000-0000-0000000007c1','2026-03-05',1000);
 insert into rides (driver_id, platform, ride_date, amount, km) values
   ('00000000-0000-0000-0000-000000000711','blablacar','2026-03-05',10,150),
   ('00000000-0000-0000-0000-000000000712','blablacar','2026-03-05',10,160),
@@ -135,9 +135,9 @@ update shifts set ended_at = '2026-03-05 20:00-03', odometer_end = 1200
   where id in ('00000000-0000-0000-0000-0000000007d1','00000000-0000-0000-0000-0000000007d2');
 update shifts set ended_at = '2026-03-05 20:00-03', odometer_end = 1100
   where id = '00000000-0000-0000-0000-0000000007d3';
-insert into shifts (id, driver_id, car_id, consumption_km_l, start_date, started_at, odometer_start) values
-  ('00000000-0000-0000-0000-0000000007d4','00000000-0000-0000-0000-000000000714','00000000-0000-0000-0000-0000000007c1',10,'2026-03-05', now() - interval '25 hours',1000),
-  ('00000000-0000-0000-0000-0000000007d5','00000000-0000-0000-0000-000000000715','00000000-0000-0000-0000-0000000007c1',10,'2026-03-05', now() - interval '2 hours',1000);
+insert into shifts (id, driver_id, car_id, start_date, started_at, odometer_start) values
+  ('00000000-0000-0000-0000-0000000007d4','00000000-0000-0000-0000-000000000714','00000000-0000-0000-0000-0000000007c1','2026-03-05', now() - interval '25 hours',1000),
+  ('00000000-0000-0000-0000-0000000007d5','00000000-0000-0000-0000-000000000715','00000000-0000-0000-0000-0000000007c1','2026-03-05', now() - interval '2 hours',1000);
 
 -- ===== Privilégios =====
 select ok(not has_function_privilege('anon', 'close_period(uuid,boolean)', 'execute'), 'anon não executa close_period');
@@ -217,8 +217,8 @@ select is((select total from statements where driver_id = '00000000-0000-0000-00
 select is((select count(*)::int from statements where driver_id = '00000000-0000-0000-0000-000000000703'), 0, 'motorista sem movimento não ganha extrato');
 
 -- ===== Quinzena fechada não aceita mais nada =====
-select throws_ok($$insert into fuelings (driver_id, car_id, fueled_on, amount, liters, photo_path)
-  values ('00000000-0000-0000-0000-000000000701','00000000-0000-0000-0000-0000000007c1','2026-07-10',10,2,'x')$$,
+select throws_ok($$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
+  values ('00000000-0000-0000-0000-000000000701','00000000-0000-0000-0000-0000000007c1','2026-07-10','gasolina',10,2,5.000,'x')$$,
   'P0001', 'PERIOD_CLOSED', 'insert na quinzena fechada');
 select throws_ok($$insert into adjustments (driver_id, period_id, kind, amount, description)
   values ('00000000-0000-0000-0000-000000000701','00000000-0000-0000-0000-000000007e01','bonus',5,'x')$$,

@@ -35,12 +35,12 @@ select lives_ok(
     values ('00000000-0000-0000-0000-0000000000a2','driver','d2',2,'D2','company_car',50,25.5,'10000000876','2026-01-01')$$,
   'motorista valido aceito');
 
-insert into cars (id, model, plate, consumption_km_l, ownership)
-values ('00000000-0000-0000-0000-0000000000c1','Onix','AAA0A00',12.5,'own');
+insert into cars (id, model, plate, fuel_type, km_per_l_gasolina, ownership)
+values ('00000000-0000-0000-0000-0000000000c1','Onix','AAA0A00','flex',12.5,'own');
 
 select throws_ok(
-  $$insert into shifts (driver_id, car_id, consumption_km_l, started_at, start_date, odometer_start, odometer_end)
-    values ('00000000-0000-0000-0000-0000000000a2','00000000-0000-0000-0000-0000000000c1',12.5, now(), current_date, 1000, 900)$$,
+  $$insert into shifts (driver_id, car_id, started_at, start_date, odometer_start, odometer_end)
+    values ('00000000-0000-0000-0000-0000000000a2','00000000-0000-0000-0000-0000000000c1', now(), current_date, 1000, 900)$$,
   '23514', null, 'odometro final < inicial rejeitado');
 
 insert into driver_periods (id, driver_id, start_date, end_date)

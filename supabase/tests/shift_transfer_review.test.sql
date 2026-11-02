@@ -8,8 +8,8 @@ insert into rides (id, driver_id, platform, ride_date, amount, client_name, tran
   ('00000000-0000-0000-0000-0000000005a2','00000000-0000-0000-0000-00000000d002','transfer','2026-03-05',200,'Cli 2','assigned'),
   ('00000000-0000-0000-0000-0000000005a3','00000000-0000-0000-0000-00000000d001','transfer','2026-03-05',200,'Cli 3','checked'),
   ('00000000-0000-0000-0000-0000000005a4','00000000-0000-0000-0000-00000000d001','transfer','2026-03-05',200,'Cli 4','assigned');
-insert into fuelings (id, driver_id, car_id, fueled_on, amount, liters, photo_path) values
-  ('00000000-0000-0000-0000-0000000005f1','00000000-0000-0000-0000-00000000d001','00000000-0000-0000-0000-00000000c001','2026-03-05',100,20,'x');
+insert into fuelings (id, driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path) values
+  ('00000000-0000-0000-0000-0000000005f1','00000000-0000-0000-0000-00000000d001','00000000-0000-0000-0000-00000000c001','2026-03-05','gasolina',100,20,5.000,'x');
 insert into ride_expenses (id, ride_id, kind, amount, photo_path) values
   ('00000000-0000-0000-0000-0000000005e1','00000000-0000-0000-0000-0000000005a1','toll',10,'x');
 
@@ -32,7 +32,7 @@ select lives_ok(
   $$select start_shift('00000000-0000-0000-0000-0000000005b1','00000000-0000-0000-0000-00000000c001',1000,'p.jpg')$$,
   'start_shift ok');
 select is((select count(*)::int from shifts), 1, 'um turno criado');
-select is((select consumption_km_l from shifts), 10.00, 'snapshot do consumo');
+select hasnt_column('public', 'shifts', 'consumption_km_l', 'turno não guarda mais consumo');
 select is((select start_date from shifts), (now() at time zone 'America/Sao_Paulo')::date, 'start_date em America/Sao_Paulo');
 select is((select odometer_start_photo from shifts), 'p.jpg', 'foto inicial gravada');
 select is(
@@ -110,14 +110,14 @@ select is(
 
 -- km de corridas acima do odômetro: km_off nunca negativo
 select lives_ok(
-  $$select start_shift('00000000-0000-0000-0000-0000000005b4','00000000-0000-0000-0000-00000000c001',1000,'p.jpg')$$,
+  $$select start_shift('00000000-0000-0000-0000-0000000005b4','00000000-0000-0000-0000-00000000c001',1300,'p.jpg')$$,
   'turno para km_off negativo');
 reset role;
 insert into rides (driver_id, platform, ride_date, amount, km) values
   ('00000000-0000-0000-0000-00000000d001','blablacar','2026-03-05',20,120);
 set local role authenticated;
 select is(
-  end_shift('00000000-0000-0000-0000-0000000005b4',1100,'f.jpg',null),
+  end_shift('00000000-0000-0000-0000-0000000005b4',1400,'f.jpg',null),
   '{"km_total":100,"km_service":120,"km_off":0,"off_discount_estimate":null}'::jsonb,
   'km_off não fica negativo');
 
@@ -127,7 +127,7 @@ select throws_ok(
   $$select complete_transfer('00000000-0000-0000-0000-0000000005a1', 10)$$,
   'P0001', 'NO_OPEN_SHIFT', 'carro da empresa sem turno aberto');
 select lives_ok(
-  $$select start_shift('00000000-0000-0000-0000-0000000005b5','00000000-0000-0000-0000-00000000c001',1100,'p.jpg')$$,
+  $$select start_shift('00000000-0000-0000-0000-0000000005b5','00000000-0000-0000-0000-00000000c001',1400,'p.jpg')$$,
   'turno aberto para concluir transfers');
 select throws_ok(
   $$select complete_transfer('00000000-0000-0000-0000-0000000005a2', 10)$$,

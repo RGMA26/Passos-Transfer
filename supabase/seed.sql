@@ -26,9 +26,9 @@ where u.id in ('00000000-0000-0000-0000-00000000ad01',
                '00000000-0000-0000-0000-00000000d001',
                '00000000-0000-0000-0000-00000000d002');
 
-insert into cars (id, model, plate, consumption_km_l, ownership) values
-  ('00000000-0000-0000-0000-00000000c001','Onix','PAS1A23',10.0,'company'),
-  ('00000000-0000-0000-0000-00000000c002','HB20','PAS2B34',12.5,'own');
+insert into cars (id, model, plate, fuel_type, km_per_l_gasolina, ownership) values
+  ('00000000-0000-0000-0000-00000000c001','Onix','PAS1A23','flex',10.0,'company'),
+  ('00000000-0000-0000-0000-00000000c002','HB20','PAS2B34','flex',12.5,'own');
 
 insert into profiles (id, role, login_code, seq_number, name, driver_type, uber_pct, transfer_pct, current_car_id, must_change_password, cpf, cycle_start_date) values
   ('00000000-0000-0000-0000-00000000ad01','admin',null,null,'Administrador',null,null,null,null,false,null,null),
