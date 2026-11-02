@@ -205,6 +205,8 @@ create table car_expenses (
   check (kind not in ('tax','other') or btrim(coalesce(description, '')) <> ''),
   check ((mode = 'installments') = (installments is not null)),
   check (installments is null or installments >= 2),
+  -- parcela mínima de 1 centavo (a última nunca fica negativa)
+  check (mode <> 'installments' or amount >= installments * 0.01),
   -- só o recorrente é finalizado; finalizado tem último mês, não anterior ao início
   check (mode = 'recurring' or (end_date is null and not finished)),
   check (finished = (end_date is not null)),
@@ -444,8 +446,10 @@ begin
     'diff', v_cur - v_prev,
     'diff_pct', case when v_prev <> 0 then round((v_cur - v_prev) / abs(v_prev) * 100, 2) end);
 
-  v_estimated := exists (select 1 from driver_periods
-                          where status = 'open' and start_date <= v_end and end_date >= v_start);
+  -- estimado: o mês ainda não acabou (SP) ou alguma quinzena com dias no mês está aberta
+  v_estimated := v_end >= (now() at time zone 'America/Sao_Paulo')::date
+                 or exists (select 1 from driver_periods
+                             where status = 'open' and start_date <= v_end and end_date >= v_start);
 
   -- Caixa: repasses pagos no mês
   select jsonb_build_object(
@@ -554,7 +558,8 @@ begin
                   or (r.platform = 'transfer' and r.transfer_status in ('completed', 'checked'))
                 then round(r.amount * r.driver_pct / 100, 2) else 0 end as amt,
            case when r.platform = 'transfer' then r.transfer_status
-                else coalesce(s.review_status, 'pending') end as st
+                else coalesce(s.review_status, 'pending') end as st,
+           null::uuid as stmt
       from rides r
       left join shifts s on s.id = r.shift_id
      where r.ride_date between v_start and v_end
@@ -563,7 +568,7 @@ begin
     select f.fueled_on, f.driver_id, 'fueling', f.fuel,
            f.amount,
            case when f.review_status = 'approved' and pr.driver_type = 'company_car' then f.amount else 0 end,
-           f.review_status
+           f.review_status, null::uuid
       from fuelings f join profiles pr on pr.id = f.driver_id
      where f.fueled_on between v_start and v_end
     union all
@@ -572,25 +577,25 @@ begin
            e.amount,
            case when e.review_status = 'approved' and r.transfer_status in ('completed', 'checked')
                 then e.amount else 0 end,
-           e.review_status
+           e.review_status, null::uuid
       from ride_expenses e join rides r on r.id = e.ride_id
      where r.ride_date between v_start and v_end
     union all
     -- ajustes
-    select a.effective_date, a.driver_id, 'adjustment', a.description, a.amount, a.amount, a.kind
+    select a.effective_date, a.driver_id, 'adjustment', a.description, a.amount, a.amount, a.kind, null::uuid
       from adjustments a
      where a.effective_date between v_start and v_end
     union all
     -- pagamentos
-    select s.paid_at, s.driver_id, 'payment', s.payment_method, s.total, s.total, 'paid'
+    select s.paid_at, s.driver_id, 'payment', s.payment_method, s.total, s.total, 'paid', s.id
       from statements s
      where s.paid_at between v_start and v_end
   )
   select i.d, pr.name, pr.cpf, pr.login_code, i.k, i.descr, i.g::numeric, i.amt::numeric,
-         case when i.k = 'payment' then
+         case when i.stmt is not null then
                 (select to_char(dp.start_date, 'DD/MM') || '–' || to_char(dp.end_date, 'DD/MM')
                    from statements s2 join driver_periods dp on dp.id = s2.driver_period_id
-                  where s2.driver_id = i.drv and s2.paid_at = i.d and s2.total = i.g limit 1)
+                  where s2.id = i.stmt)
               else
                 (select to_char(dp.start_date, 'DD/MM') || '–' || to_char(dp.end_date, 'DD/MM')
                    from driver_periods dp

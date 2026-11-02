@@ -1,5 +1,5 @@
 begin;
-select plan(98);
+select plan(108);
 -- Endereço padrão dos Transfers destas fixtures (check de origem/destino da 0012; revertido no rollback).
 alter table rides
   alter column origin_street set default 'Rua A, 1', alter column origin_district set default 'Centro',
@@ -98,6 +98,12 @@ select throws_ok($$insert into car_expenses (car_id, kind, mode, amount, install
   values ('00000000-0000-0000-0000-000000005c03','maintenance','single',100,3,'2027-01-01')$$, '23514', null, 'pontual com parcelas');
 select throws_ok($$insert into car_expenses (car_id, kind, mode, amount, start_date)
   values ('00000000-0000-0000-0000-000000005c03','maintenance','single',0,'2027-01-01')$$, '23514', null, 'valor zero');
+select throws_ok($$insert into car_expenses (car_id, kind, mode, amount, installments, start_date)
+  values ('00000000-0000-0000-0000-000000005c03','maintenance','installments',0.05,10,'2027-01-01')$$, '23514', null,
+  'parcelado: 0,05 em 10× daria última parcela negativa');
+select lives_ok($$insert into car_expenses (car_id, kind, mode, amount, installments, start_date)
+  values ('00000000-0000-0000-0000-000000005c03','maintenance','installments',0.10,10,'2031-01-01')$$,
+  'parcelado: 0,10 em 10× (1 centavo cada) é aceito');
 select throws_ok($$insert into car_expenses (car_id, kind, mode, amount, start_date)
   values ('00000000-0000-0000-0000-000000005c02','maintenance','single',100,'2027-01-01')$$, 'P0001', 'CAR_NOT_COMPANY', 'carro próprio não tem gasto');
 
@@ -117,6 +123,13 @@ select is((select count(*)::int from admin_documents), 0, 'motorista não lê ad
 select is((select count(*)::int from storage.objects where bucket_id = 'admin-docs'), 0, 'motorista não lê objetos de admin-docs');
 select throws_ok($$insert into storage.objects (bucket_id, name) values ('admin-docs', auth.uid()::text || '/x.pdf')$$,
   '42501', null, 'motorista não envia para admin-docs (nem na própria pasta)');
+select is_empty($$update storage.objects set name = auth.uid()::text || '/hack.pdf' where bucket_id = 'admin-docs' returning id$$,
+  'motorista não altera objetos de admin-docs');
+-- a Storage API liga storage.allow_delete_query; com ela ligada, quem barra é a RLS
+select set_config('storage.allow_delete_query', 'true', true);
+select is_empty($$delete from storage.objects where bucket_id = 'admin-docs' returning id$$,
+  'motorista não exclui objetos de admin-docs');
+select set_config('storage.allow_delete_query', '', true);
 select throws_ok($$insert into car_expenses (car_id, kind, mode, amount, start_date)
   values ('00000000-0000-0000-0000-000000005c01','maintenance','single',10,'2027-01-01')$$, '42501', null, 'motorista não cria gasto');
 select throws_ok($$insert into admin_documents (driver_id, kind, description, file_path, mime_type, size_bytes)
@@ -129,6 +142,8 @@ select throws_ok($$select * from admin_pendencies()$$, 'P0001', 'FORBIDDEN', 'mo
 -- ===== Admin =====
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
 select is((select count(*)::int from storage.objects where bucket_id = 'admin-docs'), 1, 'admin lê admin-docs');
+select is((select name from storage.objects where bucket_id = 'admin-docs'), '00000000-0000-0000-0000-000000005a01/doc.pdf',
+  'objeto de admin-docs intacto após tentativas do motorista');
 select lives_ok($$insert into storage.objects (bucket_id, name) values ('admin-docs', '00000000-0000-0000-0000-000000005a01/r.pdf')$$,
   'admin envia para admin-docs');
 select ok((select count(*) from car_expenses) >= 7, 'admin lê car_expenses');
@@ -267,6 +282,9 @@ create temp table sy as select close_driver_period(driver_period_for('00000000-0
 select is((select total from statements where id = (select id from sy)), 106.00::numeric(10,2), 'extrato de Y = 106');
 select is((monthly_balance('2026-09-01')->>'estimated')::boolean, false, 'setembro deixa de ser estimado');
 select is((monthly_balance('2026-10-01')->>'estimated')::boolean, false, 'outubro deixa de ser estimado');
+select is((monthly_balance('2026-08-01')->>'estimated')::boolean, false, 'mês passado sem quinzena aberta: não estimado');
+select is((monthly_balance((select d from td))->>'estimated')::boolean, true, 'mês atual (não terminou): estimado');
+select is((monthly_balance('2030-06-15')->>'estimated')::boolean, true, 'mês futuro sem quinzena: estimado');
 reset role;
 set local request.jwt.claims = '{}';
 -- consumo do HB20 muda depois do fechamento: o balanço segue o extrato congelado
@@ -282,6 +300,24 @@ select results_eq($$select (x->>'closed_unpaid')::numeric, (x->>'open_estimate')
                     where x->>'driver_id' = '00000000-0000-0000-0000-000000005a02'$$,
   $$values (106.00::numeric, 0::numeric)$$, 'a pagar: Y fechada e não paga');
 select is((select (monthly_balance('2026-10-01')#>>'{result,company_result}')::numeric), -255.33::numeric, 'resultado de outubro estável');
+
+-- ===== Z: dois extratos pagos no mesmo dia com o mesmo valor (rótulo pela quinzena do extrato) =====
+reset role;
+set local request.jwt.claims = '{}';
+insert into auth.users (id) values ('00000000-0000-0000-0000-000000005a06');
+insert into profiles (id, role, login_code, seq_number, name, driver_type, uber_pct, transfer_pct, current_car_id, active, cpf, cycle_start_date) values
+  ('00000000-0000-0000-0000-000000005a06','driver','bal-06',9506,'Z','own_car',null,30,'00000000-0000-0000-0000-000000005c02',true,'50000042218','2026-08-01');
+insert into adjustments (driver_id, kind, amount, description, effective_date) values
+  ('00000000-0000-0000-0000-000000005a06','bonus',10,'B1','2026-08-05'),
+  ('00000000-0000-0000-0000-000000005a06','bonus',10,'B2','2026-08-20');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
+create temp table sz1 as select close_driver_period(driver_period_for('00000000-0000-0000-0000-000000005a06', '2026-08-05')) as id;
+create temp table sz2 as select close_driver_period(driver_period_for('00000000-0000-0000-0000-000000005a06', '2026-08-20')) as id;
+select lives_ok($$select mark_statement_paid((select id from sz1), '2026-08-31', 'pix');
+                  select mark_statement_paid((select id from sz2), '2026-08-31', 'pix')$$, 'Z: dois extratos de 10 pagos em 31/08');
+select results_eq($$select period_label from monthly_detail('2026-08-01') where kind = 'payment' order by period_label$$,
+  $$values ('01/08–15/08'::text), ('16/08–30/08'::text)$$, 'cada pagamento com a quinzena do próprio extrato');
 
 -- ===== Planilha detalhada =====
 select is((select count(*)::int from monthly_detail('2026-09-01')), 13, 'setembro: 10 itens de X, 1 de Y, 2 gastos de carro');
