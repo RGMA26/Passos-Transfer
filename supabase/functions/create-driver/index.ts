@@ -1,6 +1,5 @@
 import { corsHeaders, json, randomPin, readBody, requireAdmin } from '../_shared/admin.ts'
-
-const pctOk = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100
+import { normalizeCpf, pctOk } from '../_shared/validate.ts'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -19,6 +18,14 @@ Deno.serve(async (req) => {
       ? String(body.phone).replace(/\D/g, '')
       : ''
     if (phone.length < 10 || phone.length > 11) return json({ error: 'INVALID_PHONE' }, 400)
+
+    const cpf = normalizeCpf(body.cpf)
+    if (!cpf) return json({ error: 'INVALID_CPF' }, 400)
+    {
+      const { data: dup, error: dupErr } = await admin.from('profiles').select('id').eq('cpf', cpf).maybeSingle()
+      if (dupErr) return json({ error: 'CREATE_FAILED' }, 500)
+      if (dup) return json({ error: 'CPF_TAKEN' }, 400)
+    }
 
     const driverType = body.driver_type
     if (driverType !== 'own_car' && driverType !== 'company_car') {
@@ -70,12 +77,19 @@ Deno.serve(async (req) => {
       seq_number: seq,
       name,
       phone,
+      cpf,
       driver_type: driverType,
       uber_pct: driverType === 'company_car' ? body.uber_pct : null,
       transfer_pct: body.transfer_pct,
       must_change_password: true,
     })
-    if (profErr) return await rollback()
+    if (profErr) {
+      await admin.auth.admin.deleteUser(userId)
+      if (profErr.code === '23505' && /cpf/i.test(`${profErr.message} ${profErr.details ?? ''}`)) {
+        return json({ error: 'CPF_TAKEN' }, 400)
+      }
+      return json({ error: 'CREATE_FAILED' }, 500)
+    }
 
     if (carId !== null) {
       const { error: e1 } = await admin.from('profiles').update({ current_car_id: carId }).eq('id', userId)
