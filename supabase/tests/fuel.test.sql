@@ -1,5 +1,12 @@
 begin;
 select plan(69);
+-- Endereço padrão dos Transfers destas fixtures (check de origem/destino da 0012; revertido no rollback).
+-- O check em si é testado em transfer_flow.test.sql.
+alter table rides
+  alter column origin_street set default 'Rua A, 1', alter column origin_district set default 'Centro',
+  alter column origin_city set default 'Passos', alter column origin_state set default 'MG',
+  alter column dest_street set default 'Av. B, 2', alter column dest_district set default 'Centro',
+  alter column dest_city set default 'Franca', alter column dest_state set default 'SP';
 
 -- Fixtures próprias (uuids 2xxx). Admin do seed: ad01.
 -- Carros: f1 flex (gasolina 10, álcool 7) empresa | f2 diesel 12 empresa | f3 flex sem consumo empresa

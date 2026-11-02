@@ -1,5 +1,12 @@
 begin;
-select plan(89);
+select plan(95);
+-- Endereço padrão dos Transfers destas fixtures (check de origem/destino da 0012; revertido no rollback).
+-- O check em si é testado em transfer_flow.test.sql.
+alter table rides
+  alter column origin_street set default 'Rua A, 1', alter column origin_district set default 'Centro',
+  alter column origin_city set default 'Passos', alter column origin_state set default 'MG',
+  alter column dest_street set default 'Av. B, 2', alter column dest_district set default 'Centro',
+  alter column dest_city set default 'Franca', alter column dest_state set default 'SP';
 
 -- Fixtures próprias (uuids 6xx, seq 96xx). Admin do seed: ad01.
 -- d1 cenário completo | d2 mudança de % | d3 carro próprio | d4 km negativo
@@ -70,10 +77,11 @@ insert into ride_expenses (ride_id, kind, amount, photo_path, review_status, rej
 insert into adjustments (driver_id, driver_period_id, kind, amount, description, effective_date) values
   ('00000000-0000-0000-0000-0000000006d1','00000000-0000-0000-0000-000000006e11','advance',-50,'vale','2026-04-05'),
   ('00000000-0000-0000-0000-0000000006d1','00000000-0000-0000-0000-000000006e11','bonus',10,'bônus','2026-04-05');
--- o motorista conclui o transfer com o turno aberto (liga shift_id); depois o turno encerra
+-- o motorista inicia (liga shift_id) e conclui o transfer com o turno aberto (km 30); depois o turno encerra
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006d1","role":"authenticated"}';
-select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a1', 30)$$, 'd1 conclui transfer no turno');
+select lives_ok($$select start_transfer('00000000-0000-0000-0000-0000000006a1', 1000, 'a.jpg')$$, 'd1 inicia transfer no turno');
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a1', 1030, 'b.jpg')$$, 'd1 conclui transfer no turno');
 reset role;
 update shifts set ended_at = '2026-04-05 20:00-03', odometer_end = 1200
   where id = '00000000-0000-0000-0000-0000000006b1';
@@ -304,7 +312,9 @@ select is(cost_per_km_for('00000000-0000-0000-0000-0000000006d5','00000000-0000-
 -- ===== end_shift com estimativa (transfer de 5 km conta como serviço) =====
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006d9","role":"authenticated"}';
 set local role authenticated;
-select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a9', 5)$$, 'd9 conclui transfer no turno');
+-- o carro 6c1 é compartilhado pelas fixtures: último odômetro 1200 (turno de d1)
+select lives_ok($$select start_transfer('00000000-0000-0000-0000-0000000006a9', 1200, 'a.jpg')$$, 'd9 inicia transfer no turno');
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a9', 1205, 'b.jpg')$$, 'd9 conclui transfer no turno');
 select is(
   end_shift('00000000-0000-0000-0000-0000000006b9',1020,'f.jpg',null),
   '{"km_total":20,"km_service":5,"km_off":15,"off_discount_estimate":9.00}'::jsonb,
@@ -313,21 +323,22 @@ select is(
   end_shift('00000000-0000-0000-0000-0000000006b9',1500,'z.jpg',null),
   '{"km_total":20,"km_service":5,"km_off":15,"off_discount_estimate":9.00}'::jsonb,
   'end_shift repetido mantém a estimativa');
--- turno encerrado: carro da empresa não conclui transfer
+-- turno encerrado: carro da empresa não inicia transfer
 reset role;
 insert into rides (id, driver_id, platform, ride_date, amount, client_name, transfer_status) values
   ('00000000-0000-0000-0000-0000000006aa','00000000-0000-0000-0000-0000000006d9','transfer','2026-07-01',100,'Cli','assigned'),
   ('00000000-0000-0000-0000-0000000006a3','00000000-0000-0000-0000-0000000006d3','transfer','2026-07-01',100,'Cli','assigned');
 set local role authenticated;
 select throws_ok(
-  $$select complete_transfer('00000000-0000-0000-0000-0000000006aa', 10)$$,
+  $$select start_transfer('00000000-0000-0000-0000-0000000006aa', 1300, 'a.jpg')$$,
   'P0001', 'NO_OPEN_SHIFT', 'carro da empresa sem turno aberto');
-select is((select transfer_status from rides where id = '00000000-0000-0000-0000-0000000006aa'), 'assigned', 'falha não conclui');
+select is((select transfer_status from rides where id = '00000000-0000-0000-0000-0000000006aa'), 'assigned', 'falha não inicia');
 reset role;
--- carro próprio: conclui sem turno, shift_id nulo
+-- carro próprio: inicia e conclui sem turno, shift_id nulo
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006d3","role":"authenticated"}';
 set local role authenticated;
-select is((select shift_id::text from complete_transfer('00000000-0000-0000-0000-0000000006a3', 10)), null, 'carro próprio: shift_id nulo');
+select lives_ok($$select start_transfer('00000000-0000-0000-0000-0000000006a3', 20000, 'a.jpg')$$, 'carro próprio: inicia sem turno');
+select is((select shift_id::text from complete_transfer('00000000-0000-0000-0000-0000000006a3', 20010, 'b.jpg')), null, 'carro próprio: shift_id nulo');
 reset role;
 select is((select transfer_status from rides where id = '00000000-0000-0000-0000-0000000006a3'),
   'completed', 'carro próprio: concluído');
@@ -339,7 +350,7 @@ select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000
 reset role;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006d9","role":"authenticated"}';
 set local role authenticated;
-select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a9', 6)$$, 'reenvio sem turno aberto funciona');
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a9', 1206, 'c.jpg')$$, 'reenvio sem turno aberto funciona');
 select is((select shift_id from rides where id = '00000000-0000-0000-0000-0000000006a9'),
   '00000000-0000-0000-0000-0000000006b9'::uuid, 'reenvio mantém o turno original');
 -- abre um turno novo (S2) e reenvia de novo: continua no turno original
@@ -353,7 +364,7 @@ select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000
 reset role;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006d9","role":"authenticated"}';
 set local role authenticated;
-select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a9', 7)$$, 'reenvio com turno novo aberto');
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a9', 1207, 'd.jpg')$$, 'reenvio com turno novo aberto');
 select is((select shift_id::text || '/' || km::text from rides where id = '00000000-0000-0000-0000-0000000006a9'),
   '00000000-0000-0000-0000-0000000006b9/7.0', 'turno novo aberto não reaponta o transfer');
 reset role;
@@ -378,25 +389,28 @@ insert into rides (id, driver_id, platform, ride_date, amount, client_name, tran
   ('00000000-0000-0000-0000-0000000006ac','00000000-0000-0000-0000-0000000006db','transfer','2026-05-05',200,'Cli','assigned');
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006db","role":"authenticated"}';
 set local role authenticated;
-select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006ab', 40)$$, 'João conclui transfer T');
-select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006ac', 30)$$, 'João conclui transfer U');
+select lives_ok($$select start_transfer('00000000-0000-0000-0000-0000000006ab', 1500, 'a.jpg')$$, 'João inicia transfer T');
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006ab', 1540, 'b.jpg')$$, 'João conclui transfer T (km 40)');
+select lives_ok($$select start_transfer('00000000-0000-0000-0000-0000000006ac', 1540, 'a.jpg')$$, 'João inicia transfer U');
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006ac', 1570, 'b.jpg')$$, 'João conclui transfer U (km 30)');
 reset role;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
 set local role authenticated;
 select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000006ab',false,'errado')$$, 'admin recusa T');
-select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000006ac',false,'errado')$$, 'admin recusa U (fica assigned com km 30)');
+select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000006ac',false,'errado')$$, 'admin recusa U (fica in_progress com km 30)');
 select lives_ok(
   $$update rides set driver_id = '00000000-0000-0000-0000-0000000006dc' where id = '00000000-0000-0000-0000-0000000006ab'$$,
   'admin reatribui T para Maria');
 reset role;
 select is((select shift_id from rides where id = '00000000-0000-0000-0000-0000000006ab'), null::uuid,
   'reatribuição solta o turno do João');
--- defesa: shift_id inconsistente (turno de outro motorista) é ignorado ao concluir
+-- defesa: shift_id inconsistente (turno de outro motorista) é substituído ao iniciar
 update rides set shift_id = '00000000-0000-0000-0000-0000000006bb' where id = '00000000-0000-0000-0000-0000000006ab';
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006dc","role":"authenticated"}';
 set local role authenticated;
-select is((select shift_id from complete_transfer('00000000-0000-0000-0000-0000000006ab', 50)),
-  '00000000-0000-0000-0000-0000000006bc'::uuid, 'Maria conclui T no próprio turno (turno alheio ignorado)');
+select is((select shift_id from start_transfer('00000000-0000-0000-0000-0000000006ab', 1000, 'a.jpg')),
+  '00000000-0000-0000-0000-0000000006bc'::uuid, 'Maria inicia T no próprio turno (turno alheio ignorado)');
+select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006ab', 1050, 'b.jpg')$$, 'Maria conclui T (km 50)');
 reset role;
 -- defesa: mesmo com shift_id inconsistente, as somas exigem motorista da corrida = do turno
 update rides set shift_id = '00000000-0000-0000-0000-0000000006bb' where id = '00000000-0000-0000-0000-0000000006ab';
@@ -418,7 +432,7 @@ select is(
 reset role;
 
 -- ===== start_shift: odômetro abaixo do último do carro =====
--- turno clássico de d1 encerrou em 1200 no carro 6c1; o maior odômetro do carro agora é 1500 (turno novo de d9)
+-- turno clássico de d1 encerrou em 1200 no carro 6c1; o maior odômetro do carro agora vem dos Transfers (1570)
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006d1","role":"authenticated"}';
 set local role authenticated;
 select throws_ok(

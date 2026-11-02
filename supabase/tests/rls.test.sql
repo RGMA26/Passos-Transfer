@@ -1,5 +1,12 @@
 begin;
 select plan(75);
+-- Endereço padrão dos Transfers destas fixtures (check de origem/destino da 0012; revertido no rollback).
+-- O check em si é testado em transfer_flow.test.sql.
+alter table rides
+  alter column origin_street set default 'Rua A, 1', alter column origin_district set default 'Centro',
+  alter column origin_city set default 'Passos', alter column origin_state set default 'MG',
+  alter column dest_street set default 'Av. B, 2', alter column dest_district set default 'Centro',
+  alter column dest_city set default 'Franca', alter column dest_state set default 'SP';
 
 -- Fixtures (como postgres, ignora RLS)
 insert into auth.users (id) values
@@ -121,8 +128,8 @@ select throws_ok(
     values ('00000000-0000-0000-0000-0000000000b2','uber','2026-02-06',10)$$,
   '42501', null, 'A não insere ride para B');
 select lives_ok(
-  $$insert into rides (driver_id, platform, ride_date, amount)
-    values ('00000000-0000-0000-0000-0000000000b1','uber','2026-02-06',10)$$,
+  $$insert into rides (driver_id, platform, ride_date, amount, receipt_path)
+    values ('00000000-0000-0000-0000-0000000000b1','uber','2026-02-06',10,'b1/r.jpg')$$,
   'A insere uber próprio');
 select throws_ok(
   $$update rides set driver_id = '00000000-0000-0000-0000-0000000000b2' where id = '00000000-0000-0000-0000-000000000a01'$$,

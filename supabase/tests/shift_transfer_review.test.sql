@@ -1,5 +1,12 @@
 begin;
-select plan(69);
+select plan(71);
+-- Endereço padrão dos Transfers destas fixtures (check de origem/destino da 0012; revertido no rollback).
+-- O check em si é testado em transfer_flow.test.sql.
+alter table rides
+  alter column origin_street set default 'Rua A, 1', alter column origin_district set default 'Centro',
+  alter column origin_city set default 'Passos', alter column origin_state set default 'MG',
+  alter column dest_street set default 'Av. B, 2', alter column dest_district set default 'Centro',
+  alter column dest_city set default 'Franca', alter column dest_state set default 'SP';
 
 -- Personas do seed: admin ad01, João d001 (company_car, carro c001 da empresa), Maria d002 (own_car, carro c002 próprio)
 -- Fixtures de transfer/abastecimento (como postgres)
@@ -45,11 +52,12 @@ select throws_ok(
 
 -- corridas Uber no turno (km 50+30+70+30)
 reset role;
-insert into rides (driver_id, platform, ride_date, amount, km) values
-  ('00000000-0000-0000-0000-00000000d001','uber','2026-03-05',20,50),
-  ('00000000-0000-0000-0000-00000000d001','uber','2026-03-05',20,30),
-  ('00000000-0000-0000-0000-00000000d001','uber','2026-03-05',20,70),
-  ('00000000-0000-0000-0000-00000000d001','uber','2026-03-05',20,30);
+-- (claims do João ainda ativas: conta como lançamento do motorista → comprovante)
+insert into rides (driver_id, platform, ride_date, amount, km, receipt_path) values
+  ('00000000-0000-0000-0000-00000000d001','uber','2026-03-05',20,50,'r.jpg'),
+  ('00000000-0000-0000-0000-00000000d001','uber','2026-03-05',20,30,'r.jpg'),
+  ('00000000-0000-0000-0000-00000000d001','uber','2026-03-05',20,70,'r.jpg'),
+  ('00000000-0000-0000-0000-00000000d001','uber','2026-03-05',20,30,'r.jpg');
 select is((select count(*)::int from rides where shift_id = '00000000-0000-0000-0000-0000000005b1'), 4, 'corridas ligadas ao turno');
 
 -- ===== Maria: não mexe no turno do João =====
@@ -65,7 +73,7 @@ select throws_ok(
   $$select end_shift('00000000-0000-0000-0000-0000000005b1',1200,'f.jpg','u.jpg')$$,
   'P0001', 'NOT_FOUND', 'outro motorista não encerra turno alheio');
 select throws_ok(
-  $$select complete_transfer('00000000-0000-0000-0000-0000000005a1', 10)$$,
+  $$select complete_transfer('00000000-0000-0000-0000-0000000005a1', 10, 'b.jpg')$$,
   'P0001', 'NOT_FOUND', 'outro motorista não conclui transfer alheio');
 select throws_ok(
   $$select review_item('transfer','00000000-0000-0000-0000-0000000005a1', true, null)$$,
@@ -113,44 +121,47 @@ select lives_ok(
   $$select start_shift('00000000-0000-0000-0000-0000000005b4','00000000-0000-0000-0000-00000000c001',1300,'p.jpg')$$,
   'turno para km_off negativo');
 reset role;
-insert into rides (driver_id, platform, ride_date, amount, km) values
-  ('00000000-0000-0000-0000-00000000d001','blablacar','2026-03-05',20,120);
+insert into rides (driver_id, platform, ride_date, amount, km, receipt_path) values
+  ('00000000-0000-0000-0000-00000000d001','blablacar','2026-03-05',20,120,'r.jpg');
 set local role authenticated;
 select is(
   end_shift('00000000-0000-0000-0000-0000000005b4',1400,'f.jpg',null),
   '{"km_total":100,"km_service":120,"km_off":0,"off_discount_estimate":null}'::jsonb,
   'km_off não fica negativo');
 
--- ===== João: concluir transfer =====
--- carro da empresa: concluir exige turno aberto (Task 6)
+-- ===== João: iniciar/concluir transfer =====
+-- carro da empresa: iniciar exige turno aberto
 select throws_ok(
-  $$select complete_transfer('00000000-0000-0000-0000-0000000005a1', 10)$$,
+  $$select start_transfer('00000000-0000-0000-0000-0000000005a1', 1400, 'a.jpg')$$,
   'P0001', 'NO_OPEN_SHIFT', 'carro da empresa sem turno aberto');
 select lives_ok(
   $$select start_shift('00000000-0000-0000-0000-0000000005b5','00000000-0000-0000-0000-00000000c001',1400,'p.jpg')$$,
-  'turno aberto para concluir transfers');
+  'turno aberto para os transfers');
 select throws_ok(
-  $$select complete_transfer('00000000-0000-0000-0000-0000000005a2', 10)$$,
+  $$select complete_transfer('00000000-0000-0000-0000-0000000005a2', 1500, 'b.jpg')$$,
   'P0001', 'NOT_FOUND', 'transfer de outro motorista');
 select throws_ok(
-  $$select complete_transfer('00000000-0000-0000-0000-0000000005a1', -1)$$,
-  'P0001', 'INVALID_KM', 'km negativo');
+  $$select start_transfer('00000000-0000-0000-0000-0000000005a1', -1, 'a.jpg')$$,
+  'P0001', 'INVALID_ODOMETER', 'leitura negativa');
 select throws_ok(
-  $$select complete_transfer('00000000-0000-0000-0000-0000000005a1', null)$$,
-  'P0001', 'INVALID_KM', 'km nulo');
+  $$select start_transfer('00000000-0000-0000-0000-0000000005a1', null, 'a.jpg')$$,
+  'P0001', 'INVALID_ODOMETER', 'leitura nula');
 select throws_ok(
-  $$select complete_transfer('00000000-0000-0000-0000-0000000005a3', 10)$$,
+  $$select complete_transfer('00000000-0000-0000-0000-0000000005a3', 1500, 'b.jpg')$$,
   'P0001', 'ALREADY_CHECKED', 'transfer já conferido');
 select throws_ok(
-  $$select complete_transfer((select id from rides where platform = 'uber' limit 1), 10)$$,
+  $$select complete_transfer((select id from rides where platform = 'uber' limit 1), 1500, 'b.jpg')$$,
   'P0001', 'NOT_FOUND', 'corrida Uber não é transfer');
 select is(
-  (select transfer_status from complete_transfer('00000000-0000-0000-0000-0000000005a1', 42.5)),
-  'completed', 'transfer concluído');
-select is((select km from rides where id = '00000000-0000-0000-0000-0000000005a1'), 42.5, 'km gravado');
+  (select transfer_status from start_transfer('00000000-0000-0000-0000-0000000005a1', 1400, 'a.jpg')),
+  'in_progress', 'transfer iniciado');
 select is(
-  (select km from complete_transfer('00000000-0000-0000-0000-0000000005a1', 50)),
-  50.0, 'completed pode ser reenviado');
+  (select transfer_status from complete_transfer('00000000-0000-0000-0000-0000000005a1', 1442, 'b.jpg')),
+  'completed', 'transfer concluído');
+select is((select km from rides where id = '00000000-0000-0000-0000-0000000005a1'), 42.0, 'km = final − inicial');
+select is(
+  (select km from complete_transfer('00000000-0000-0000-0000-0000000005a1', 1442, 'b.jpg')),
+  42.0, 'concluir repetido com a mesma leitura é idempotente');
 select is((select shift_id from rides where id = '00000000-0000-0000-0000-0000000005a1'),
   '00000000-0000-0000-0000-0000000005b5'::uuid, 'transfer ligado ao turno aberto');
 reset role;
@@ -159,7 +170,7 @@ reset role;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
 set local role authenticated;
 select throws_ok(
-  $$select complete_transfer('00000000-0000-0000-0000-0000000005a4', 10)$$,
+  $$select complete_transfer('00000000-0000-0000-0000-0000000005a4', 10, 'b.jpg')$$,
   'P0001', 'FORBIDDEN', 'admin não conclui transfer');
 select throws_ok(
   $$select start_shift(gen_random_uuid(),'00000000-0000-0000-0000-00000000c001',1,'p.jpg')$$,
@@ -190,26 +201,28 @@ select lives_ok($$select review_item('fueling','00000000-0000-0000-0000-00000000
 select is((select review_status || '/' || coalesce(reject_reason, 'null') from fuelings), 'approved/null', 'aprovação limpa o motivo');
 
 -- despesa e turno
-select lives_ok($$select review_item('expense','00000000-0000-0000-0000-0000000005e1', false, 'ilegível')$$, 'admin recusa despesa');
-select is((select review_status from ride_expenses), 'rejected', 'despesa recusada');
+select throws_ok($$select review_item('expense','00000000-0000-0000-0000-0000000005e1', false, 'ilegível')$$,
+  'P0001', 'USE_TRANSFER_REVIEW', 'despesa só pela conferência do Transfer');
+select is((select review_status from ride_expenses), 'pending', 'despesa segue pendente');
 select lives_ok($$select review_item('shift','00000000-0000-0000-0000-0000000005b1', false, 'km errado')$$, 'admin recusa turno (protect_review_fields passa)');
 select is((select reject_reason from shifts where id = '00000000-0000-0000-0000-0000000005b1'), 'km errado', 'turno recusado com motivo');
 
--- transfer: recusa devolve ao motorista, aprovação confere
+-- transfer: recusa devolve ao motorista (em andamento), aprovação confere com as despesas
 select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000005a1', false, 'km errado')$$, 'admin recusa transfer');
 select is((select transfer_status || '/' || reject_reason from rides where id = '00000000-0000-0000-0000-0000000005a1'),
-  'assigned/km errado', 'transfer volta para assigned com motivo');
+  'in_progress/km errado', 'transfer volta para in_progress com motivo');
 reset role;
 
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000d001","role":"authenticated"}';
 set local role authenticated;
-select is((select reject_reason from complete_transfer('00000000-0000-0000-0000-0000000005a1', 45)), null, 'concluir de novo limpa o motivo');
+select is((select reject_reason from complete_transfer('00000000-0000-0000-0000-0000000005a1', 1445, 'c.jpg')), null, 'concluir de novo limpa o motivo');
 reset role;
 
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
 set local role authenticated;
 select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000005a1', true, null)$$, 'admin aprova transfer');
 select is((select transfer_status from rides where id = '00000000-0000-0000-0000-0000000005a1'), 'checked', 'transfer conferido');
+select is((select review_status from ride_expenses where id = '00000000-0000-0000-0000-0000000005e1'), 'approved', 'despesa aprovada junto com o transfer');
 reset role;
 
 -- ===== clear_must_change_password =====
