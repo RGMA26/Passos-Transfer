@@ -1,0 +1,76 @@
+# Decisões tomadas durante a implementação (2026-10-29 a 2026-11-02)
+
+Registro completo das decisões (rulings) tomadas pelo controlador durante a execução do plano, com o custo caso estejam erradas. Detalhes menores adiados estão no fim.
+
+- Ruling: T1 modifies existing .gitignore instead of creating — already committed in setup — none.
+- Ruling: Tasks 2–8 (and type gen in T9, e2e in T16) require Docker for `supabase start`; Docker not detected on 2026-10-29 → run T1 now, pause before T2 until Docker is available — env blocker, not a plan defect — delay only.
+- Ruling: Docker found at C:\Users\raiss\AppData\Local\Programs\DockerDesktop\resources\bin (engine 29.9.2 running); not on Git Bash PATH — dispatches must prepend it — unblocks T2+ — none.
+- Ruling: T2 profiles checks — driver ⇒ driver_type+transfer_pct; company_car ⇒ uber_pct; admin ⇒ driver_type null — reads spec 3.1/plan literally — rework of one check if wrong.
+- Ruling: T2 adjustment sign — advance/fine <0, bonus >0, correction ≠0 — spec says vale/multa negative — trivial if wrong.
+- Ruling: local Supabase ports moved 543xx→553xx (Windows reserved range) — accept; tell later tasks (db 55322, api 55321) — none.
+- Ruling: plan text `lpad(n::text, 2, '0')` conflicts with spec "3 dígitos a partir de 100" — spec wins; fix to no-truncate pad — none.
+- Ruling: uber/blablacar rides count as "conferido" when their shift review_status <> 'pending' → driver can't edit/delete them then — spec "item não conferido" — admin must reject shift to reopen if wrong.
+- Ruling: T5 end_shift.off_discount_estimate returns null until T6 replaces it — plan says T6 fills it — none.
+- Ruling: transfer rejection in review_item → transfer_status back to 'assigned', reason stored in new rides.reject_reason column — no column existed for it — small migration if wrong.
+- Ruling: amend T4 rides lock to shift review_status = 'approved' (not <> 'pending') so a rejected shift reopens its rides for the driver — matches my earlier user-facing statement — one policy line.
+- Ruling: T6 fuel_reimbursement counts all approved fuelings of the driver in the period regardless of driver_type (UI hides form for own_car) — simplest consistent rule — tiny.
+- Ruling: T6 expense_reimbursement counts approved expenses whose parent transfer is completed/checked with ride_date in period — expenses on not-done transfers shouldn't pay — tiny.
+- Ruling: T6 missing_reference_price true only when the reference price is actually needed (own_car transfer km>0, or off km>0 with no approved fuelings) — matches plan wording — none.
+- Ruling: plan defect — transfers of company_car drivers were never linked to a shift, so their km wouldn't count as service km (spec 3.2 says Uber+BlaBlaCar+Transfer). complete_transfer must, for company_car drivers, require an open shift (NO_OPEN_SHIFT) and set shift_id to it; own_car unchanged — spec explicit — driver must complete transfer before ending shift.
+- Ruling: complete_transfer re-completion (ride already has shift_id) keeps existing shift_id and does not require an open shift — km belongs to the shift where it was driven; avoids blocking resubmission after rejection — small.
+- Ruling: fix via rides_before_write clearing shift_id for transfers on driver_id change + driver filter in km sums (compute_statement, end_shift) — reviewer's (b)+(c) — none.
+- Ruling: transfer km counts as service km only when transfer_status in ('completed','checked') — consistent with money lines; rejected/assigned km shouldn't reduce off-km — if wrong, rejected transfers raise discount until resubmitted.
+- Ruling: T7 statements.lines/total/driver_id/period_id immutable after insert (only paid_at/payment_method updatable); closed periods immutable (reference price, dates, status can't revert) — spec "valores congelados" — reopen would need manual SQL.
+- Ruling: T7 admin_alerts only for shifts whose start_date is not in a closed period; "movement" for statement generation = any ride, shift, fueling or adjustment of the driver in the period — tiny.
+- Ruling: T8 integration tests read SUPABASE_URL/ANON/SERVICE keys from env and skip when absent, so `npm test` stays green without the stack — plan says "pular se SUPABASE_URL não definido" — none.
+- Ruling: T9 banned-user login error ("User is banned") shown as "Conta desativada", same as profile.active=false — deactivation uses auth ban — wording only.
+- Ruling: add "Tentar de novo" (failed → pending) to SyncBadge — plan only had Descartar, but misclassification would otherwise force data loss — small UI addition.
+- Ruling: QueuedOp.ownerId required (replaces optional driverId; photo path owner = ownerId) — closes #2 and #7 together — interface change for T11/T12.
+- Ruling: T11 shift state merges server open shift with this user's pending start_shift/end_shift queue ops, so offline start doesn't offer "Iniciar turno" twice and Uber/BlaBlaCar can be launched offline — required for offline-first spec — more UI logic.
+- Ruling: T11 post-end summary: after the end_shift op is sent, call endShift again (idempotent replay returns stored jsonb) to show km/desconto; while unsent show local km total and "Resumo completo quando o turno for enviado" — no extra backend — minor UX.
+- Ruling: T11 queue payload keys follow api.ts (id/car_id/odometer/photo; shift_id/odometer/photo/uber_photo) not the p_* in my dispatch — my dispatch was wrong — none.
+- Ruling: fix in api.endShift (always send p_uber_photo: value ?? null) + payload default, and include the double-start busy fix (would create a visible failed op) — cheap — none.
+- Ruling: T12 current period id obtained via rpc period_for_date(localDate()) (authenticated may call it) then compute_statement — period row may not exist yet — none.
+- Ruling: T12 company_car driver without open shift sees "Inicie um turno para concluir" instead of Concluir (server requires open shift, NO_OPEN_SHIFT) unless the transfer already has a shift_id (re-completion) — mirrors T6 ruling — none.
+- Ruling: T13 car assignment in CarsPage keeps both sides consistent (unassign old driver/car links, then link) and only allows a driver whose driver_type matches car ownership — mirrors create-driver rules — none.
+- Ruling: T14 admin can create, reassign (driver change) and delete transfers only while 'assigned'; ride_date = local date of scheduled_at — matches spec scope — small.
+- Ruling: add migration 0007 with admin-only wrapper `period_drivers(p_period uuid) returns setof uuid` (security definer, is_admin else FORBIDDEN) delegating to period_movement_drivers — single source of truth with close_period — new migration.
+- Ruling: T16 does NOT deploy anywhere (outward-facing; user confirms later) — DEPLOY.md only.
+- Ruling: C1 — close_period raises SHIFTS_NOT_APPROVED if any ended shift in period is not 'approved'; review queue lists pending+rejected ended shifts; driver change (insert/update/delete) to a ride of a rejected shift resets shift to 'pending'; rejected shifts appear in driver's "Itens recusados" — spec "não conferido" semantics — new migration 0008.
+- Ruling: C2 — cache profile and last known open shift per user in localStorage; used on network error at cold start — offline-first spec — small staleness risk.
+- Ruling: I1 — show per-platform entered totals/km on shift review card; driver can edit/delete own uber/blablacar rides (shift not approved) and pending fuelings via queue ops (update_ride, delete_ride, update_fueling, delete_fueling) — spec §5 — new UI.
+- Ruling: I2 — parseBRL: no comma and matches ^\d{1,3}(\.\d{3})+$ → thousands; MoneyInput shows formatted echo — BR convention — "1.5" stays 1.5.
+- Ruling: I3 — close_period(p_period, p_force boolean): raises PERIOD_NOT_ENDED when today (SP) <= end_date unless p_force; UI asks second confirm "A quinzena ainda não terminou. Fechar mesmo assim?" ; E2E uses force; DEPLOY.md advises closing 1–2 days after end — keeps E2E feasible.
+- Ruling: I4 — confirm on Descartar naming the item.
+
+## Pontos menores adiados (não bloqueiam o uso)
+
+- Task 1: minor (deferred): NBSP regex literal invisible — use  
+- Task 1: minor (deferred): redundant .gitignore lines; no engines field (node>=22)
+- Task 1: minor (deferred): thin edge tests (0, 31-day month, leap year); one it per describe
+- Task 2: minor (deferred): periods check doesn't tie start/end to 1–15/16–eom
+- Task 2: minor (deferred → carry to T4): security definer fns need search_path incl pg_temp + revoke execute from public/anon
+- Task 2: minor (deferred): thin leap-year/31-day tests; untested constraints (uber_pct range, admin driver_type, statements unique, cascade)
+- Task 2: minor (deferred → carry to T4): no FK/date indexes (rides.driver_id, ride_date, shifts.driver_id ...)
+- Task 3: minor (deferred): snapshot not refreshed on platform change; split_part only ASCII space; unaccent unqualified; missing name edge tests
+- Task 4: minor (deferred → note for T10): photos update policy allows overwrite after approval; T10 uploadPhoto upsert relies on it
+- Task 4: minor (deferred): fueling car_id unchecked; drivers can create periods via period_for_date; seed-isolation prelude fragile (keep seed free of rides/photos)
+- Task 4: minor (deferred): snapshot freeze applies to admin too (no escape hatch); no direct insert test for consumption null
+- Task 5: minor (deferred): no partial unique index on open shifts; no null-odometer test; no closed-period review_item test; can review open shift
+- Task 6: minor (deferred): re-completion can change km after shift approved; no negative-off alert in statement (T7 alerts); null driver_pct silent; service role FORBIDDEN on compute_statement (T7 close runs as admin); end_shift may insert period; tests depend on today's period
+- Task 7: minor (deferred): admin can INSERT statements / null paid_at directly; km-service rule duplicated in admin_alerts vs 0005; compute_statement called 3x per driver in close; empty period closes with 0 statements; misleading test comment
+- Task 8: minor (deferred): deleteUser result unchecked; no-op reactivate/reset on inactive; existing JWT valid after deactivate (RLS covers); regex \d{2} fragile; created[0] order dependence
+- Task 8: minor (deferred): zero-row race path untested
+- Task 9: minor (deferred): missing profile shows login silently; first-access retry stuck on "same password"; stale loadProfile; "node" types in app tsconfig
+- Task 9: minor (deferred → carry to T10): silent profile refresh failure (offline refocus) sets profile null → redirect to /login; must keep existing profile for same user
+- Task 9: minor (deferred): rare user-switch loading race
+- Task 10: minor (deferred): cross-tab flush may resurrect a succeeded op (navigator.locks); replayed insert after close reports PERIOD_CLOSED; FIFO by device clock; module-level interval/listener cleanup + openDB unhandled; PhotoInput silent compression failure; MoneyInput not resettable (watch in T11); tests rely on auto-flush
+- Task 10: minor (deferred): no flush on session change (waits ≤30s); 401 with non-JWT code retries forever
+- Task 11: minor (deferred): misleading summary fallback when replay fails; pending items not date-filtered in today totals
+- Task 11: minor (deferred): deriveShift counts permanently failed start_shift as open; p_uber_photo typed string (cast); double-click test doesn't let UI settle
+- Task 12: minor (deferred): Concluir stays active while complete_transfer pending; km 0 accepted locally; rejected list only current period; closed current period shown twice; statements.lines null cast; no CSS for card-head/stmt-row/badge/seg/panel/hint (carry to T16); listMyStatements/listRejectedItems unverified live (T16 e2e)
+- Task 13: minor (deferred): no reload after failed assignCar; inactive current driver shows "Nenhum"; no busy guard on edit forms; empty phone wa.me link; clipboard failure silent
+- Task 14: minor (deferred): inactive current driver in Reassign select silent no-op; no API active check; no 23:30 test; no Reassign error test; duplicated MSG const; p_reason cast
+- Task 15: minor (deferred): CSV desconto_gasolina positive while total subtracts it; Promise.all compute per driver on every action
+- Task 16: minor (deferred): global-setup db reset without --local; status read twice; service worker only build-verified
+- Final: cache do perfil/turno não é apagado ao sair do app; km/litros "1.200" na edição viram 1,2; editar abastecimento não reabre turno recusado
