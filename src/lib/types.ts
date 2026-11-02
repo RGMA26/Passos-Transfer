@@ -8,7 +8,17 @@ export type Shift = Tables['shifts']['Row']
 export type Ride = Tables['rides']['Row']
 export type RideExpense = Tables['ride_expenses']['Row']
 export type Fueling = Tables['fuelings']['Row']
-export type Period = Tables['periods']['Row']
+export type DriverPeriod = Tables['driver_periods']['Row']
+/** Legado (quinzena global, removida na 0010): só a tela antiga de Quinzenas, refeita na Task 9. */
+export interface Period {
+  id: string
+  start_date: string
+  end_date: string
+  status: string
+  reference_fuel_price: number | null
+  closed_at: string | null
+  created_at: string
+}
 export type Statement = Tables['statements']['Row']
 
 /** Formato jsonb retornado por compute_statement. */
@@ -21,8 +31,12 @@ export interface StatementLines {
   off_duty_fuel_discount: number
   adjustments: number
   total: number
-  avg_fuel_price: number | null
-  missing_reference_price: boolean
+  /** Custo por km da quinzena (null = sem nota/consumo). */
+  cost_per_km: number | null
+  /** Falta nota de abastecimento aprovada para calcular a gasolina. */
+  missing_fuel_price: boolean
+  /** Falta o consumo do carro para calcular a gasolina. */
+  missing_consumption: boolean
   km: { total: number; service: number; off: number }
   pending: { fuelings: number; expenses: number }
 }

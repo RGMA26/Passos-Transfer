@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as api from '../lib/api'
-import type { TodayEntry } from '../lib/api'
+import type { Fuel, TodayEntry } from '../lib/api'
+import { FUEL_LABEL, formatQty, formatUnitPrice, fuelUnit } from '../lib/fuel'
 import { formatBRL } from '../lib/money'
 import { enqueue } from '../lib/offline/queue'
 import type { QueuedOp } from '../lib/offline/queue'
@@ -19,6 +20,8 @@ function parseNumber(text: string): number | null {
 }
 
 const decimalText = (n: number) => n.toFixed(2).replace('.', ',')
+const qtyText = (n: number | null) => (n == null ? '' : String(n).replace('.', ','))
+const numOrNull = (v: unknown) => (v == null ? null : Number(v))
 
 /** Servidor + fila: inserções pendentes aparecem (sem ações); edições/exclusões pendentes já valem. */
 export function mergeEntries(server: TodayEntry[], ops: QueuedOp[], today: string): Row[] {
@@ -30,13 +33,14 @@ export function mergeEntries(server: TodayEntry[], ops: QueuedOp[], today: strin
       if (known.has(String(p.id))) continue
       rows.push({
         kind: 'ride', id: String(p.id), platform: p.platform, amount: Number(p.amount),
-        km: p.km == null ? null : Number(p.km), liters: null, editable: false, queued: true,
+        km: p.km == null ? null : Number(p.km), quantity: null, unit_price: null, editable: false, queued: true,
       })
     } else if (o.kind === 'insert_fueling' && p.fueled_on === today) {
       if (known.has(String(p.id))) continue
       rows.push({
-        kind: 'fueling', id: String(p.id), amount: Number(p.amount),
-        km: null, liters: Number(p.liters), editable: false, queued: true,
+        kind: 'fueling', id: String(p.id), amount: Number(p.amount), fuel: p.fuel as Fuel,
+        km: null, quantity: numOrNull(p.quantity), unit_price: numOrNull(p.unit_price),
+        editable: false, queued: true,
       })
     }
   }
@@ -52,7 +56,8 @@ export function mergeEntries(server: TodayEntry[], ops: QueuedOp[], today: strin
               ...r,
               amount: Number(o.payload.amount),
               km: o.kind === 'update_ride' ? (o.payload.km == null ? null : Number(o.payload.km)) : r.km,
-              liters: o.kind === 'update_fueling' ? Number(o.payload.liters) : r.liters,
+              quantity: o.kind === 'update_fueling' ? numOrNull(o.payload.quantity) : r.quantity,
+              unit_price: o.kind === 'update_fueling' ? numOrNull(o.payload.unit_price) : r.unit_price,
               queued: true,
             }
           : r,
@@ -96,16 +101,21 @@ function entryText(r: Row): string {
   if (r.kind === 'ride') {
     return `${PLATFORM[r.platform ?? 'uber']} ${formatBRL(r.amount)}${r.km == null ? '' : ` · ${r.km} km`}`
   }
-  return `Abastecimento ${formatBRL(r.amount)} · ${r.liters} L`
+  const fuel = r.fuel ?? 'gasolina'
+  const qty = r.quantity == null ? '' : ` ${formatQty(r.quantity)} ${fuelUnit(fuel)}`
+  const price = r.unit_price == null ? '' : ` × ${formatUnitPrice(r.unit_price)}`
+  return `Abastecimento ${formatBRL(r.amount)} · ${r.fuel ? FUEL_LABEL[r.fuel] : ''}${qty}${price}`.trimEnd()
 }
 
 function EntryItem({ uid, row }: { uid: string; row: Row }) {
   const [editing, setEditing] = useState(false)
   const [amount, setAmount] = useState<number | null>(row.amount)
-  const [qty, setQty] = useState(String((row.kind === 'ride' ? row.km : row.liters) ?? ''))
+  const ride = row.kind === 'ride'
+  const [qty, setQty] = useState(ride ? String(row.km ?? '') : qtyText(row.quantity))
+  const [price, setPrice] = useState(qtyText(row.unit_price))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const ride = row.kind === 'ride'
+  const unit = fuelUnit(row.fuel ?? 'gasolina')
 
   async function queue(kind: QueuedOp['kind'], payload: Record<string, unknown>) {
     const id = crypto.randomUUID()
@@ -116,12 +126,14 @@ function EntryItem({ uid, row }: { uid: string; row: Row }) {
     if (amount === null || (ride ? amount < 0 : amount <= 0)) return setError('Informe um valor válido')
     const n = qty.trim() === '' && ride ? null : parseNumber(qty)
     if (ride && qty.trim() !== '' && n === null) return setError('Informe os km')
-    if (!ride && (n === null || n <= 0)) return setError('Informe os litros')
+    if (!ride && (n === null || n <= 0)) return setError('Informe a quantidade')
+    const p = parseNumber(price)
+    if (!ride && (p === null || p <= 0)) return setError(`Informe o preço por ${unit}`)
     setError('')
     setBusy(true)
     try {
       if (ride) await queue('update_ride', { id: row.id, amount, km: n })
-      else await queue('update_fueling', { id: row.id, amount, liters: n })
+      else await queue('update_fueling', { id: row.id, amount, quantity: n, unit_price: p })
       setEditing(false)
     } catch {
       setError(MSG_SAVE)
@@ -150,9 +162,15 @@ function EntryItem({ uid, row }: { uid: string; row: Row }) {
         <div className="inline-edit">
           <MoneyInput label="Valor" initial={decimalText(row.amount)} onChange={setAmount} />
           <label className="field">
-            {ride ? 'Km' : 'Litros'}
+            {ride ? 'Km' : `Quantidade (${unit})`}
             <input inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} />
           </label>
+          {!ride && (
+            <label className="field">
+              {`Preço por ${unit}`}
+              <input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
+            </label>
+          )}
           {error && <p className="error" role="alert">{error}</p>}
           <button type="button" disabled={busy} onClick={() => void save()}>
             Salvar alteração

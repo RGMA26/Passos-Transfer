@@ -21,7 +21,8 @@ const car = (over: Partial<Car> = {}): Car =>
     id: 'c1',
     model: 'Corolla',
     plate: 'ABC1D23',
-    consumption_km_l: 12,
+    fuel_type: 'flex',
+    km_per_l_gasolina: 12,
     ownership: 'company',
     current_driver_id: 'd1',
     ...over,
@@ -66,7 +67,8 @@ describe('CarsPage', () => {
     expect(m.createCar).toHaveBeenCalledWith({
       model: 'Onix',
       plate: 'ABC1D24',
-      consumption_km_l: 11.5,
+      fuel_type: 'flex',
+      km_per_l_gasolina: 11.5,
       ownership: 'own',
     })
   })
@@ -102,7 +104,7 @@ describe('CarsPage', () => {
     await user.type(c, '13,2')
     await user.click(screen.getByRole('button', { name: 'Salvar' }))
     await waitFor(() =>
-      expect(m.updateCar).toHaveBeenCalledWith('c1', { model: 'Corolla', consumption_km_l: 13.2 }),
+      expect(m.updateCar).toHaveBeenCalledWith('c1', { model: 'Corolla', km_per_l_gasolina: 13.2 }),
     )
   })
 

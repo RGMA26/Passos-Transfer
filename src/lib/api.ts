@@ -1,7 +1,8 @@
 import { supabase } from './supabase'
-import { localDate } from './periods'
-import type { Car, Profile, Ride, Period, RideExpense, Shift, Statement, StatementLines } from './types'
+import type { Car, DriverPeriod, Profile, Ride, Period, RideExpense, Shift, StatementLines } from './types'
 import type { Database } from './database.types'
+
+export type Fuel = 'gasolina' | 'alcool' | 'diesel' | 'gnv' | 'eletrico'
 
 export async function getMyProfile(userId: string): Promise<Profile | null> {
   const { data, error, status } = await supabase
@@ -73,10 +74,15 @@ export async function updateRide(p: { id: string; amount: number; km: number | n
 }
 
 /** Abastecimento ainda pendente de conferência (RLS). */
-export async function updateFueling(p: { id: string; amount: number; liters: number }): Promise<void> {
+export async function updateFueling(p: {
+  id: string
+  amount: number
+  quantity: number
+  unit_price: number
+}): Promise<void> {
   const { data, error, status } = await supabase
     .from('fuelings')
-    .update({ amount: p.amount, liters: p.liters })
+    .update({ amount: p.amount, quantity: p.quantity, unit_price: p.unit_price })
     .eq('id', p.id)
     .select('id')
   if (error) fail(error, status)
@@ -103,7 +109,10 @@ export interface TodayEntry {
   platform?: 'uber' | 'blablacar'
   amount: number
   km: number | null
-  liters: number | null
+  /** Só para abastecimentos. */
+  fuel?: Fuel
+  quantity: number | null
+  unit_price: number | null
   /** Corrida: turno não aprovado. Abastecimento: ainda pendente. */
   editable: boolean
 }
@@ -120,7 +129,7 @@ export async function listTodayEntries(driverId: string, date: string): Promise<
       .order('created_at'),
     supabase
       .from('fuelings')
-      .select('id, amount, liters, review_status')
+      .select('id, amount, fuel, quantity, unit_price, review_status')
       .eq('driver_id', driverId)
       .eq('fueled_on', date)
       .order('created_at'),
@@ -140,7 +149,8 @@ export async function listTodayEntries(driverId: string, date: string): Promise<
     platform: x.platform,
     amount: Number(x.amount),
     km: x.km === null ? null : Number(x.km),
-    liters: null,
+    quantity: null,
+    unit_price: null,
     editable: x.shifts?.review_status !== 'approved',
   }))
   for (const x of f.data ?? []) {
@@ -149,7 +159,9 @@ export async function listTodayEntries(driverId: string, date: string): Promise<
       id: x.id,
       amount: Number(x.amount),
       km: null,
-      liters: Number(x.liters),
+      fuel: x.fuel as Fuel,
+      quantity: Number(x.quantity),
+      unit_price: Number(x.unit_price),
       editable: x.review_status === 'pending',
     })
   }
@@ -195,10 +207,20 @@ export async function endShift(a: {
   return data as unknown as EndShiftResult
 }
 
-export async function completeTransfer(a: { ride_id: string; km: number }): Promise<void> {
+export async function startTransfer(a: { ride_id: string; odometer: number; photo: string }): Promise<void> {
+  const { error, status } = await supabase.rpc('start_transfer', {
+    p_ride_id: a.ride_id,
+    p_odometer: a.odometer,
+    p_photo: a.photo,
+  })
+  if (error) fail(error, status)
+}
+
+export async function completeTransfer(a: { ride_id: string; odometer: number; photo: string }): Promise<void> {
   const { error, status } = await supabase.rpc('complete_transfer', {
     p_ride_id: a.ride_id,
-    p_km: a.km,
+    p_odometer: a.odometer,
+    p_photo: a.photo,
   })
   if (error) fail(error, status)
 }
@@ -263,7 +285,7 @@ export async function listMyTransfers(driverId: string): Promise<Ride[]> {
     .order('scheduled_at', { ascending: true })
   if (error) throw error
   const rows = data ?? []
-  // atribuídas/concluídas primeiro, conferidas por último (ordem por data preservada)
+  // em aberto primeiro, conferidas por último (ordem por data preservada)
   const rank = (r: Ride) => (r.transfer_status === 'checked' ? 1 : 0)
   return [...rows].sort((a, b) => rank(a) - rank(b))
 }
@@ -279,10 +301,28 @@ export async function listExpenses(rideIds: string[]): Promise<RideExpense[]> {
   return data ?? []
 }
 
-export async function getCurrentPeriodId(date: string): Promise<string | null> {
-  const { data, error } = await supabase.rpc('period_for_date', { d: date })
-  if (error) throw error
-  return (data as string | null) ?? null
+export type PeriodInfo = Pick<DriverPeriod, 'id' | 'start_date' | 'end_date' | 'status'>
+
+const NO_CURRENT_PERIOD = ['DRIVER_PAUSED', 'NO_PERIOD', 'BEFORE_CYCLE_START']
+
+/**
+ * Quinzena do motorista que contém a data (criada se preciso). Pausado (ou data fora de quinzena):
+ * a última quinzena aberta dele; null se não houver.
+ */
+export async function getCurrentPeriod(driverId: string, date: string): Promise<PeriodInfo | null> {
+  const { data, error } = await supabase.rpc('driver_period_for', { p_driver: driverId, p_date: date })
+  if (!error && data) return getPeriod(data)
+  if (error && !NO_CURRENT_PERIOD.includes(error.message)) throw error
+  const res = await supabase
+    .from('driver_periods')
+    .select('id, start_date, end_date, status')
+    .eq('driver_id', driverId)
+    .eq('status', 'open')
+    .order('start_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (res.error) throw res.error
+  return res.data
 }
 
 export async function computeStatement(
@@ -299,7 +339,7 @@ export async function computeStatement(
 
 export interface StatementRow {
   id: string
-  period_id: string
+  driver_period_id: string
   lines: StatementLines
   total: number | null
   paid_at: string | null
@@ -311,21 +351,20 @@ export interface StatementRow {
 export async function listMyStatements(driverId: string): Promise<StatementRow[]> {
   const { data, error } = await supabase
     .from('statements')
-    .select('*, periods!inner(start_date, end_date, status)')
+    .select('*, driver_periods!inner(start_date, end_date, status)')
     .eq('driver_id', driverId)
-    .eq('periods.status', 'closed')
+    .eq('driver_periods.status', 'closed')
   if (error) throw error
-  type Joined = Statement & { periods: { start_date: string; end_date: string } }
-  return ((data ?? []) as unknown as Joined[])
+  return (data ?? [])
     .map((s) => ({
       id: s.id,
-      period_id: s.period_id,
+      driver_period_id: s.driver_period_id,
       lines: s.lines as unknown as StatementLines,
       total: s.total,
       paid_at: s.paid_at,
       payment_method: s.payment_method,
-      start_date: s.periods.start_date,
-      end_date: s.periods.end_date,
+      start_date: s.driver_periods.start_date,
+      end_date: s.driver_periods.end_date,
     }))
     .sort((a, b) => b.start_date.localeCompare(a.start_date))
 }
@@ -399,10 +438,10 @@ export async function listRejectedItems(
   return out
 }
 
-export async function getPeriod(periodId: string): Promise<Pick<Period, 'start_date' | 'end_date' | 'status'>> {
+export async function getPeriod(periodId: string): Promise<PeriodInfo> {
   const { data, error } = await supabase
-    .from('periods')
-    .select('start_date, end_date, status')
+    .from('driver_periods')
+    .select('id, start_date, end_date, status')
     .eq('id', periodId)
     .single()
   if (error) throw error
@@ -494,10 +533,21 @@ export async function listCars(): Promise<Car[]> {
   return must(res) ?? []
 }
 
-export interface NewCarInput {
+export type CarFuelType = 'gnv' | 'diesel' | 'gasolina' | 'alcool' | 'flex' | 'eletrico' | 'hibrido'
+
+/** Consumos por combustível (todos opcionais; null = não cadastrado). */
+export interface CarConsumption {
+  km_per_l_gasolina?: number | null
+  km_per_l_alcool?: number | null
+  km_per_l_diesel?: number | null
+  km_per_m3_gnv?: number | null
+  km_per_kwh?: number | null
+}
+
+export interface NewCarInput extends CarConsumption {
   model: string
   plate: string
-  consumption_km_l: number
+  fuel_type: CarFuelType
   ownership: 'own' | 'company'
 }
 
@@ -513,7 +563,7 @@ export async function createCar(input: NewCarInput): Promise<void> {
 
 export async function updateCar(
   id: string,
-  patch: { model?: string; consumption_km_l?: number },
+  patch: { model?: string; fuel_type?: CarFuelType } & CarConsumption,
 ): Promise<void> {
   const { error } = await supabase.from('cars').update(patch).eq('id', id)
   if (error) carError(error)
@@ -732,7 +782,7 @@ export async function listPendingReview(): Promise<PendingReview> {
       driver_name: n(x.driver_id),
       fueled_on: x.fueled_on,
       amount: Number(x.amount),
-      liters: Number(x.liters),
+      liters: Number(x.quantity),
       photo_path: x.photo_path,
     })),
     expenses: ((must(e) ?? []) as unknown as ExpJoined[]).map((x) => ({
@@ -816,14 +866,17 @@ export async function updateShiftOdometers(id: string, start: number, end: numbe
 
 // ---------- Admin: quinzenas, extratos e painel ----------
 
-export async function listPeriods(): Promise<Period[]> {
-  await getCurrentPeriodId(localDate()) // garante que a quinzena atual exista
-  const res = await supabase.from('periods').select('*').order('start_date', { ascending: false })
-  return must(res) ?? []
+/** Quinzenas globais deixaram de existir (0010); a tela é refeita por motorista (Task 9). */
+function notAvailable(): never {
+  throw Object.assign(new Error('NOT_AVAILABLE'), { code: 'NOT_AVAILABLE' })
 }
 
-export async function setReferencePrice(periodId: string, value: number): Promise<void> {
-  must(await supabase.from('periods').update({ reference_fuel_price: value }).eq('id', periodId))
+export async function listPeriods(): Promise<Period[]> {
+  return notAvailable()
+}
+
+export async function setReferencePrice(_periodId: string, _value: number): Promise<void> {
+  return notAvailable()
 }
 
 export type AdjustmentKind = 'advance' | 'fine' | 'bonus' | 'correction'
@@ -833,7 +886,7 @@ export async function listAdjustments(periodId: string): Promise<Adjustment[]> {
   const res = await supabase
     .from('adjustments')
     .select('*')
-    .eq('period_id', periodId)
+    .eq('driver_period_id', periodId)
     .order('created_at', { ascending: true })
   return must(res) ?? []
 }
@@ -847,7 +900,12 @@ export interface NewAdjustmentInput {
 }
 
 export async function createAdjustment(input: NewAdjustmentInput): Promise<void> {
-  must(await supabase.from('adjustments').insert({ id: crypto.randomUUID(), ...input }))
+  const { period_id, ...rest } = input
+  must(
+    await supabase
+      .from('adjustments')
+      .insert({ id: crypto.randomUUID(), ...rest, driver_period_id: period_id }),
+  )
 }
 
 export async function deleteAdjustment(id: string): Promise<void> {
@@ -867,56 +925,23 @@ export interface PeriodDriverStatement {
   payment_method: string | null
 }
 
-export async function periodDriverStatements(periodId: string): Promise<PeriodDriverStatement[]> {
-  const period = mustRow(await supabase.from('periods').select('status').eq('id', periodId).single())
-  const drivers = must(await supabase.from('profiles').select('*').eq('role', 'driver')) ?? []
-  const byId = new Map(drivers.map((d) => [d.id, d]))
-  let out: PeriodDriverStatement[]
-  if (period.status === 'open') {
-    const ids = must(await supabase.rpc('period_drivers', { p_period: periodId })) ?? []
-    out = await Promise.all(
-      ids.map(async (id) => {
-        const lines = await computeStatement(id, periodId)
-        const d = byId.get(id)!
-        return {
-          driver_id: id,
-          driver_name: (d.name ?? '—') + (d.active ? '' : ' (inativo)'),
-          driver_code: d.login_code ?? '',
-          driver_type: d.driver_type,
-          lines,
-          total: Number(lines.total),
-          statement_id: null,
-          paid_at: null,
-          payment_method: null,
-        }
-      }),
-    )
-  } else {
-    const rows = must(await supabase.from('statements').select('*').eq('period_id', periodId)) ?? []
-    out = rows.map((s) => {
-      const d = byId.get(s.driver_id)
-      const lines = s.lines as unknown as StatementLines
-      return {
-        driver_id: s.driver_id,
-        driver_name: (d?.name ?? '—') + (d && !d.active ? ' (inativo)' : ''),
-        driver_code: d?.login_code ?? '',
-        driver_type: d?.driver_type ?? null,
-        lines,
-        total: Number(s.total ?? lines.total),
-        statement_id: s.id,
-        paid_at: s.paid_at,
-        payment_method: s.payment_method,
-      }
-    })
-  }
-  return out.sort((a, b) => a.driver_name.localeCompare(b.driver_name, 'pt-BR'))
+export async function periodDriverStatements(_periodId: string): Promise<PeriodDriverStatement[]> {
+  return notAvailable()
 }
 
 /** `force` fecha antes do fim da quinzena (senão o servidor responde PERIOD_NOT_ENDED). */
-export async function closePeriod(periodId: string, force = false): Promise<number> {
-  const { data, error } = await supabase.rpc('close_period', { p_period: periodId, p_force: force })
+export async function closePeriod(
+  periodId: string,
+  force = false,
+  allowMissingFuelPrice = false,
+): Promise<string> {
+  const { data, error } = await supabase.rpc('close_driver_period', {
+    p_period: periodId,
+    p_force: force,
+    p_allow_missing_fuel_price: allowMissingFuelPrice,
+  })
   if (error) throw Object.assign(new Error(error.message), { code: error.code })
-  return data as number
+  return data
 }
 
 export async function markStatementPaid(statementId: string, paidAt: string, method: string): Promise<void> {
@@ -937,9 +962,8 @@ export interface PeriodSummary {
   off_km_ranking: { driver_id: string; name: string; km_off: number }[]
 }
 
-export async function periodSummary(periodId: string): Promise<PeriodSummary> {
-  const res = await supabase.rpc('period_summary', { p_period: periodId })
-  return must(res) as unknown as PeriodSummary
+export async function periodSummary(_periodId: string): Promise<PeriodSummary> {
+  return notAvailable()
 }
 
 export interface FullStatement {
@@ -956,7 +980,7 @@ export async function getStatement(id: string): Promise<FullStatement> {
   const s = mustRow(await supabase.from('statements').select('*').eq('id', id).maybeSingle())
   const [d, p] = await Promise.all([
     supabase.from('profiles').select('name, login_code, driver_type').eq('id', s.driver_id).single(),
-    supabase.from('periods').select('start_date, end_date').eq('id', s.period_id).single(),
+    supabase.from('driver_periods').select('start_date, end_date').eq('id', s.driver_period_id).single(),
   ])
   const drv = mustRow(d)
   const per = mustRow(p)

@@ -12,9 +12,8 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setFailed(false)
     try {
-      const id = await api.getCurrentPeriodId(localDate())
-      if (!id) throw new Error('NO_PERIOD')
-      setS(await api.periodSummary(id))
+      // quinzena global removida (0010): o Início é refeito com o mês atual na Task 10
+      setS(await api.periodSummary(localDate()))
     } catch {
       setFailed(true)
     }

@@ -28,7 +28,7 @@ vi.mock('../components/PhotoInput', async () => ({
   default: (await import('./testUtils')).FakePhotoInput,
 }))
 
-const car = { id: 'c1', model: 'Corolla', plate: 'ABC1D23', consumption_km_l: 10 }
+const car = { id: 'c1', model: 'Corolla', plate: 'ABC1D23', fuel_type: 'flex', km_per_l_gasolina: 10 }
 const openShift = {
   id: 's1',
   odometer_start: 1000,
@@ -270,6 +270,13 @@ describe('TodayTab', () => {
     expect(mEnqueue).toHaveBeenCalledTimes(1)
   })
 
+  it('pausado vê o aviso e não inicia turno', async () => {
+    profile = makeProfile({ paused: true })
+    ui()
+    expect(await screen.findByText('Seu cadastro está pausado. Fale com a empresa.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Iniciar turno' })).not.toBeInTheDocument()
+  })
+
   it('carro próprio vê Transfers pendentes e não vê turno', async () => {
     profile = makeProfile({ driver_type: 'own_car', current_car_id: null })
     ui()
@@ -279,9 +286,9 @@ describe('TodayTab', () => {
 
   describe('Lançamentos de hoje', () => {
     const entries: api.TodayEntry[] = [
-      { kind: 'ride', id: 'r1', platform: 'uber', amount: 100, km: 30, liters: null, editable: true },
-      { kind: 'ride', id: 'r2', platform: 'blablacar', amount: 40, km: 20, liters: null, editable: false },
-      { kind: 'fueling', id: 'f1', amount: 200, liters: 40, km: null, editable: true },
+      { kind: 'ride', id: 'r1', platform: 'uber', amount: 100, km: 30, quantity: null, unit_price: null, editable: true },
+      { kind: 'ride', id: 'r2', platform: 'blablacar', amount: 40, km: 20, quantity: null, unit_price: null, editable: false },
+      { kind: 'fueling', id: 'f1', amount: 200, fuel: 'gasolina', quantity: 40, unit_price: 5, km: null, editable: true },
     ]
     let confirmSpy: ReturnType<typeof vi.spyOn>
     beforeEach(() => {
@@ -298,6 +305,7 @@ describe('TodayTab', () => {
       ui()
       const list = within(await screen.findByRole('region', { name: 'Lançamentos de hoje' }))
       expect(list.getByText(/Uber R\$\s100,00 · 30 km/)).toBeInTheDocument()
+      expect(list.getByText(/Abastecimento R\$\s200,00 · Gasolina 40 L × R\$\s5,00/)).toBeInTheDocument()
       expect(list.getAllByRole('button', { name: 'Editar' })).toHaveLength(2)
       const locked = await item(/BlaBlaCar R\$\s40,00/)
       expect(locked.queryByRole('button', { name: 'Editar' })).toBeNull()
@@ -322,19 +330,21 @@ describe('TodayTab', () => {
       })
     })
 
-    it('Editar abastecimento enfileira update_fueling com valor e litros', async () => {
+    it('Editar abastecimento enfileira update_fueling com valor, quantidade e preço', async () => {
       const u = userEvent.setup()
       ui()
       const f = await item(/Abastecimento R\$\s200,00/)
       await u.click(f.getByRole('button', { name: 'Editar' }))
-      await u.clear(f.getByLabelText('Litros'))
-      await u.type(f.getByLabelText('Litros'), '38,5')
+      await u.clear(f.getByLabelText('Quantidade (L)'))
+      await u.type(f.getByLabelText('Quantidade (L)'), '38,5')
+      await u.clear(f.getByLabelText('Preço por L'))
+      await u.type(f.getByLabelText('Preço por L'), '5,195')
       await u.click(f.getByRole('button', { name: 'Salvar alteração' }))
       await waitFor(() => expect(mEnqueue).toHaveBeenCalledTimes(1))
       expect(mEnqueue.mock.calls[0][0]).toMatchObject({
         kind: 'update_fueling',
         ownerId: 'u1',
-        payload: { id: 'f1', amount: 200, liters: 38.5 },
+        payload: { id: 'f1', amount: 200, quantity: 38.5, unit_price: 5.195 },
       })
     })
 
@@ -363,11 +373,11 @@ describe('TodayTab', () => {
       })
       mList.mockResolvedValue([
         pending('delete_ride', { id: 'r1' }),
-        pending('update_fueling', { id: 'f1', amount: 150, liters: 30 }),
+        pending('update_fueling', { id: 'f1', amount: 150, quantity: 30, unit_price: 5 }),
       ] as never)
       ui()
       const list = within(await screen.findByRole('region', { name: 'Lançamentos de hoje' }))
-      expect(await list.findByText(/Abastecimento R\$\s150,00 · 30 L/)).toBeInTheDocument()
+      expect(await list.findByText(/Abastecimento R\$\s150,00 · Gasolina 30 L/)).toBeInTheDocument()
       expect(list.queryByText(/Uber R\$\s100,00/)).toBeNull()
     })
   })

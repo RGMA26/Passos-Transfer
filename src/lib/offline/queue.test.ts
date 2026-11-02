@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({
   startShift: vi.fn(),
   endShift: vi.fn(),
   completeTransfer: vi.fn(),
+  startTransfer: vi.fn(),
   updateRide: vi.fn(),
   deleteRide: vi.fn(),
   updateFueling: vi.fn(),
@@ -125,9 +126,9 @@ describe('fila offline', () => {
     const cb = vi.fn()
     const off = onQueueChange(cb)
     api.completeTransfer.mockRejectedValueOnce(codeErr('NOT_FOUND'))
-    await enqueue(op('t', { kind: 'complete_transfer', payload: { ride_id: 'r', km: 5 } }))
+    await enqueue(op('t', { kind: 'complete_transfer', payload: { ride_id: 'r', odometer: 5 } }))
     await flush()
-    expect(api.completeTransfer).toHaveBeenCalledWith({ ride_id: 'r', km: 5 })
+    expect(api.completeTransfer).toHaveBeenCalledWith({ ride_id: 'r', odometer: 5 })
     expect(cb).toHaveBeenCalled()
     await discardOp('t')
     expect(await listOps()).toEqual([])
@@ -181,20 +182,20 @@ describe('fila offline', () => {
     api.deleteFueling.mockImplementation(async () => void order.push('delete_fueling'))
     await enqueue(op('u1', { kind: 'update_ride', payload: { id: 'r1', amount: 90, km: 20 } }))
     await enqueue(op('d1', { kind: 'delete_ride', payload: { id: 'r2' } }))
-    await enqueue(op('u2', { kind: 'update_fueling', payload: { id: 'f1', amount: 150, liters: 30 } }))
+    await enqueue(op('u2', { kind: 'update_fueling', payload: { id: 'f1', amount: 150, quantity: 30, unit_price: 5 } }))
     await enqueue(op('d2', { kind: 'delete_fueling', payload: { id: 'f2' } }))
     await flush()
     expect(order).toEqual(['update_ride', 'delete_ride', 'update_fueling', 'delete_fueling'])
     expect(api.updateRide).toHaveBeenCalledWith({ id: 'r1', amount: 90, km: 20 })
     expect(api.deleteRide).toHaveBeenCalledWith({ id: 'r2' })
-    expect(api.updateFueling).toHaveBeenCalledWith({ id: 'f1', amount: 150, liters: 30 })
+    expect(api.updateFueling).toHaveBeenCalledWith({ id: 'f1', amount: 150, quantity: 30, unit_price: 5 })
     expect(api.deleteFueling).toHaveBeenCalledWith({ id: 'f2' })
     expect(await listOps()).toEqual([])
   })
 
   it('NOT_EDITABLE (lançamento já conferido) marca failed com mensagem', async () => {
     api.updateFueling.mockRejectedValueOnce(codeErr('NOT_EDITABLE'))
-    await enqueue(op('u', { kind: 'update_fueling', payload: { id: 'f1', amount: 1, liters: 1 } }))
+    await enqueue(op('u', { kind: 'update_fueling', payload: { id: 'f1', amount: 1, quantity: 1, unit_price: 1 } }))
     await flush()
     expect((await listOps())[0]).toMatchObject({
       status: 'failed',
@@ -204,5 +205,51 @@ describe('fila offline', () => {
 
   it('edição/exclusão também exige ownerId', async () => {
     await expect(enqueue(op('a', { kind: 'delete_ride', payload: { id: 'r' }, ownerId: '' }))).rejects.toThrow()
+  })
+
+  it.each([
+    ['ODOMETER_BELOW_LAST', 'Não enviado: odômetro menor que o último registrado'],
+    ['DRIVER_PAUSED', 'Não enviado: cadastro pausado'],
+    ['BEFORE_CYCLE_START', 'Não enviado: data anterior ao seu cadastro'],
+    ['RECEIPT_REQUIRED', 'Não enviado: falta o comprovante'],
+    ['FUEL_CAR_NOT_ALLOWED', 'Não enviado: abastecimento de outro carro'],
+    ['TRANSFER_IN_PROGRESS', 'Não enviado: conclua o Transfer em andamento antes de encerrar o turno'],
+  ])('%s vira mensagem', async (code, msg) => {
+    api.insertRide.mockRejectedValueOnce(codeErr(code))
+    await enqueue(op('a'))
+    await flush()
+    expect((await listOps())[0]).toMatchObject({ status: 'failed', error: msg })
+  })
+
+  it('start_transfer despacha com odômetro e foto enviada', async () => {
+    await enqueue(
+      op('s', {
+        kind: 'start_transfer',
+        payload: { ride_id: 'r', odometer: 5000 },
+        photos: [{ field: 'photo', photoId: 'p', blob: new Blob(['x']) }],
+      }),
+    )
+    await flush()
+    expect(api.startTransfer).toHaveBeenCalledWith({ ride_id: 'r', odometer: 5000, photo: 'u1/p.jpg' })
+    expect(await listOps()).toEqual([])
+  })
+
+  it.each([
+    ['start_transfer', 'startTransfer', 'INVALID_STATUS'],
+    ['start_transfer', 'startTransfer', 'ALREADY_CHECKED'],
+    ['complete_transfer', 'completeTransfer', 'INVALID_STATUS'],
+    ['complete_transfer', 'completeTransfer', 'ALREADY_CHECKED'],
+  ] as const)('%s já aplicado (%s → %s) conta como enviado', async (kind, fn, code) => {
+    api[fn].mockRejectedValueOnce(codeErr(code))
+    await enqueue(op('t', { kind, payload: { ride_id: 'r', odometer: 1 } }))
+    await flush()
+    expect(await listOps()).toEqual([])
+  })
+
+  it('INVALID_STATUS em outra op continua sendo erro', async () => {
+    api.insertRide.mockRejectedValueOnce(codeErr('INVALID_STATUS'))
+    await enqueue(op('a'))
+    await flush()
+    expect((await listOps())[0].status).toBe('failed')
   })
 })

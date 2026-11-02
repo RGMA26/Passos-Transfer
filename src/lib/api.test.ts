@@ -11,7 +11,7 @@ import { completeTransfer, insertRide } from './api'
 
 async function caught(): Promise<unknown> {
   try {
-    await completeTransfer({ ride_id: 'r', km: 1 })
+    await completeTransfer({ ride_id: 'r', odometer: 1, photo: 'p' })
   } catch (e) {
     return e
   }

@@ -95,8 +95,11 @@ export default function StatementView({
         </div>
       </dl>
       {pending > 0 && <p className="hint">{`${formatBRL(pending)} aguardando conferência`}</p>}
-      {lines.missing_reference_price && (
-        <p className="error">Preço de referência do litro ainda não definido</p>
+      {lines.missing_fuel_price && (
+        <p className="error">Ainda não há nota de abastecimento aprovada para calcular a gasolina</p>
+      )}
+      {lines.missing_consumption && (
+        <p className="error">Falta o consumo do carro para calcular a gasolina</p>
       )}
       <div className="panel">
         <strong>Quilometragem</strong>

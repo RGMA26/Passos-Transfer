@@ -10,6 +10,7 @@ import { localDate } from '../lib/periods'
 import type { Car } from '../lib/types'
 import PhotoInput from '../components/PhotoInput'
 import TodayEntries from './TodayEntries'
+import PausedNotice from './PausedNotice'
 import { useShift } from './useShift'
 import type { ShiftState } from './useShift'
 
@@ -39,6 +40,7 @@ export default function TodayTab() {
     return (
       <section>
         <h2>Hoje</h2>
+        {profile.paused && <PausedNotice />}
         <div className="panel">
           <strong>Transfers pendentes</strong>
           <p className="hint">Veja e conclua suas corridas atribuídas.</p>
@@ -61,6 +63,7 @@ export default function TodayTab() {
   return (
     <section>
       <h2>Hoje</h2>
+      {profile.paused && <PausedNotice />}
       {shift ? (
         <OpenShift
           uid={uid}
@@ -75,7 +78,7 @@ export default function TodayTab() {
           onQueued={() => void refresh()}
         />
       ) : (
-        <StartShift uid={uid} carId={profile.current_car_id} onQueued={refresh} />
+        !profile.paused && <StartShift uid={uid} carId={profile.current_car_id} onQueued={refresh} />
       )}
       <TodayEntries uid={uid} ops={ops} />
     </section>

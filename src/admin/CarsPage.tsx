@@ -89,7 +89,7 @@ export default function CarsPage() {
               <tr key={c.id}>
                 <td>{c.model}</td>
                 <td>{c.plate}</td>
-                <td>{c.consumption_km_l}</td>
+                <td>{c.km_per_l_gasolina ?? '—'}</td>
                 <td>{c.ownership === 'company' ? 'Empresa' : 'Próprio'}</td>
                 <td>{(c.current_driver_id && driverById.get(c.current_driver_id)?.name) || '—'}</td>
                 <td className="actions">
@@ -151,7 +151,8 @@ function NewCarForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: 
       await api.createCar({
         model: model.trim(),
         plate: plate.trim().toUpperCase(),
-        consumption_km_l: n,
+        fuel_type: 'flex',
+        km_per_l_gasolina: n,
         ownership,
       })
       onCreated()
@@ -196,7 +197,7 @@ function NewCarForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: 
 
 function EditCar({ car, onDone }: { car: Car; onDone: (changed: boolean) => void }) {
   const [model, setModel] = useState(car.model)
-  const [consumption, setConsumption] = useState(fmtNum(car.consumption_km_l))
+  const [consumption, setConsumption] = useState(car.km_per_l_gasolina == null ? '' : fmtNum(car.km_per_l_gasolina))
   const [error, setError] = useState('')
 
   async function save() {
@@ -205,7 +206,7 @@ function EditCar({ car, onDone }: { car: Car; onDone: (changed: boolean) => void
     if (n === null || n <= 0) return setError(MSG_CONSUMPTION)
     setError('')
     try {
-      await api.updateCar(car.id, { model: model.trim(), consumption_km_l: n })
+      await api.updateCar(car.id, { model: model.trim(), km_per_l_gasolina: n })
       onDone(true)
     } catch (err) {
       setError(carErrorMessage(err))

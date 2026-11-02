@@ -6,11 +6,22 @@ import { localDate } from '../lib/periods'
 import type { StatementLines } from '../lib/types'
 import StatementView from '../components/StatementView'
 import type { RejectedLine } from '../components/StatementView'
+import PausedNotice from './PausedNotice'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
 
 /** 'YYYY-MM-DD' -> 'dd/mm'. */
 const dm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
+
+/** Dias corridos de `from` até `to` ('YYYY-MM-DD'). */
+const daysBetween = (from: string, to: string) =>
+  Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000)
+
+function daysLeftText(end: string, today: string): string {
+  const n = daysBetween(today, end)
+  if (n <= 0) return 'último dia'
+  return n === 1 ? 'falta 1 dia' : `faltam ${n} dias`
+}
 
 interface Current {
   start: string
@@ -32,14 +43,13 @@ export default function StatementTab() {
     if (!uid) return
     setFailed(false)
     try {
-      const periodId = await api.getCurrentPeriodId(localDate())
+      const period = await api.getCurrentPeriod(uid, localDate())
       let cur: Current | null = null
-      if (periodId) {
-        const [period, lines] = await Promise.all([
-          api.getPeriod(periodId),
-          api.computeStatement(uid, periodId),
+      if (period) {
+        const [lines, rejected] = await Promise.all([
+          api.computeStatement(uid, period.id),
+          api.listRejectedItems(uid, period.start_date, period.end_date),
         ])
-        const rejected = await api.listRejectedItems(uid, period.start_date, period.end_date)
         cur = { start: period.start_date, end: period.end_date, lines, rejected }
       }
       setCurrent(cur)
@@ -71,9 +81,11 @@ export default function StatementTab() {
   return (
     <section>
       <h2>Extrato</h2>
+      {profile.paused && <PausedNotice />}
       <h3>
-        Quinzena atual
-        {current && ` (${dm(current.start)} – ${dm(current.end)})`}
+        {current
+          ? `Quinzena ${dm(current.start)} – ${dm(current.end)} · ${daysLeftText(current.end, localDate())}`
+          : 'Quinzena atual'}
       </h3>
       {current ? (
         <StatementView

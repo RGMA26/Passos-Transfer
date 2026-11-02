@@ -20,7 +20,7 @@ vi.mock('../lib/api', () => ({
   markStatementPaid: vi.fn(),
   periodSummary: vi.fn(),
   getStatement: vi.fn(),
-  getCurrentPeriodId: vi.fn(),
+  getCurrentPeriod: vi.fn(),
 }))
 const m = vi.mocked(api)
 // o texto do DOM tem o espaço normalizado (R$ + nbsp vira espaço comum)
@@ -35,8 +35,9 @@ const lines = (over: Partial<StatementLines> = {}): StatementLines => ({
   off_duty_fuel_discount: 12.5,
   adjustments: 5,
   total: 213,
-  avg_fuel_price: 5.5,
-  missing_reference_price: false,
+  cost_per_km: 0.625,
+  missing_fuel_price: false,
+  missing_consumption: false,
   km: { total: 300, service: 250, off: 50 },
   pending: { fuelings: 0, expenses: 0 },
   ...over,
@@ -133,7 +134,7 @@ describe('quinzenas', () => {
 
   it('Fechar quinzena pede confirmação e fecha', async () => {
     const user = userEvent.setup()
-    m.closePeriod.mockResolvedValue(1)
+    m.closePeriod.mockResolvedValue('s1')
     renderPage()
     await screen.findByText('Maria Souza')
     await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
@@ -144,7 +145,7 @@ describe('quinzenas', () => {
   it('quinzena atual (ainda não terminou) pergunta antes e fecha com force', async () => {
     const user = userEvent.setup()
     m.listPeriods.mockResolvedValue([period({ end_date: '2099-12-31' })])
-    m.closePeriod.mockResolvedValue(1)
+    m.closePeriod.mockResolvedValue('s1')
     renderPage()
     await screen.findByText('Maria Souza')
     await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
@@ -155,7 +156,7 @@ describe('quinzenas', () => {
 
   it('PERIOD_NOT_ENDED do servidor pede segunda confirmação e fecha com force', async () => {
     const user = userEvent.setup()
-    m.closePeriod.mockRejectedValueOnce(new Error('PERIOD_NOT_ENDED')).mockResolvedValueOnce(1)
+    m.closePeriod.mockRejectedValueOnce(new Error('PERIOD_NOT_ENDED')).mockResolvedValueOnce('s1')
     renderPage()
     await screen.findByText('Maria Souza')
     await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
@@ -250,7 +251,7 @@ describe('quinzenas', () => {
 
   it('lista e exclui ajustes', async () => {
     m.listAdjustments.mockResolvedValue([
-      { id: 'a1', driver_id: 'd1', period_id: 'p1', kind: 'fine', amount: -30, description: 'Multa X', created_at: '' },
+      { id: 'a1', driver_id: 'd1', driver_period_id: 'p1', effective_date: '2026-10-20', kind: 'fine', amount: -30, description: 'Multa X', created_at: '' },
     ])
     const user = await openExpanded()
     expect(screen.getByText(/Multa X/)).toBeInTheDocument()
@@ -370,7 +371,6 @@ describe('PrintStatementPage', () => {
 
 describe('DashboardPage', () => {
   it('mostra os números do período atual e o ranking de km por fora', async () => {
-    m.getCurrentPeriodId.mockResolvedValue('p1')
     m.periodSummary.mockResolvedValue({
       revenue: { uber: 1000, transfer: 500, blablacar: 200 },
       drivers_share: 900,
@@ -398,7 +398,7 @@ describe('DashboardPage', () => {
   })
 
   it('erro de carregamento', async () => {
-    m.getCurrentPeriodId.mockRejectedValue(new Error('x'))
+    m.periodSummary.mockRejectedValue(new Error('x'))
     render(<DashboardPage />)
     expect(await screen.findByText('Não foi possível carregar. Tente novamente.')).toBeInTheDocument()
   })

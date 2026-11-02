@@ -11,13 +11,14 @@ export type QueuedOp = {
     | 'insert_expense'
     | 'start_shift'
     | 'end_shift'
+    | 'start_transfer'
     | 'complete_transfer'
     | 'update_ride'
     | 'delete_ride'
     | 'update_fueling'
     | 'delete_fueling'
   payload: Record<string, unknown>
-  /** Dono da op (auth.uid()): só ele envia/vê; path das fotos: `${ownerId}/${photoId}.jpg`. */
+  /** Dono da op (auth.uid()): só ele envia/vê; path: `${ownerId}/${photoId}.jpg` (ou .pdf). */
   ownerId: string
   photos: { field: string; photoId: string; blob: Blob }[]
   status: 'pending' | 'failed'
@@ -76,6 +77,23 @@ const MESSAGES: Record<string, string> = {
   ODOMETER_BELOW_START: 'Não enviado: odômetro final menor que o inicial',
   UBER_PHOTO_REQUIRED: 'Não enviado: falta o print dos ganhos da Uber',
   NOT_EDITABLE: 'Não enviado: lançamento já conferido, não pode mais ser alterado',
+  ODOMETER_BELOW_LAST: 'Não enviado: odômetro menor que o último registrado',
+  DRIVER_PAUSED: 'Não enviado: cadastro pausado',
+  NO_PERIOD: 'Não enviado: cadastro pausado',
+  BEFORE_CYCLE_START: 'Não enviado: data anterior ao seu cadastro',
+  RECEIPT_REQUIRED: 'Não enviado: falta o comprovante',
+  PHOTO_REQUIRED: 'Não enviado: falta a foto',
+  FUEL_CAR_NOT_ALLOWED: 'Não enviado: abastecimento de outro carro',
+  FUEL_NOT_ALLOWED: 'Não enviado: combustível não aceito por este carro',
+  TRANSFER_IN_PROGRESS: 'Não enviado: conclua o Transfer em andamento antes de encerrar o turno',
+}
+
+/** Repetição de iniciar/concluir já aplicado (o Transfer andou): conta como enviado. */
+function alreadyApplied(kind: QueuedOp['kind'], e: unknown): boolean {
+  if (kind !== 'start_transfer' && kind !== 'complete_transfer') return false
+  const { code, message } = (e ?? {}) as Err
+  const c = code || message
+  return c === 'INVALID_STATUS' || c === 'ALREADY_CHECKED'
 }
 
 type Err = { code?: string; message?: string; status?: number }
@@ -109,6 +127,8 @@ async function dispatch(kind: QueuedOp['kind'], p: Record<string, unknown>): Pro
     case 'end_shift':
       await api.endShift(p as never)
       return
+    case 'start_transfer':
+      return api.startTransfer(p as never)
     case 'complete_transfer':
       return api.completeTransfer(p as never)
     case 'update_ride':
@@ -134,7 +154,11 @@ async function pass(): Promise<void> {
       for (const ph of op.photos) {
         payload[ph.field] = await uploadPhoto(ph.blob, op.ownerId, ph.photoId)
       }
-      await dispatch(op.kind, payload)
+      try {
+        await dispatch(op.kind, payload)
+      } catch (e) {
+        if (!alreadyApplied(op.kind, e)) throw e
+      }
       await db.delete('ops', op.id)
       notify()
     } catch (e) {

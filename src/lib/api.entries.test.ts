@@ -41,7 +41,7 @@ describe('edição/exclusão dos próprios lançamentos', () => {
 
   it('update sem linha afetada (turno aprovado/abastecimento conferido) é NOT_EDITABLE', async () => {
     replies.update = ok([])
-    await expect(updateFueling({ id: 'f1', amount: 1, liters: 1 })).rejects.toMatchObject({ code: 'NOT_EDITABLE' })
+    await expect(updateFueling({ id: 'f1', amount: 1, quantity: 1, unit_price: 1 })).rejects.toMatchObject({ code: 'NOT_EDITABLE' })
   })
 
   it('delete de linha que já não existe é sucesso (idempotente)', async () => {
@@ -71,8 +71,8 @@ describe('listTodayEntries', () => {
       { id: 'r2', platform: 'blablacar', amount: 40, km: null, shifts: { review_status: 'approved' } },
     ]
     const fuelings = [
-      { id: 'f1', amount: 200, liters: 40, review_status: 'pending' },
-      { id: 'f2', amount: 80, liters: 16, review_status: 'rejected' },
+      { id: 'f1', amount: 200, fuel: 'gasolina', quantity: 40, unit_price: 5, review_status: 'pending' },
+      { id: 'f2', amount: 80, fuel: 'alcool', quantity: 16, unit_price: 5, review_status: 'rejected' },
     ]
     replies = new Proxy(replies, {
       get: (t, k: string) => (k === 'select' ? ok(n++ === 0 ? rides : fuelings) : t[k]),
@@ -85,6 +85,6 @@ describe('listTodayEntries', () => {
       ['f2', false],
     ])
     expect(out[0]).toMatchObject({ kind: 'ride', platform: 'uber', amount: 100, km: 30 })
-    expect(out[2]).toMatchObject({ kind: 'fueling', amount: 200, liters: 40 })
+    expect(out[2]).toMatchObject({ kind: 'fueling', amount: 200, fuel: 'gasolina', quantity: 40, unit_price: 5 })
   })
 })

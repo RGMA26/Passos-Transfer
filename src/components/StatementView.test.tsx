@@ -12,8 +12,9 @@ const base: StatementLines = {
   off_duty_fuel_discount: 12.5,
   adjustments: 5,
   total: 213,
-  avg_fuel_price: 5.5,
-  missing_reference_price: false,
+  cost_per_km: 0.625,
+  missing_fuel_price: false,
+  missing_consumption: false,
   km: { total: 300, service: 250, off: 50 },
   pending: { fuelings: 0, expenses: 0 },
 }
@@ -45,10 +46,20 @@ describe('StatementView', () => {
     expect(screen.queryByText(/aguardando conferência/)).toBeNull()
   })
 
-  it('aviso de preço de referência', () => {
-    const l = { ...base, missing_reference_price: true }
+  it('aviso de falta de nota de abastecimento', () => {
+    const l = { ...base, missing_fuel_price: true }
     render(<StatementView lines={l} status="estimated" driverType="company_car" />)
-    expect(screen.getByText('Preço de referência do litro ainda não definido')).toBeInTheDocument()
+    expect(
+      screen.getByText('Ainda não há nota de abastecimento aprovada para calcular a gasolina'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Falta o consumo/)).toBeNull()
+  })
+
+  it('aviso de falta de consumo do carro', () => {
+    const l = { ...base, missing_consumption: true }
+    render(<StatementView lines={l} status="estimated" driverType="own_car" />)
+    expect(screen.getByText('Falta o consumo do carro para calcular a gasolina')).toBeInTheDocument()
+    expect(screen.queryByText(/Ainda não há nota/)).toBeNull()
   })
 
   it('itens recusados com motivo', () => {
