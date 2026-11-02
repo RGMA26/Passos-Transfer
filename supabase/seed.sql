@@ -30,10 +30,10 @@ insert into cars (id, model, plate, consumption_km_l, ownership) values
   ('00000000-0000-0000-0000-00000000c001','Onix','PAS1A23',10.0,'company'),
   ('00000000-0000-0000-0000-00000000c002','HB20','PAS2B34',12.5,'own');
 
-insert into profiles (id, role, login_code, seq_number, name, driver_type, uber_pct, transfer_pct, current_car_id, must_change_password) values
-  ('00000000-0000-0000-0000-00000000ad01','admin',null,null,'Administrador',null,null,null,null,false),
-  ('00000000-0000-0000-0000-00000000d001','driver','PASSOS01JOAO',1,'João Silva','company_car',40,30,'00000000-0000-0000-0000-00000000c001',false),
-  ('00000000-0000-0000-0000-00000000d002','driver','PASSOS02MARIA',2,'Maria Souza','own_car',null,30,'00000000-0000-0000-0000-00000000c002',false);
+insert into profiles (id, role, login_code, seq_number, name, driver_type, uber_pct, transfer_pct, current_car_id, must_change_password, cpf, cycle_start_date) values
+  ('00000000-0000-0000-0000-00000000ad01','admin',null,null,'Administrador',null,null,null,null,false,null,null),
+  ('00000000-0000-0000-0000-00000000d001','driver','PASSOS01JOAO',1,'João Silva','company_car',40,30,'00000000-0000-0000-0000-00000000c001',false,'52998224725','2026-01-01'),
+  ('00000000-0000-0000-0000-00000000d002','driver','PASSOS02MARIA',2,'Maria Souza','own_car',null,30,'00000000-0000-0000-0000-00000000c002',false,'10000001090','2026-01-01');
 
 update cars set current_driver_id = '00000000-0000-0000-0000-00000000d001' where id = '00000000-0000-0000-0000-00000000c001';
 update cars set current_driver_id = '00000000-0000-0000-0000-00000000d002' where id = '00000000-0000-0000-0000-00000000c002';

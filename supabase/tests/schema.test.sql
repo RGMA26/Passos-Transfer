@@ -8,7 +8,7 @@ delete from cars;
 delete from auth.users;
 
 select has_table('public', t, t || ' existe')
-from unnest(array['profiles','cars','periods','shifts','rides','ride_expenses','fuelings','adjustments','statements','audit_log']) as t;
+from unnest(array['profiles','cars','driver_periods','shifts','rides','ride_expenses','fuelings','adjustments','statements','audit_log']) as t;
 
 insert into auth.users (id) values
   ('00000000-0000-0000-0000-0000000000a1'),
@@ -16,23 +16,23 @@ insert into auth.users (id) values
   ('00000000-0000-0000-0000-0000000000a3');
 
 select throws_ok(
-  $$insert into profiles (id, role, login_code, seq_number, name, driver_type, transfer_pct)
-    values ('00000000-0000-0000-0000-0000000000a1','driver','d1',1,'D1','own_car',0)$$,
+  $$insert into profiles (id, role, login_code, seq_number, name, driver_type, transfer_pct, cpf)
+    values ('00000000-0000-0000-0000-0000000000a1','driver','d1',1,'D1','own_car',0,'10000000795')$$,
   '23514', null, 'pct 0 rejeitado');
 
 select throws_ok(
-  $$insert into profiles (id, role, login_code, seq_number, name, driver_type, transfer_pct)
-    values ('00000000-0000-0000-0000-0000000000a1','driver','d1',1,'D1','own_car',101)$$,
+  $$insert into profiles (id, role, login_code, seq_number, name, driver_type, transfer_pct, cpf)
+    values ('00000000-0000-0000-0000-0000000000a1','driver','d1',1,'D1','own_car',101,'10000000795')$$,
   '23514', null, 'pct 101 rejeitado');
 
 select throws_ok(
-  $$insert into profiles (id, role, login_code, seq_number, name, driver_type, transfer_pct)
-    values ('00000000-0000-0000-0000-0000000000a1','driver','d1',1,'D1','company_car',50)$$,
+  $$insert into profiles (id, role, login_code, seq_number, name, driver_type, transfer_pct, cpf)
+    values ('00000000-0000-0000-0000-0000000000a1','driver','d1',1,'D1','company_car',50,'10000000795')$$,
   '23514', null, 'company_car sem uber_pct rejeitado');
 
 select lives_ok(
-  $$insert into profiles (id, role, login_code, seq_number, name, driver_type, transfer_pct, uber_pct)
-    values ('00000000-0000-0000-0000-0000000000a2','driver','d2',2,'D2','company_car',50,25.5)$$,
+  $$insert into profiles (id, role, login_code, seq_number, name, driver_type, transfer_pct, uber_pct, cpf, cycle_start_date)
+    values ('00000000-0000-0000-0000-0000000000a2','driver','d2',2,'D2','company_car',50,25.5,'10000000876','2026-01-01')$$,
   'motorista valido aceito');
 
 insert into cars (id, model, plate, consumption_km_l, ownership)
@@ -43,42 +43,46 @@ select throws_ok(
     values ('00000000-0000-0000-0000-0000000000a2','00000000-0000-0000-0000-0000000000c1',12.5, now(), current_date, 1000, 900)$$,
   '23514', null, 'odometro final < inicial rejeitado');
 
-insert into periods (id, start_date, end_date)
-values ('00000000-0000-0000-0000-0000000000b1','2026-10-01','2026-10-15');
+insert into driver_periods (id, driver_id, start_date, end_date)
+values ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000a2','2026-10-03','2026-10-17');
 
 select throws_ok(
-  $$insert into adjustments (driver_id, period_id, kind, amount, description)
-    values ('00000000-0000-0000-0000-0000000000a2','00000000-0000-0000-0000-0000000000b1','advance',100,'vale')$$,
+  $$insert into adjustments (driver_id, driver_period_id, kind, amount, description, effective_date)
+    values ('00000000-0000-0000-0000-0000000000a2','00000000-0000-0000-0000-0000000000b1','advance',100,'vale','2026-10-05')$$,
   '23514', null, 'advance positivo rejeitado');
 
 select lives_ok(
-  $$insert into adjustments (driver_id, period_id, kind, amount, description)
-    values ('00000000-0000-0000-0000-0000000000a2','00000000-0000-0000-0000-0000000000b1','advance',-100,'vale')$$,
+  $$insert into adjustments (driver_id, driver_period_id, kind, amount, description, effective_date)
+    values ('00000000-0000-0000-0000-0000000000a2','00000000-0000-0000-0000-0000000000b1','advance',-100,'vale','2026-10-05')$$,
   'advance negativo aceito');
 
 select throws_ok(
-  $$insert into periods (start_date, end_date) values ('2026-09-01','2026-09-20')$$,
-  '23514', null, 'end_date invalido rejeitado');
+  $$insert into driver_periods (driver_id, start_date, end_date) values ('00000000-0000-0000-0000-0000000000a2','2026-09-20','2026-09-01')$$,
+  '23514', null, 'end_date antes do start_date rejeitado');
 
 select throws_ok(
   $$insert into rides (driver_id, platform, ride_date, amount)
     values ('00000000-0000-0000-0000-0000000000a2','transfer','2026-10-02',100)$$,
   '23514', null, 'transfer sem client_name rejeitado');
 
-select is(period_for_date('2026-11-16'), period_for_date('2026-11-16'), 'period_for_date idempotente');
+select is(driver_period_for('00000000-0000-0000-0000-0000000000a2', '2026-11-16'),
+          driver_period_for('00000000-0000-0000-0000-0000000000a2', '2026-11-16'), 'driver_period_for idempotente');
 
+-- ciclo desde 2026-01-01: 2026-11-16 cai na quinzena 01/01 + 15×21 = 12/11 … 26/11
 select results_eq(
-  $$select start_date, end_date from periods where id = period_for_date('2026-11-16')$$,
-  $$values ('2026-11-16'::date, '2026-11-30'::date)$$,
-  'quinzena de 2026-11-16 vai ate 30');
+  $$select start_date, end_date from driver_periods
+     where id = driver_period_for('00000000-0000-0000-0000-0000000000a2', '2026-11-16')$$,
+  $$values ('2026-11-12'::date, '2026-11-26'::date)$$,
+  'quinzena de 2026-11-16 vai de 12/11 a 26/11');
 
 -- cria a quinzena em statement separado (o snapshot da query externa nao veria o insert)
-select lives_ok($$select period_for_date('2026-02-10')$$, 'cria quinzena de fevereiro');
+select lives_ok($$select driver_period_for('00000000-0000-0000-0000-0000000000a2', '2026-02-10')$$, 'cria quinzena de fevereiro');
 
 select results_eq(
-  $$select end_date from periods where start_date = '2026-02-01'$$,
-  $$values ('2026-02-15'::date)$$,
-  'primeira quinzena termina dia 15');
+  $$select start_date, end_date from driver_periods
+     where driver_id = '00000000-0000-0000-0000-0000000000a2' and '2026-02-10' between start_date and end_date$$,
+  $$values ('2026-01-31'::date, '2026-02-14'::date)$$,
+  'quinzena atravessa a virada de mês (31/01–14/02)');
 
 select * from finish();
 rollback;

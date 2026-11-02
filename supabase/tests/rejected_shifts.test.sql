@@ -2,8 +2,9 @@ begin;
 select plan(14);
 
 -- Personas do seed: admin ad01, João d001 (company_car, carro c001)
-insert into periods (id, start_date, end_date, reference_fuel_price) values
-  ('00000000-0000-0000-0000-000000008e01','2026-06-01','2026-06-15',6.00);
+-- quinzena do João (ciclo desde 2026-01-01) que contém 05/06 é criada pelos gatilhos
+-- TODO Task 3: close_period foi removido na 0010; as checagens de fechamento estão em skip
+-- até close_driver_period existir.
 
 insert into shifts (id, driver_id, car_id, consumption_km_l, start_date, odometer_start) values
   ('00000000-0000-0000-0000-0000000008b1','00000000-0000-0000-0000-00000000d001','00000000-0000-0000-0000-00000000c001',10,'2026-06-05',1000);
@@ -17,9 +18,9 @@ update shifts set ended_at = '2026-06-05 20:00-03', odometer_end = 1070
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
 select lives_ok($$select review_item('shift','00000000-0000-0000-0000-0000000008b1', false, 'Km errado')$$, 'admin recusa o turno');
-select throws_ok($$select close_period('00000000-0000-0000-0000-000000008e01')$$, 'P0001', 'SHIFTS_NOT_APPROVED',
-  'turno recusado bloqueia o fechamento');
-select is((select status from periods where id = '00000000-0000-0000-0000-000000008e01'), 'open', 'quinzena segue aberta');
+select skip('Task 3: close_driver_period — turno recusado bloqueia o fechamento (SHIFTS_NOT_APPROVED)', 1);
+select is((select status from driver_periods where driver_id = '00000000-0000-0000-0000-00000000d001'
+            and '2026-06-05' between start_date and end_date), 'open', 'quinzena segue aberta');
 
 -- edição do próprio admin não reabre o turno
 select lives_ok($$update rides set amount = 101 where id = '00000000-0000-0000-0000-0000000008a1'$$, 'admin edita corrida');
@@ -53,10 +54,9 @@ set local role authenticated;
 
 -- pendente bloqueia como PENDING_REVIEW; aprovado fecha
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
-select throws_ok($$select close_period('00000000-0000-0000-0000-000000008e01')$$, 'P0001', 'PENDING_REVIEW',
-  'turno de volta à conferência bloqueia como pendente');
+select skip('Task 3: close_driver_period — turno de volta à conferência bloqueia como pendente', 1);
 select lives_ok($$select review_item('shift','00000000-0000-0000-0000-0000000008b1', true, null)$$, 'admin aprova');
-select is(close_period('00000000-0000-0000-0000-000000008e01'), 1, 'quinzena fecha com o turno aprovado');
+select skip('Task 3: close_driver_period — quinzena fecha com o turno aprovado', 1);
 
 select * from finish();
 rollback;

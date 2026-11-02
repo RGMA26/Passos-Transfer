@@ -1,3 +1,12 @@
+-- SKIP TEMPORÁRIO (0010): depende de periods/close_period/period_summary, removidos na 0010.
+-- Task 2 reescreve este arquivo sobre driver_periods. O conteúdo original segue abaixo, comentado.
+begin;
+select plan(1);
+select skip('statement.test.sql: aguardando Task 2 (quinzenas por motorista)', 1);
+select * from finish();
+rollback;
+
+/* ===== ORIGINAL (desativado) =====
 begin;
 select plan(84);
 
@@ -397,3 +406,5 @@ reset role;
 
 select * from finish();
 rollback;
+
+===== FIM ORIGINAL ===== */

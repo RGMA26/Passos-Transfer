@@ -7,10 +7,10 @@ insert into auth.users (id) values
   ('00000000-0000-0000-0000-0000000000b1'),
   ('00000000-0000-0000-0000-0000000000b2');
 
-insert into profiles (id, role, login_code, seq_number, name, driver_type, transfer_pct, uber_pct) values
-  ('00000000-0000-0000-0000-0000000000e0','admin','rls-admin',9001,'Adm',null,null,null),
-  ('00000000-0000-0000-0000-0000000000b1','driver','rls-a',9002,'A','company_car',30,40),
-  ('00000000-0000-0000-0000-0000000000b2','driver','rls-b',9003,'B','company_car',30,40);
+insert into profiles (id, role, login_code, seq_number, name, driver_type, transfer_pct, uber_pct, cpf, cycle_start_date) values
+  ('00000000-0000-0000-0000-0000000000e0','admin','rls-admin',9001,'Adm',null,null,null,null,null),
+  ('00000000-0000-0000-0000-0000000000b1','driver','rls-a',9002,'A','company_car',30,40,'10000000523','2026-01-01'),
+  ('00000000-0000-0000-0000-0000000000b2','driver','rls-b',9003,'B','company_car',30,40,'10000000604','2026-01-01');
 
 insert into cars (id, model, plate, consumption_km_l, ownership, current_driver_id) values
   ('00000000-0000-0000-0000-0000000000d1','Onix','RLS0A01',10,'company','00000000-0000-0000-0000-0000000000b1'),
@@ -41,15 +41,13 @@ insert into fuelings (id, driver_id, car_id, fueled_on, amount, liters, photo_pa
   ('00000000-0000-0000-0000-000000000f02','00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000d1','2026-02-05',100,20,'x','approved'),
   ('00000000-0000-0000-0000-000000000f03','00000000-0000-0000-0000-0000000000b2','00000000-0000-0000-0000-0000000000d2','2026-02-05',100,20,'x','pending');
 
-select period_for_date('2026-02-05');
-select period_for_date('2026-01-05');
 
-insert into adjustments (driver_id, period_id, kind, amount, description)
-select d, period_for_date('2026-02-05'), 'bonus', 5, 'x'
+insert into adjustments (driver_id, effective_date, kind, amount, description)
+select d, '2026-02-05', 'bonus', 5, 'x'
 from unnest(array['00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000b2']::uuid[]) d;
 
-insert into statements (driver_id, period_id)
-select d, period_for_date('2026-02-05')
+insert into statements (driver_id, driver_period_id)
+select d, driver_period_for(d, '2026-02-05')
 from unnest(array['00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000b2']::uuid[]) d;
 
 -- Turno aprovado (ride já conferida)
@@ -84,8 +82,8 @@ insert into storage.objects (bucket_id, name) values
 
 -- Bucket e privilégios
 select is((select public from storage.buckets where id = 'photos'), false, 'bucket photos privado');
-select ok(not has_function_privilege('anon', 'period_for_date(date)', 'execute'), 'anon não executa period_for_date');
-select ok(has_function_privilege('authenticated', 'period_for_date(date)', 'execute'), 'authenticated executa period_for_date');
+select ok(not has_function_privilege('anon', 'driver_period_for(uuid,date)', 'execute'), 'anon não executa driver_period_for');
+select ok(has_function_privilege('authenticated', 'driver_period_for(uuid,date)', 'execute'), 'authenticated executa driver_period_for');
 
 -- ===== Motorista A =====
 set local role authenticated;
@@ -104,7 +102,7 @@ select is((select count(*)::int from ride_expenses where id = '00000000-0000-000
 select is((select count(*)::int from profiles), 1, 'A vê só o próprio profile');
 select is((select array_agg(id) from cars), array['00000000-0000-0000-0000-0000000000d1']::uuid[], 'A vê só o carro atual');
 select is((select count(*)::int from audit_log), 0, 'A não lê audit_log');
-select ok((select count(*) from periods) > 0, 'A lê periods');
+select ok((select count(*) from driver_periods) > 0, 'A lê as próprias quinzenas');
 
 -- escrita em rides
 select throws_ok(
@@ -226,11 +224,11 @@ select is_empty(
   $$update shifts set odometer_start = 5 where id = '00000000-0000-0000-0000-0000000000f1' returning id$$,
   'A não edita turno direto');
 select throws_ok(
-  $$insert into adjustments (driver_id, period_id, kind, amount, description)
-    values ('00000000-0000-0000-0000-0000000000b1', period_for_date('2026-02-06'), 'bonus', 99, 'x')$$,
+  $$insert into adjustments (driver_id, effective_date, kind, amount, description)
+    values ('00000000-0000-0000-0000-0000000000b1', '2026-02-06', 'bonus', 99, 'x')$$,
   '42501', null, 'A não cria ajuste');
 select throws_ok(
-  $$insert into statements (driver_id, period_id) values ('00000000-0000-0000-0000-0000000000b1', period_for_date('2026-03-06'))$$,
+  $$insert into statements (driver_id, driver_period_id) values ('00000000-0000-0000-0000-0000000000b1', driver_period_for('00000000-0000-0000-0000-0000000000b1', '2026-03-06'))$$,
   '42501', null, 'A não cria statement');
 
 -- storage
@@ -262,7 +260,9 @@ select lives_ok(
 reset role;
 
 -- ===== Quinzena fechada =====
-update periods set status = 'closed', closed_at = now() where start_date = '2026-01-01';
+-- quinzena 01/01–15/01 do motorista A (ciclo desde 2026-01-01)
+update driver_periods set status = 'closed', closed_at = now()
+ where driver_id = '00000000-0000-0000-0000-0000000000b1' and start_date = '2026-01-01';
 
 select throws_ok(
   $$update fuelings set amount = 1 where id = '00000000-0000-0000-0000-000000000f11'$$,
@@ -289,8 +289,8 @@ select throws_ok(
   $$update shifts set odometer_start = 1 where id = '00000000-0000-0000-0000-0000000000f3'$$,
   'P0001', 'PERIOD_CLOSED', 'admin: turno em quinzena fechada');
 select throws_ok(
-  $$insert into adjustments (driver_id, period_id, kind, amount, description)
-    values ('00000000-0000-0000-0000-0000000000b1', period_for_date('2026-01-06'), 'bonus', 1, 'x')$$,
+  $$insert into adjustments (driver_id, effective_date, kind, amount, description)
+    values ('00000000-0000-0000-0000-0000000000b1', '2026-01-06', 'bonus', 1, 'x')$$,
   'P0001', 'PERIOD_CLOSED', 'admin: ajuste em quinzena fechada');
 reset role;
 

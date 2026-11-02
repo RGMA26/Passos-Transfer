@@ -1,3 +1,12 @@
+-- SKIP TEMPORÁRIO (0010): depende de periods/close_period/period_summary, removidos na 0010.
+-- Task 3 reescreve este arquivo sobre driver_periods. O conteúdo original segue abaixo, comentado.
+begin;
+select plan(1);
+select skip('close_force.test.sql: aguardando Task 3 (quinzenas por motorista)', 1);
+select * from finish();
+rollback;
+
+/* ===== ORIGINAL (desativado) =====
 begin;
 select plan(7);
 
@@ -20,3 +29,5 @@ select is(close_period('00000000-0000-0000-0000-000000009e02'), 0, 'quinzena já
 
 select * from finish();
 rollback;
+
+===== FIM ORIGINAL ===== */

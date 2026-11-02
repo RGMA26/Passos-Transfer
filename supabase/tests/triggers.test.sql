@@ -19,10 +19,10 @@ insert into auth.users (id) values
   ('00000000-0000-0000-0000-0000000000a2'),
   ('00000000-0000-0000-0000-0000000000a3');
 
-insert into profiles (id, role, login_code, seq_number, name, driver_type, transfer_pct, uber_pct) values
-  ('00000000-0000-0000-0000-0000000000a1','driver','d1',1,'A','company_car',30,40),
-  ('00000000-0000-0000-0000-0000000000a2','driver','d2',2,'B','own_car',25,null),
-  ('00000000-0000-0000-0000-0000000000a3','driver','d3',3,'C','company_car',30,40);
+insert into profiles (id, role, login_code, seq_number, name, driver_type, transfer_pct, uber_pct, cpf, cycle_start_date) values
+  ('00000000-0000-0000-0000-0000000000a1','driver','d1',1,'A','company_car',30,40,'10000000957','2026-01-01'),
+  ('00000000-0000-0000-0000-0000000000a2','driver','d2',2,'B','own_car',25,null,'10000001171','2026-01-01'),
+  ('00000000-0000-0000-0000-0000000000a3','driver','d3',3,'C','company_car',30,40,'10000001252','2026-01-01');
 
 insert into cars (id, model, plate, consumption_km_l, ownership) values
   ('00000000-0000-0000-0000-0000000000c1','Onix','AAA0A00',10,'company'),
