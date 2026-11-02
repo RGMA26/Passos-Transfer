@@ -54,6 +54,7 @@ function ui() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  localStorage.clear()
   profile = makeProfile()
   mList.mockResolvedValue([])
   mApi.getOpenShift.mockResolvedValue(null)
@@ -122,6 +123,26 @@ describe('TodayTab', () => {
     mApi.getOpenShift.mockRejectedValue(new TypeError('offline'))
     ui()
     expect(await screen.findByRole('button', { name: 'Encerrar turno' })).toBeInTheDocument()
+  })
+
+  it('abertura sem rede usa o último turno aberto visto no servidor', async () => {
+    mApi.getOpenShift.mockResolvedValue({ ...openShift, driver_id: 'u1' } as never)
+    const first = ui()
+    expect(await screen.findByRole('button', { name: 'Encerrar turno' })).toBeInTheDocument()
+    first.unmount()
+
+    mApi.getOpenShift.mockRejectedValue(new TypeError('offline'))
+    mApi.getTodaySummary.mockRejectedValue(new TypeError('offline'))
+    ui()
+    expect(await screen.findByRole('button', { name: 'Encerrar turno' })).toBeInTheDocument()
+  })
+
+  it('turno encerrado no servidor limpa o cache', async () => {
+    localStorage.setItem('passos.openShift.u1', JSON.stringify({ ...openShift, driver_id: 'u1' }))
+    mApi.getOpenShift.mockResolvedValue(null)
+    ui()
+    expect(await screen.findByRole('button', { name: 'Iniciar turno' })).toBeInTheDocument()
+    expect(localStorage.getItem('passos.openShift.u1')).toBeNull()
   })
 
   it('odômetro final menor que o inicial é recusado', async () => {

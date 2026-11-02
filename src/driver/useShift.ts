@@ -36,6 +36,28 @@ export function deriveShift(server: Shift | null, ops: QueuedOp[]): ShiftState |
   return shift
 }
 
+// Último turno aberto visto no servidor, por usuário: o app abre sem rede ainda no turno.
+const shiftKey = (userId: string) => `passos.openShift.${userId}`
+
+export function readCachedShift(userId: string): Shift | null {
+  try {
+    const raw = localStorage.getItem(shiftKey(userId))
+    const s = raw ? (JSON.parse(raw) as Shift) : null
+    return s && s.driver_id === userId && !s.ended_at ? s : null
+  } catch {
+    return null
+  }
+}
+
+function writeCachedShift(userId: string, s: Shift | null) {
+  try {
+    if (s && !s.ended_at) localStorage.setItem(shiftKey(userId), JSON.stringify(s))
+    else localStorage.removeItem(shiftKey(userId))
+  } catch {
+    /* armazenamento indisponível */
+  }
+}
+
 export interface ShiftData {
   loading: boolean
   ops: QueuedOp[]
@@ -55,10 +77,12 @@ export function useShift(userId: string | undefined, enabled = true): ShiftData 
     setOps(await listOps(userId))
     try {
       const s = await api.getOpenShift(userId)
+      writeCachedShift(userId, s) // null = nenhum turno aberto (encerrado): limpa o cache
       setServer(s)
       setServerRides(s ? await api.getShiftRides(s.id) : [])
     } catch {
-      // offline: mantém o último estado do servidor
+      // offline: mantém o último estado do servidor (ou o último salvo, na abertura do app)
+      setServer((cur) => cur ?? readCachedShift(userId))
     }
     setLoading(false)
   }, [userId, enabled])

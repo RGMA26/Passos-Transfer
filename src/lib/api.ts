@@ -4,12 +4,12 @@ import type { Car, Profile, Ride, Period, RideExpense, Shift, Statement, Stateme
 import type { Database } from './database.types'
 
 export async function getMyProfile(userId: string): Promise<Profile | null> {
-  const { data, error } = await supabase
+  const { data, error, status } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', userId)
     .maybeSingle()
-  if (error) throw error
+  if (error) fail(error, status) // falha de rede vira TypeError (o auth usa o perfil em cache)
   return data
 }
 
@@ -105,13 +105,13 @@ export async function completeTransfer(a: { ride_id: string; km: number }): Prom
 }
 
 export async function getOpenShift(driverId: string): Promise<Shift | null> {
-  const { data, error } = await supabase
+  const { data, error, status } = await supabase
     .from('shifts')
     .select('*')
     .eq('driver_id', driverId)
     .is('ended_at', null)
     .maybeSingle()
-  if (error) throw error
+  if (error) fail(error, status)
   return data
 }
 

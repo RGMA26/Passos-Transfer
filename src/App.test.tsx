@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { render, screen, waitFor, act, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 
@@ -191,5 +191,34 @@ describe('refresh silencioso', () => {
     profileFail = false
     expect(screen.getByLabelText('campo')).toBeInTheDocument()
     expect(screen.queryByText('tela de login')).not.toBeInTheDocument()
+  })
+})
+
+describe('abertura sem rede', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    profileFail = false
+  })
+
+  it('motorista com perfil em cache continua no app', async () => {
+    login({ role: 'driver' })
+    renderAt('/m/hoje')
+    expect(await screen.findByRole('heading', { name: 'Hoje' })).toBeInTheDocument()
+    expect(localStorage.getItem('passos.profile.u1')).toContain('"role":"driver"')
+    cleanup()
+
+    profileFail = true
+    renderAt('/m/hoje')
+    expect(await screen.findByRole('heading', { name: 'Hoje' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Código de acesso')).not.toBeInTheDocument()
+    profileFail = false
+  })
+
+  it('sem perfil em cache, falha de rede leva ao login', async () => {
+    login({ role: 'driver' })
+    profileFail = true
+    renderAt('/m/hoje')
+    expect(await screen.findByLabelText('Código de acesso')).toBeInTheDocument()
+    profileFail = false
   })
 })

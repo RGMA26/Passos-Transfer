@@ -22,6 +22,35 @@ interface AuthValue {
 
 const AuthContext = createContext<AuthValue | null>(null)
 
+// Último perfil carregado por usuário: permite abrir o app sem rede (PWA offline-first).
+const profileKey = (userId: string) => `passos.profile.${userId}`
+
+function readCachedProfile(userId: string): Profile | null {
+  try {
+    const raw = localStorage.getItem(profileKey(userId))
+    const p = raw ? (JSON.parse(raw) as Profile) : null
+    return p && p.id === userId ? p : null
+  } catch {
+    return null
+  }
+}
+
+function writeCachedProfile(userId: string, p: Profile | null) {
+  try {
+    if (p) localStorage.setItem(profileKey(userId), JSON.stringify(p))
+    else localStorage.removeItem(profileKey(userId))
+  } catch {
+    /* armazenamento indisponível */
+  }
+}
+
+/** Falha de rede (fetch rejeitado / sem status HTTP), não erro do servidor. */
+function isNetworkError(e: unknown): boolean {
+  if (e instanceof TypeError) return true
+  const st = (e as { status?: number } | null)?.status
+  return typeof e === 'object' && e !== null && !st && !(e as { code?: string }).code
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -38,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const p = await getMyProfile(s.user.id)
       if (userIdRef.current !== s.user.id) return // resultado obsoleto
       if (p && p.active === false) {
+        writeCachedProfile(s.user.id, null)
         setNotice(MSG_DISABLED)
         userIdRef.current = null
         setProfile(null)
@@ -45,8 +75,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await supabase.auth.signOut()
         return
       }
+      writeCachedProfile(s.user.id, p)
       setProfile(p)
-    } catch {
+    } catch (e) {
+      if (userIdRef.current !== s.user.id) return
+      // sem rede na abertura do app: usa o último perfil conhecido deste usuário
+      const cached = isNetworkError(e) ? readCachedProfile(s.user.id) : null
+      if (cached) {
+        if (!silent) setProfile(cached)
+        return
+      }
       // refresh silencioso (ex.: offline ao refocar a aba) mantém o perfil atual
       if (!silent) setProfile(null)
     }
