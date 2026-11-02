@@ -44,7 +44,7 @@ select throws_ok(
   '23514', null, 'odometro final < inicial rejeitado');
 
 insert into driver_periods (id, driver_id, start_date, end_date)
-values ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000a2','2026-10-03','2026-10-17');
+values ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000a2','2026-09-28','2026-10-12');  -- alinhada ao ciclo de 01/01
 
 select throws_ok(
   $$insert into adjustments (driver_id, driver_period_id, kind, amount, description, effective_date)

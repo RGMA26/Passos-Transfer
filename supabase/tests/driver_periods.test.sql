@@ -166,8 +166,8 @@ select throws_ok(
   'P0001', 'DRIVER_PAUSED', 'pausado não lança depois do fim da última quinzena');
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
 select lives_ok(
-  $$insert into rides (driver_id, platform, ride_date, amount, client_name, transfer_status)
-    values ('00000000-0000-0000-0000-000000001a02','transfer','2026-11-21',100,'W','assigned')$$,
+  $$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
+    values ('00000000-0000-0000-0000-000000001a02', '00000000-0000-0000-0000-000000001c01', '2026-11-21','gasolina',100,20,5.000,'x')$$,
   'admin não é bloqueado pela pausa na quinzena existente');
 select ok((select count(*) from driver_periods where driver_id = '00000000-0000-0000-0000-000000001a01') > 0, 'admin lê todas as quinzenas');
 reset role;
