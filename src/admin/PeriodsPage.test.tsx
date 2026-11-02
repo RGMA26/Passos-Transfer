@@ -154,6 +154,7 @@ describe('quinzenas', () => {
     ['OPEN_SHIFTS', 'Há turnos abertos'],
     ['ASSIGNED_TRANSFERS', 'Há transfers não concluídos'],
     ['PENDING_REVIEW', 'Há itens aguardando conferência'],
+    ['SHIFTS_NOT_APPROVED', 'Há turnos não aprovados'],
     ['MISSING_REFERENCE_PRICE', 'Defina o preço de referência do litro'],
     ['OTHER', 'Não foi possível fechar a quinzena'],
   ])('erro %s -> %s', async (code, msg) => {

@@ -299,6 +299,9 @@ function ShiftItem({ shift, onDone }: { shift: api.PendingShift; onDone: () => v
     >
       <strong>{shift.driver_name}</strong>
       <span>{`${fmtDay(shift.start_date)} · odômetro ${shift.odometer_start} → ${shift.odometer_end ?? '—'}`}</span>
+      {shift.review_status === 'rejected' && (
+        <span className="error">{`Recusado: ${shift.reject_reason ?? '—'}`}</span>
+      )}
     </ReviewItem>
   )
 }

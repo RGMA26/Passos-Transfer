@@ -232,9 +232,10 @@ export async function listMyStatements(driverId: string): Promise<StatementRow[]
 }
 
 export interface RejectedItem {
-  kind: 'Abastecimento' | 'Transfer' | 'Pedágio' | 'Estacionamento'
+  kind: 'Abastecimento' | 'Transfer' | 'Pedágio' | 'Estacionamento' | 'Turno'
   date: string
-  amount: number
+  /** null para turno (não tem valor próprio). */
+  amount: number | null
   reason: string
 }
 
@@ -243,7 +244,7 @@ export async function listRejectedItems(
   start: string,
   end: string,
 ): Promise<RejectedItem[]> {
-  const [f, r] = await Promise.all([
+  const [f, r, s] = await Promise.all([
     supabase
       .from('fuelings')
       .select('fueled_on, amount, reject_reason')
@@ -257,10 +258,21 @@ export async function listRejectedItems(
       .eq('driver_id', driverId)
       .gte('ride_date', start)
       .lte('ride_date', end),
+    supabase
+      .from('shifts')
+      .select('start_date, reject_reason')
+      .eq('driver_id', driverId)
+      .eq('review_status', 'rejected')
+      .gte('start_date', start)
+      .lte('start_date', end),
   ])
   if (f.error) throw f.error
   if (r.error) throw r.error
+  if (s.error) throw s.error
   const out: RejectedItem[] = []
+  for (const x of s.data ?? []) {
+    out.push({ kind: 'Turno', date: x.start_date, amount: null, reason: x.reject_reason ?? '—' })
+  }
   for (const x of f.data ?? []) {
     out.push({ kind: 'Abastecimento', date: x.fueled_on, amount: Number(x.amount), reason: x.reject_reason! })
   }
@@ -529,6 +541,8 @@ export interface PendingShift {
   odometer_start_photo: string | null
   odometer_end_photo: string | null
   uber_earnings_photo: string | null
+  review_status: 'pending' | 'rejected'
+  reject_reason: string | null
 }
 export interface PendingTransfer {
   id: string
@@ -556,7 +570,7 @@ export async function listPendingReview(): Promise<PendingReview> {
     supabase
       .from('shifts')
       .select('*')
-      .eq('review_status', 'pending')
+      .in('review_status', ['pending', 'rejected'])
       .not('ended_at', 'is', null)
       .order('started_at'),
     supabase
@@ -601,6 +615,8 @@ export async function listPendingReview(): Promise<PendingReview> {
       odometer_start_photo: x.odometer_start_photo,
       odometer_end_photo: x.odometer_end_photo,
       uber_earnings_photo: x.uber_earnings_photo,
+      review_status: x.review_status === 'rejected' ? 'rejected' : 'pending',
+      reject_reason: x.reject_reason,
     })),
     transfers: (must(t) ?? []).map((x) => ({
       id: x.id,

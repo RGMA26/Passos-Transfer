@@ -4,7 +4,8 @@ import type { StatementLines } from '../lib/types'
 export interface RejectedLine {
   kind: string
   date: string
-  amount: number
+  /** null para turno (sem valor próprio). */
+  amount: number | null
   reason: string
 }
 
@@ -109,7 +110,9 @@ export default function StatementView({
           <ul>
             {rejected.map((r, i) => (
               <li key={i}>
-                {`${r.kind} de ${formatDay(r.date)} (${formatBRL(r.amount)}) – Recusado: ${r.reason}`}
+                {r.amount === null
+                  ? `${r.kind} de ${formatDay(r.date).slice(0, 5)}: ${r.reason}`
+                  : `${r.kind} de ${formatDay(r.date)} (${formatBRL(r.amount)}) – Recusado: ${r.reason}`}
               </li>
             ))}
           </ul>

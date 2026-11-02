@@ -23,6 +23,7 @@ const full = (): api.PendingReview => ({
       id: 's1', driver_id: 'd1', driver_name: 'Maria', start_date: '2026-10-28',
       odometer_start: 1000, odometer_end: 1200,
       odometer_start_photo: 's1a.jpg', odometer_end_photo: 's1b.jpg', uber_earnings_photo: null,
+      review_status: 'pending', reject_reason: null,
     },
   ],
   transfers: [
@@ -99,6 +100,20 @@ describe('fila', () => {
     const f = within(await waitFor(() => section('Abastecimentos')))
     await user.click(f.getByRole('button', { name: 'Aprovar' }))
     expect(await screen.findByText('Quinzena fechada: não é possível alterar')).toBeInTheDocument()
+  })
+})
+
+describe('turno recusado', () => {
+  it('aparece na fila com o motivo e pode ser aprovado depois da correção', async () => {
+    const q = full()
+    q.shifts = [{ ...q.shifts[0], id: 's2', review_status: 'rejected', reject_reason: 'Km errado' }]
+    m.listPendingReview.mockResolvedValue(q)
+    const user = userEvent.setup()
+    render(<ReviewPage />)
+    const s = within(await waitFor(() => section('Turnos')))
+    expect(s.getByText('Recusado: Km errado')).toBeInTheDocument()
+    await user.click(s.getByRole('button', { name: 'Aprovar' }))
+    await waitFor(() => expect(m.reviewItem).toHaveBeenCalledWith('shift', 's2', true, null))
   })
 })
 

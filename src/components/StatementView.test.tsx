@@ -63,6 +63,18 @@ describe('StatementView', () => {
     expect(screen.getByText(/Foto ilegível/)).toBeInTheDocument()
   })
 
+  it('turno recusado aparece como "Turno de dd/mm: motivo"', () => {
+    render(
+      <StatementView
+        lines={base}
+        status="estimated"
+        driverType="company_car"
+        rejected={[{ kind: 'Turno', date: '2026-10-05', amount: null, reason: 'Km errado' }]}
+      />,
+    )
+    expect(screen.getByText('Turno de 05/10: Km errado')).toBeInTheDocument()
+  })
+
   it('fechado mostra Total e selo Fechado', () => {
     render(<StatementView lines={base} status="closed" driverType="company_car" />)
     expect(screen.getByText('Fechado')).toBeInTheDocument()
