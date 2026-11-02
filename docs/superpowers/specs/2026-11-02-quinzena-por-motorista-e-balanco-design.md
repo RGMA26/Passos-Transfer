@@ -107,10 +107,17 @@ Seletor de mês (padrão: mês atual). Todos os valores em reais, 2 casas.
 
 ### 4.6 Gastos dos carros da empresa
 - Só para carros com propriedade **"Empresa"** (não para o carro próprio do motorista).
-- Tabela `car_expenses(id, car_id, kind 'maintenance'|'insurance'|'tax', description, amount numeric(10,2) > 0, expense_date date, created_at)`. Somente admin (RLS); motoristas não veem.
+- Tabela `car_expenses(id, car_id, kind 'maintenance'|'insurance'|'tax', description, mode 'single'|'installments'|'recurring', amount numeric(10,2) > 0, installments int null, start_date date not null, end_date date null, finished boolean default false, created_at)`. Somente admin (RLS); motoristas não veem.
 - Tipos: **Manutenção**, **Seguro** e **Imposto** — no Imposto, `description` é obrigatória e escrita livremente (ex.: "IPVA 2027", "Licenciamento"); nos demais é opcional.
-- Opcional: no cadastro do carro da empresa há a seção **"Gastos do carro (opcional)"**; o carro é salvo sem nenhum gasto. Na lista de Carros, cada carro da empresa tem **"Gastos"** para ver, adicionar, editar e excluir lançamentos a qualquer momento.
-- Cada gasto entra no Balanço no **mês da sua data** (`expense_date`), no bloco "Gastos dos carros da empresa" (por tipo e por carro) e no Resultado da empresa. A planilha detalhada inclui uma linha por gasto (data, carro/placa, tipo, descrição, valor).
+- **Data de início** (`start_date`, obrigatória): o mês a partir do qual o gasto começa a contar no Resultado da empresa.
+- **Forma de registro** (`mode`):
+  - **Pontual** — o valor (`amount`) entra uma única vez, no mês da data de início.
+  - **Parcelado** — informa-se o **valor cheio** (`amount`) e o **número de parcelas** (`installments` ≥ 2). Cada mês, a partir do mês da data de início, recebe `amount ÷ parcelas` arredondado a 2 casas; a **última parcela** absorve a diferença de centavos para que a soma feche exatamente o valor cheio. A tela mostra a prévia ("10× R$ 120,00").
+  - **Recorrente** — o valor (`amount`) entra **todo mês**, a partir do mês da data de início, até o gasto ser **finalizado**. "Finalizar" pede o **último mês** que conta (padrão: mês atual) e grava `end_date`/`finished = true`; a partir do mês seguinte deixa de contar. Os meses anteriores continuam no histórico.
+- **Excluir** apaga o registro inteiro e o remove de **todos** os meses, inclusive os passados; a confirmação avisa: "Isso remove este gasto de todos os meses, inclusive dos balanços já vistos. Para parar de contar daqui para frente, use Finalizar." (Finalizar só existe para recorrentes.)
+- Opcional: no cadastro do carro da empresa há a seção **"Gastos do carro (opcional)"**; o carro é salvo sem nenhum gasto. Na lista de Carros, cada carro da empresa tem **"Gastos"** para ver, adicionar, editar, finalizar e excluir a qualquer momento. A lista mostra a forma (Pontual / Parcela x de N / Recorrente – ativo ou finalizado em mm/aaaa).
+- Cálculo do mês M (função `car_expenses_for_month(p_month)`): pontual se o mês da data de início = M; parcela *k* (0 ≤ k < N) quando mês(início) + k = M; recorrente quando mês(início) ≤ M e (não finalizado ou M ≤ mês(`end_date`)).
+- No Balanço, o bloco "Gastos dos carros da empresa" mostra os valores do mês por tipo e por carro (com "parcela 3/10" ou "recorrente") e entra no Resultado da empresa. A planilha detalhada inclui uma linha por gasto que conta no mês (carro/placa, tipo, descrição, forma, parcela, valor do mês).
 - Gastos não dependem de quinzena e não aparecem para motoristas.
 
 ### 4.5 CPF
@@ -141,7 +148,7 @@ Seletor de mês (padrão: mês atual). Todos os valores em reais, 2 casas.
 
 ## 7. Testes
 
-- **pgTAP**: cálculo do ciclo (virada de mês e ano, cadastro no dia 31, data anterior ao ciclo); fechamento individual e ordem (`PREVIOUS_OPEN`); bloqueio só da quinzena do motorista; `values_conflict` (dentro/fora da tolerância); preço do litro nas quatro situações; reembolso só para carro da empresa; `MISSING_FUEL_PRICE` e fechamento confirmado com a marca ❗; pausa (quinzena encurtada, `DRIVER_PAUSED`, retomada reinicia o ciclo na data de retorno); gastos de carro no Resultado e invisíveis ao motorista; sinais 🔴/🟡 (limites de 5 dias); balanço mensal com uma quinzena atravessando dois meses (setembro/outubro) nos três blocos; CPF válido/duplicado; `admin_documents` e bucket inacessíveis ao motorista.
+- **pgTAP**: cálculo do ciclo (virada de mês e ano, cadastro no dia 31, data anterior ao ciclo); fechamento individual e ordem (`PREVIOUS_OPEN`); bloqueio só da quinzena do motorista; `values_conflict` (dentro/fora da tolerância); preço do litro nas quatro situações; reembolso só para carro da empresa; `MISSING_FUEL_PRICE` e fechamento confirmado com a marca ❗; pausa (quinzena encurtada, `DRIVER_PAUSED`, retomada reinicia o ciclo na data de retorno); gastos de carro (pontual, parcelado com ajuste de centavos na última parcela, recorrente até finalizar) no Resultado e invisíveis ao motorista; sinais 🔴/🟡 (limites de 5 dias); balanço mensal com uma quinzena atravessando dois meses (setembro/outubro) nos três blocos; CPF válido/duplicado; `admin_documents` e bucket inacessíveis ao motorista.
 - **Vitest**: formulário de abastecimento (conflito, "Salvar mesmo assim"), círculos, Balanço (blocos, comparação, exportações), recibo, Documentos, CPF.
 - **Playwright**: fluxo completo atualizado (cadastro com CPF, abastecimento com preço, conflito, fechamento individual, pagamento com anexos, balanço do mês com o valor esperado).
 
