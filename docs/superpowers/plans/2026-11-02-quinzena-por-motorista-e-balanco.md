@@ -197,3 +197,75 @@ Conteúdo da antiga Task 7 (spec §2.4, §4.6, §5, §9.1, §9.6), com estes aju
 - E2E atualizado: cadastro com CPF; carro flex com consumo; turno; Uber com comprovante; abastecimento com conflito e "Salvar mesmo assim"; Transfer com endereço (aceitar "Não foi possível calcular o km estimado" sem internet), Iniciar/Concluir com odômetros, pedágio pelo Lançar, conferência única; fechamento com force; pagamento com anexo PDF; recibo; balanço do mês com valores derivados à mão (comentário com a conta); gasto recorrente no Resultado; bolinha do Início levando à pendência; motorista sem acesso a Documentos.
 - DEPLOY.md: aplicar 0010–0014; `npx supabase functions deploy create-driver update-driver estimate-route`; apagar o motorista de teste antes (feito pelo controlador, com confirmação).
 - [ ] Steps: `npx playwright test`, `npx supabase test db`, `npm test`, `npm run build` PASS → commit `test: E2E do novo fluxo`.
+
+---
+
+## Apêndice — tarefas originais referenciadas ("antiga Task N")
+
+As tasks acima que dizem "conteúdo da antiga Task N" usam o texto abaixo, com os ajustes descritos nelas (e o spec §9 prevalece).
+
+### Antiga Task 3: Transfer iniciar/concluir, comprovantes obrigatórios e conferência única (0012)
+
+**Files:** Create `supabase/migrations/0012_transfer_flow.sql`, `supabase/tests/transfer_flow.test.sql`; Modify `shift_transfer_review.test.sql`, `rejected_shifts.test.sql`, `driver_edits.test.sql`, `rls.test.sql` conforme necessário.
+
+**Interfaces — Consumes:** Tasks 1–2. **Produces:**
+- `rides.transfer_status` aceita `'in_progress'`; `rides` ganha `odometer_start int`, `odometer_start_photo text`, `odometer_end int`, `odometer_end_photo text`, `started_at timestamptz`, `estimated_km numeric(8,1)`, `origin_street`, `origin_district`, `origin_city`, `origin_state`, `origin_zip`, `origin_ref`, `dest_street`, `dest_district`, `dest_city`, `dest_state`, `dest_zip`, `dest_ref` (text), `receipt_path text`. Transfer exige origem e destino (rua, bairro, cidade, UF não vazios) — check. Uber/BlaBlaCar inseridos pelo motorista exigem `receipt_path` (trigger `RECEIPT_REQUIRED`).
+- `start_transfer(p_ride_id uuid, p_odometer int, p_photo text) returns rides` — dono; `assigned` → `in_progress`; `PHOTO_REQUIRED`; company_car exige turno aberto (`NO_OPEN_SHIFT`) e vincula `shift_id`; leitura < último odômetro do carro → `ODOMETER_BELOW_LAST`; idempotente se já `in_progress` com a mesma leitura.
+- `complete_transfer(p_ride_id uuid, p_odometer int, p_photo text) returns rides` (substitui `(uuid, numeric)`): `in_progress` → `completed`; `km = odometer_end − odometer_start` (`ODOMETER_BELOW_START` se menor); limpa `reject_reason`.
+- `review_item('transfer', …)`: aprovar → `checked` e todas as `ride_expenses` pendentes do Transfer `approved` na mesma transação; recusar → `in_progress` com `reject_reason`, despesas seguem `pending`. `review_item('expense', …)` → `USE_TRANSFER_REVIEW`.
+- `ride_expenses` aceita inserção com Transfer `assigned`/`in_progress`/`completed`; comprovante obrigatório. O último odômetro do carro (Task 2) passa a incluir `rides.odometer_start/end`.
+
+- [ ] **Step 1: Testes que falham**: assigned→start 5000 (in_progress)→complete 5042 (completed, km 42)→aprovar (checked, despesa approved); complete 4990 → `ODOMETER_BELOW_START`; start sem foto → `PHOTO_REQUIRED`; company_car sem turno → `NO_OPEN_SHIFT`; start 900 após turno 1200 → `ODOMETER_BELOW_LAST`; recusa → in_progress com motivo e despesa pending; concluir de novo → completed; `review_item('expense',…)` → `USE_TRANSFER_REVIEW`; transfer sem origem → 23514; uber sem comprovante → `RECEIPT_REQUIRED`; outro motorista não inicia/conclui.
+- [ ] **Step 2–4:** FAIL → implementar → PASS.
+- [ ] **Step 5:** Commit `feat(db): transfer com iniciar/concluir, comprovantes e conferência única`.
+
+---
+
+### Antiga Task 4: Fechamento individual, sinais, pausa e alertas (0013)
+
+Conteúdo da antiga Task 3 (spec §2.2–2.4, §3.2, §9.1), com estes ajustes:
+- Migration `0013_driver_close.sql`; testes `driver_close.test.sql` + reativar `close_alerts`, `close_force` e os skips de `rejected_shifts`.
+- `close_driver_period(p_period uuid, p_force boolean default false, p_allow_missing_fuel_price boolean default false) returns uuid`; ordem de erros `NOT_FOUND`, `ALREADY_CLOSED`, `PREVIOUS_OPEN`, `PERIOD_NOT_ENDED`, `OPEN_SHIFTS`, `ASSIGNED_TRANSFERS` (Transfers `assigned` ou `in_progress`), `PENDING_REVIEW` (inclui Transfers `completed`), `SHIFTS_NOT_APPROVED`, `MISSING_FUEL_PRICE` (falta de nota **ou** de consumo, quando necessário). `driver_periods.missing_fuel_price = true` em ambos.
+- `mark_statement_paid` adaptado; `driver_period_signals()`, `pause_driver`, `resume_driver` (tabela `driver_pauses`), `admin_alerts()` como no spec. `pause_driver` chama `driver_period_for(d, p_paused_on)` antes de marcar `paused`; admin nunca bloqueado por pausa; motorista pausado: `start_shift`, `start_transfer`, `complete_transfer`, inserts → `DRIVER_PAUSED`; atribuir Transfer a pausado → `DRIVER_PAUSED`.
+- `cycle_start_date` só muda via `resume_driver` (trigger `CYCLE_START_LOCKED`, flag de sessão como em 0008).
+- [ ] Steps: testes que falham (ordem dos erros, isolamento entre motoristas, `MISSING_FUEL_PRICE` + allow → ❗, sinais com datas relativas a `current_date` (end = hoje+5 yellow; hoje+6 null; end = hoje−1 aberta red; pausado null), pausa 15/11 encurta a quinzena 10/11–24/11, lançamento do motorista em 16/11 → `DRIVER_PAUSED`, em 15/11 ok, retomar 01/12 → quinzena 01/12–15/12, `INVALID_DATE`, `CYCLE_START_LOCKED`, FORBIDDEN para motorista) → FAIL → implementar → PASS sem nenhum skip → commit `feat(db): fechamento por motorista, sinais e pausa`.
+
+---
+
+### Antiga Task 7: Telas do motorista
+
+**Files:** Modify `src/lib/api.ts`, `src/lib/offline/queue.ts`, `src/driver/LaunchTab.tsx`, `src/driver/TransfersTab.tsx`, `src/driver/TodayTab.tsx`, `src/driver/TodayEntries.tsx`, `src/driver/StatementTab.tsx`, `src/components/StatementView.tsx`, `src/components/PhotoInput.tsx` (→ `ReceiptInput` aceitando PDF), `vite.config.ts` (manifest `share_target`), service worker de compartilhamento (`injectManifest` ou `importScripts` de `public/sw-share.js`: trata `POST /share-target`, guarda o arquivo no IndexedDB e redireciona para `/m/compartilhar`); Create `src/driver/ShareTargetPage.tsx`; testes.
+
+- [ ] **Step 1: Testes que falham**:
+  - `ReceiptInput` aceita `image/*` e `application/pdf` (≤ 10 MB, senão "Envie JPG, PNG ou PDF de até 10 MB"); PDF não é comprimido; miniatura para imagem, ícone + nome para PDF.
+  - Lançar: Uber/BlaBlaCar exigem comprovante ("Adicione o comprovante"); Abastecimento: combustível (opções do `fuel_type` do carro), "Valor total", "Quantidade (L/m³/kWh)", "Preço por L/m³/kWh", comprovante; conflito → "Valores conflitantes, confira a nota" + conta + "Salvar mesmo assim"; Pedágio e Estacionamento: valor, comprovante e Transfer (do motorista em `assigned`/`in_progress`/`completed`); sem Transfer → "Pedágio e estacionamento são lançados em um Transfer"; motorista de carro próprio vê Abastecimento sem turno, com o aviso "Usado para calcular a gasolina dos seus Transfers — não é reembolsado".
+  - Transfers: `assigned` → "Iniciar" (odômetro + foto); `in_progress` → "Em andamento" e "Concluir" (odômetro + foto); final < inicial → "O odômetro final não pode ser menor que o inicial"; `completed` → "Aguardando conferência"; recusado mostra o motivo e volta a "Concluir"; nenhum campo de km digitado.
+  - Fila: `ODOMETER_BELOW_LAST` → "Não enviado: odômetro menor que o último registrado"; `DRIVER_PAUSED` → "Não enviado: cadastro pausado"; `BEFORE_CYCLE_START` → "Não enviado: data anterior ao seu cadastro"; `RECEIPT_REQUIRED` → "Não enviado: falta o comprovante".
+  - Pausado: "Seu cadastro está pausado. Fale com a empresa." e ações desabilitadas.
+  - Extrato: "Quinzena dd/mm – dd/mm · faltam X dias"; avisos de falta de nota/consumo.
+  - Compartilhar: `/m/compartilhar` com arquivo pendente pergunta "O que é este comprovante?" (Abastecimento, Pedágio, Estacionamento, Corrida Uber, Corrida BlaBlaCar) e abre o formulário com o arquivo anexado; manifest contém `share_target` (action `/share-target`, POST, multipart/form-data, files accept image/*, application/pdf).
+- [ ] **Step 2–4:** FAIL → implementar → `npm test`, `npm run build` PASS.
+- [ ] **Step 5:** Commit `feat(motorista): comprovantes, combustível, transfer iniciar/concluir e compartilhar`.
+
+---
+
+### Antiga Task 8: Admin — Motoristas e Carros
+
+Conteúdo da antiga Task 7 (spec §2.4, §4.6, §5, §9.1, §9.6), com estes ajustes:
+- "Editar" abre o formulário completo (nome, telefone, CPF, tipo, % Uber, % Transfer, carro) via `update-driver`; o vínculo carro↔motorista é editável também em Carros.
+- Carros: tipo de combustível (GNV, Diesel, Gasolina, Álcool, Flex, Elétrico, Híbrido) e consumos conforme o tipo, todos opcionais e editáveis; salvar sem consumo → confirm "Tem certeza que quer cadastrar sem o consumo? Sem ele, a gasolina por km não pode ser calculada.".
+- Gastos: Manutenção, Seguro, Imposto, Outro (descrição obrigatória em Imposto e Outro: "Descreva o gasto"); formas Pontual/Parcelado/Recorrente; Finalizar; Excluir com a mensagem do spec §4.6.
+- [ ] Steps: testes (antiga Task 7 + edição completa + combustível/consumo + Outro) → FAIL → implementar → PASS → commit `feat(admin): motoristas e carros completos, pausa, documentos e gastos`.
+
+---
+
+### Antiga Task 9: Admin — Transfers, Conferência e Quinzenas
+
+**Files:** Modify `src/admin/TransfersPage.tsx`, `src/admin/ReviewPage.tsx`, `src/admin/PeriodsPage.tsx`, `src/admin/PrintStatementPage.tsx`, `src/lib/api.ts`; Create `src/admin/AddressFields.tsx`, `src/admin/PrintReceiptPage.tsx` (`/admin/recibo/:statementId`), `src/lib/extenso.ts` (+test `valorPorExtenso`: 1,00 "um real"; 0,50 "cinquenta centavos"; 213,00 "duzentos e treze reais"; 1.234,56 "mil duzentos e trinta e quatro reais e cinquenta e seis centavos"); testes.
+- Transfers: origem e destino com "Rua e número", "Bairro", "Cidade", "UF", "CEP (opcional)", "Referência (opcional)"; os 4 primeiros obrigatórios ("Preencha o endereço de origem" / "…de destino"); ao salvar chama `estimate-route` e grava `estimated_km`; falha → "Não foi possível calcular o km estimado" e salva; lista com status "Atribuída / Em andamento / Concluída / Conferida", km estimado e km real.
+- Conferência: "Transfers concluídos" com odômetros e fotos, km real × estimado (real > estimado em 20% → laranja "Km acima do estimado"), despesas com comprovantes, Aprovar/Recusar únicos; seção de despesas avulsas removida; abastecimentos 🟠 com a conta.
+- Quinzenas: lista por motorista (quinzena atual, sinal, total), quinzenas do motorista com ❗, Fechar com `PREVIOUS_OPEN` "Feche a quinzena anterior primeiro", `PERIOD_NOT_ENDED` (confirm e force), `MISSING_FUEL_PRICE` (confirm com o texto de §3.2 ou §9.1 conforme `missing_consumption`, e allow); pagamento com anexos "Comprovante de pagamento" e "Recibo assinado" (✅/⚪); "Recibo" abre a página de recibo (nome, CPF formatado, código, período, linhas, valor por extenso, data, forma, "Assinatura do motorista", `window.print()` uma vez). Sem preço de referência em nenhuma tela.
+- [ ] Steps: testes → FAIL → implementar → `npm test`, `npm run build` PASS → commit `feat(admin): transfers com endereço e km estimado, conferência única e quinzenas`.
+
+---
+
