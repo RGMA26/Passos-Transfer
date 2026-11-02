@@ -8,6 +8,7 @@ import TransfersTab from './driver/TransfersTab'
 import StatementTab from './driver/StatementTab'
 import TodayTab from './driver/TodayTab'
 import LaunchTab from './driver/LaunchTab'
+import ShareTargetPage from './driver/ShareTargetPage'
 import AdminLayout from './admin/AdminLayout'
 import DriversPage from './admin/DriversPage'
 import CarsPage from './admin/CarsPage'
@@ -74,6 +75,7 @@ export function AppRoutes() {
         <Route path="lancar" element={<LaunchTab />} />
         <Route path="transfers" element={<TransfersTab />} />
         <Route path="extrato" element={<StatementTab />} />
+        <Route path="compartilhar" element={<ShareTargetPage />} />
       </Route>
       <Route
         path="/admin"
