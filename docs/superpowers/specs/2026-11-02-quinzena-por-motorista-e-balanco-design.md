@@ -154,3 +154,38 @@ Seletor de mês (padrão: mês atual). Todos os valores em reais, 2 casas.
 
 ## 8. Publicação
 Migrações aplicadas no projeto Supabase **Passos Transfer** (`bfddyxquxvspsrlgljos`) e Edge Function `create-driver` atualizada **somente após confirmação do usuário**; código enviado ao GitHub (`RGMA26/Passos-Transfer`, `main`) com publicação automática na Vercel.
+
+## 9. Adendo (2026-11-02, segunda rodada) — prevalece sobre as seções anteriores onde conflitar
+
+### 9.1 Combustível por tipo e consumo opcional
+- Carro ganha `fuel_type` ∈ {`gnv`, `diesel`, `gasolina`, `alcool`, `flex`, `eletrico`, `hibrido`} e consumos aproximados por combustível aplicável: `km_per_l_gasolina`, `km_per_l_alcool`, `km_per_l_diesel`, `km_per_m3_gnv`, `km_per_kwh` (flex → gasolina+álcool; híbrido → gasolina+elétrico; elétrico → kWh; gnv → m³; demais → o próprio). **Todos opcionais**; salvar sem consumo pergunta "Tem certeza que quer cadastrar sem o consumo? Sem ele, a gasolina por km não pode ser calculada." e permite.
+- Abastecimento ganha `fuel` ∈ {`gasolina`, `alcool`, `diesel`, `gnv`, `eletrico`} (opções limitadas ao tipo do carro) e a unidade correspondente (L, L, L, m³, kWh); os campos passam a ser **valor total, quantidade, preço por unidade e comprovante** — a regra de conflito (§3.1) vale com "quantidade × preço por unidade".
+- O cálculo passa a usar **custo por km**: para uma quinzena, `custo_km = Σ valor ÷ Σ (quantidade × consumo do carro para aquele combustível)` das notas aprovadas do motorista; reservas iguais às de §3.2 (última nota do motorista, depois da empresa), cada uma convertida pelo consumo do carro da nota. Gasolina por fora = km por fora × custo_km; gasolina do Transfer (carro próprio) = km do Transfer × custo_km.
+- Se faltar o consumo do carro para o combustível de uma nota necessária, o extrato marca `missing_consumption = true` e o fechamento pede confirmação como em §3.2 ("Falta o consumo do carro para calcular a gasolina. A gasolina será calculada como R$ 0,00. Tem certeza que deseja fechar?"), com a mesma marca ❗ ("Fechada sem consumo/nota").
+
+### 9.2 Comprovante obrigatório (foto ou PDF)
+- Todo lançamento do motorista exige comprovante: corrida Uber/BlaBlaCar (print da corrida), abastecimento, pedágio e estacionamento. Aceita **foto ou PDF** (até 10 MB). O banco exige `receipt_path` não vazio.
+- **Lançar** ganha **Pedágio** e **Estacionamento** (valor + comprovante + Transfer em andamento/concluído ao qual pertence — obrigatório escolher o Transfer; se não houver Transfer do motorista aberto, a opção mostra "Pedágio e estacionamento são lançados em um Transfer").
+- **Compartilhar (Android):** o app instalado aparece no "Compartilhar" do celular (Web Share Target). Ao receber um arquivo, abre "O que é este comprovante?" com Abastecimento, Pedágio, Estacionamento, Corrida Uber, Corrida BlaBlaCar e leva ao formulário certo com o arquivo já anexado. No iPhone não é possível; lá o motorista anexa pelo botão.
+
+### 9.3 Transfer: iniciar, em andamento, concluir, conferência única
+- Status: `assigned` (Atribuída) → `in_progress` (Em andamento) → `completed` (Concluída, aguardando conferência) → `checked` (Conferida).
+- **Iniciar** (ao pegar o cliente): leitura do odômetro + foto. **Concluir** (ao deixar o cliente): leitura do odômetro + foto. `km = odômetro final − odômetro inicial` (o motorista não digita km). Final < inicial → "O odômetro final não pode ser menor que o inicial".
+- Carro da empresa: Iniciar exige turno aberto; a leitura inicial não pode ser menor que o último odômetro do carro.
+- **Conferência única**: o admin vê, juntos, odômetros e fotos, km real, km estimado, pedágios/estacionamentos e comprovantes; **Aprovar** aprova o Transfer e todas as suas despesas; **Recusar** (com motivo) devolve o Transfer para `in_progress` com o motivo e as despesas pendentes, para o motorista corrigir e concluir de novo.
+- **Origem e destino obrigatórios** (admin), em campos: rua e número, bairro, cidade, UF, CEP (CEP opcional; referência opcional). Ao salvar, o app calcula o **km estimado** pela rota (OpenStreetMap: Nominatim + OSRM, via Edge Function `estimate-route`, sem custo). Se não conseguir: "Não foi possível calcular o km estimado" e salva sem ele.
+- Gasolina do Transfer (carro próprio) = km do odômetro × custo_km da quinzena (§9.1).
+
+### 9.4 Odômetro
+- Início de turno: leitura não pode ser menor que o **último odômetro registrado do carro** (maior valor entre turnos e Transfers daquele carro) → `ODOMETER_BELOW_LAST` "O odômetro não pode ser menor que o último registrado (X km)".
+
+### 9.5 Início: central de pendências
+- Bolinhas com quantidade: ⚪ itens aguardando conferência; 🟡 quinzenas terminando em até 5 dias; 🔴 quinzenas terminadas e não fechadas; 🟠 abastecimentos com valores conflitantes.
+- Clicar: se houver 1 item, abre direto a pendência; se houver mais, abre `/admin/pendencias?tipo=…` com a lista, cada linha levando à pendência específica.
+
+### 9.6 Outros
+- Gastos dos carros: tipo **Outro** com descrição livre obrigatória.
+- Ranking de km por fora: por motorista e por carro (Início e Balanço).
+- Edição completa do motorista após o cadastro (nome, telefone, CPF, tipo, porcentagens, carro) e do vínculo carro↔motorista.
+- BlaBlaCar: **sem mudanças** por enquanto (definição pendente com os sócios).
+- Motorista de teste "Kaique" em produção: seus dados são apagados antes de aplicar as migrações novas.
