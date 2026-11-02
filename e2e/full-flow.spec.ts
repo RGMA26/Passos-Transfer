@@ -153,6 +153,11 @@ test('fluxo completo: cadastro → turno → transfer → conferência → fecha
   await driver.getByRole('link', { name: 'Hoje' }).click()
   await expect(driver.getByText(/^Uber: R\$\s150,00$/)).toBeVisible()
   await expect(driver.getByText('Km em serviço: 40')).toBeVisible()
+  // listTodayEntries contra o banco real (corridas com o status do turno embutido)
+  const entries = driver.getByRole('region', { name: 'Lançamentos de hoje' })
+  await expect(entries).toContainText(/Uber R\$\s100,00 · 30 km/)
+  await expect(entries).toContainText(/Uber R\$\s50,00 · 10 km/)
+  await expect(entries.getByRole('button', { name: 'Editar' })).toHaveCount(2)
 
   await driver.getByRole('link', { name: 'Lançar' }).click()
   await driver.getByRole('button', { name: 'Abastecimento' }).click()

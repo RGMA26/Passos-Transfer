@@ -57,6 +57,105 @@ export async function insertExpense(row: Tables['ride_expenses']['Insert']): Pro
   if (error) fail(error, status)
 }
 
+// ---------- Edição/exclusão dos próprios lançamentos (via fila offline) ----------
+
+const notEditable = () => Object.assign(new Error('NOT_EDITABLE'), { code: 'NOT_EDITABLE' })
+
+/** Corrida Uber/BlaBlaCar de turno ainda não aprovado (RLS). */
+export async function updateRide(p: { id: string; amount: number; km: number | null }): Promise<void> {
+  const { data, error, status } = await supabase
+    .from('rides')
+    .update({ amount: p.amount, km: p.km })
+    .eq('id', p.id)
+    .select('id')
+  if (error) fail(error, status)
+  if (!data || data.length === 0) throw notEditable()
+}
+
+/** Abastecimento ainda pendente de conferência (RLS). */
+export async function updateFueling(p: { id: string; amount: number; liters: number }): Promise<void> {
+  const { data, error, status } = await supabase
+    .from('fuelings')
+    .update({ amount: p.amount, liters: p.liters })
+    .eq('id', p.id)
+    .select('id')
+  if (error) fail(error, status)
+  if (!data || data.length === 0) throw notEditable()
+}
+
+/** Idempotente: linha que já não existe conta como apagada; linha travada (aprovada) falha. */
+async function deleteOwn(table: 'rides' | 'fuelings', id: string): Promise<void> {
+  const { data, error, status } = await supabase.from(table).delete().eq('id', id).select('id')
+  if (error) fail(error, status)
+  if (data && data.length > 0) return
+  const still = await supabase.from(table).select('id').eq('id', id).maybeSingle()
+  if (still.error) fail(still.error, still.status)
+  if (still.data) throw notEditable()
+}
+
+export const deleteRide = (p: { id: string }) => deleteOwn('rides', p.id)
+export const deleteFueling = (p: { id: string }) => deleteOwn('fuelings', p.id)
+
+export interface TodayEntry {
+  kind: 'ride' | 'fueling'
+  id: string
+  /** Só para corridas. */
+  platform?: 'uber' | 'blablacar'
+  amount: number
+  km: number | null
+  liters: number | null
+  /** Corrida: turno não aprovado. Abastecimento: ainda pendente. */
+  editable: boolean
+}
+
+/** Corridas Uber/BlaBlaCar e abastecimentos do dia, do servidor. */
+export async function listTodayEntries(driverId: string, date: string): Promise<TodayEntry[]> {
+  const [r, f] = await Promise.all([
+    supabase
+      .from('rides')
+      .select('id, platform, amount, km, shifts(review_status)')
+      .eq('driver_id', driverId)
+      .eq('ride_date', date)
+      .in('platform', ['uber', 'blablacar'])
+      .order('created_at'),
+    supabase
+      .from('fuelings')
+      .select('id, amount, liters, review_status')
+      .eq('driver_id', driverId)
+      .eq('fueled_on', date)
+      .order('created_at'),
+  ])
+  if (r.error) throw r.error
+  if (f.error) throw f.error
+  type RideRow = {
+    id: string
+    platform: 'uber' | 'blablacar'
+    amount: number
+    km: number | null
+    shifts: { review_status: string } | null
+  }
+  const out: TodayEntry[] = ((r.data ?? []) as unknown as RideRow[]).map((x) => ({
+    kind: 'ride',
+    id: x.id,
+    platform: x.platform,
+    amount: Number(x.amount),
+    km: x.km === null ? null : Number(x.km),
+    liters: null,
+    editable: x.shifts?.review_status !== 'approved',
+  }))
+  for (const x of f.data ?? []) {
+    out.push({
+      kind: 'fueling',
+      id: x.id,
+      amount: Number(x.amount),
+      km: null,
+      liters: Number(x.liters),
+      editable: x.review_status === 'pending',
+    })
+  }
+  return out
+}
+
 export async function startShift(a: {
   id: string
   car_id: string
@@ -543,6 +642,13 @@ export interface PendingShift {
   uber_earnings_photo: string | null
   review_status: 'pending' | 'rejected'
   reject_reason: string | null
+  /** O que o motorista lançou no turno (para conferir com o print da Uber). */
+  totals: ShiftTotals
+}
+export interface ShiftTotals {
+  uber: { amount: number; km: number }
+  blablacar: { amount: number; km: number }
+  transfer_km: number
 }
 export interface PendingTransfer {
   id: string
@@ -557,6 +663,38 @@ export interface PendingReview {
   expenses: PendingExpense[]
   shifts: PendingShift[]
   transfers: PendingTransfer[]
+}
+
+const emptyTotals = (): ShiftTotals => ({
+  uber: { amount: 0, km: 0 },
+  blablacar: { amount: 0, km: 0 },
+  transfer_km: 0,
+})
+
+/** Soma por turno do que foi lançado: Uber/BlaBlaCar (valor e km) e km de transfers concluídos. */
+async function shiftTotals(shiftIds: string[]): Promise<Map<string, ShiftTotals>> {
+  const out = new Map<string, ShiftTotals>()
+  if (shiftIds.length === 0) return out
+  const rows =
+    must(
+      await supabase
+        .from('rides')
+        .select('shift_id, platform, amount, km, transfer_status')
+        .in('shift_id', shiftIds),
+    ) ?? []
+  for (const r of rows) {
+    if (!r.shift_id) continue
+    const t = out.get(r.shift_id) ?? emptyTotals()
+    const km = Number(r.km ?? 0)
+    if (r.platform === 'uber' || r.platform === 'blablacar') {
+      t[r.platform].amount += Number(r.amount)
+      t[r.platform].km += km
+    } else if (r.transfer_status === 'completed' || r.transfer_status === 'checked') {
+      t.transfer_km += km
+    }
+    out.set(r.shift_id, t)
+  }
+  return out
 }
 
 export async function listPendingReview(): Promise<PendingReview> {
@@ -582,6 +720,8 @@ export async function listPendingReview(): Promise<PendingReview> {
     driverNames(),
   ])
   const n = (id: string) => names.get(id) ?? '—'
+  const shiftRows = must(s) ?? []
+  const totals = await shiftTotals(shiftRows.map((x) => x.id))
   type ExpJoined = RideExpense & {
     rides: { driver_id: string; client_name: string | null; ride_date: string }
   }
@@ -605,7 +745,7 @@ export async function listPendingReview(): Promise<PendingReview> {
       amount: Number(x.amount),
       photo_path: x.photo_path,
     })),
-    shifts: (must(s) ?? []).map((x) => ({
+    shifts: shiftRows.map((x) => ({
       id: x.id,
       driver_id: x.driver_id,
       driver_name: n(x.driver_id),
@@ -617,6 +757,7 @@ export async function listPendingReview(): Promise<PendingReview> {
       uber_earnings_photo: x.uber_earnings_photo,
       review_status: x.review_status === 'rejected' ? 'rejected' : 'pending',
       reject_reason: x.reject_reason,
+      totals: totals.get(x.id) ?? emptyTotals(),
     })),
     transfers: (must(t) ?? []).map((x) => ({
       id: x.id,

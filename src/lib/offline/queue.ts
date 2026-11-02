@@ -12,6 +12,10 @@ export type QueuedOp = {
     | 'start_shift'
     | 'end_shift'
     | 'complete_transfer'
+    | 'update_ride'
+    | 'delete_ride'
+    | 'update_fueling'
+    | 'delete_fueling'
   payload: Record<string, unknown>
   /** Dono da op (auth.uid()): só ele envia/vê; path das fotos: `${ownerId}/${photoId}.jpg`. */
   ownerId: string
@@ -71,6 +75,7 @@ const MESSAGES: Record<string, string> = {
   SHIFT_ALREADY_OPEN: 'Não enviado: já existe um turno aberto',
   ODOMETER_BELOW_START: 'Não enviado: odômetro final menor que o inicial',
   UBER_PHOTO_REQUIRED: 'Não enviado: falta o print dos ganhos da Uber',
+  NOT_EDITABLE: 'Não enviado: lançamento já conferido, não pode mais ser alterado',
 }
 
 type Err = { code?: string; message?: string; status?: number }
@@ -106,6 +111,14 @@ async function dispatch(kind: QueuedOp['kind'], p: Record<string, unknown>): Pro
       return
     case 'complete_transfer':
       return api.completeTransfer(p as never)
+    case 'update_ride':
+      return api.updateRide(p as never)
+    case 'delete_ride':
+      return api.deleteRide(p as never)
+    case 'update_fueling':
+      return api.updateFueling(p as never)
+    case 'delete_fueling':
+      return api.deleteFueling(p as never)
   }
 }
 

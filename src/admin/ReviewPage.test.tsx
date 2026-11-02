@@ -24,6 +24,7 @@ const full = (): api.PendingReview => ({
       odometer_start: 1000, odometer_end: 1200,
       odometer_start_photo: 's1a.jpg', odometer_end_photo: 's1b.jpg', uber_earnings_photo: null,
       review_status: 'pending', reject_reason: null,
+      totals: { uber: { amount: 150, km: 40 }, blablacar: { amount: 80, km: 70 }, transfer_km: 20 },
     },
   ],
   transfers: [
@@ -100,6 +101,16 @@ describe('fila', () => {
     const f = within(await waitFor(() => section('Abastecimentos')))
     await user.click(f.getByRole('button', { name: 'Aprovar' }))
     expect(await screen.findByText('Quinzena fechada: não é possível alterar')).toBeInTheDocument()
+  })
+})
+
+describe('totais do turno', () => {
+  it('mostra o que o motorista lançou ao lado do print da Uber', async () => {
+    render(<ReviewPage />)
+    const s = within(await waitFor(() => section('Turnos')))
+    expect(s.getByText(/^Uber: R\$\s150,00 \(40 km\)$/)).toBeInTheDocument()
+    expect(s.getByText(/^BlaBlaCar: R\$\s80,00 \(70 km\)$/)).toBeInTheDocument()
+    expect(s.getByText('Transfers: 20 km')).toBeInTheDocument()
   })
 })
 

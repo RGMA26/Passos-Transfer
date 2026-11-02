@@ -33,6 +33,14 @@ export function opLabel(op: QueuedOp): string {
       return `Encerramento de turno (odômetro ${p.odometer}) de ${when()}`
     case 'complete_transfer':
       return `Conclusão de transfer (${p.km} km) de ${when()}`
+    case 'update_ride':
+      return `Edição de corrida (${money(p.amount)}) de ${when()}`
+    case 'delete_ride':
+      return `Exclusão de corrida de ${when()}`
+    case 'update_fueling':
+      return `Edição de abastecimento (${money(p.amount)}) de ${when()}`
+    case 'delete_fueling':
+      return `Exclusão de abastecimento de ${when()}`
     default:
       return `Lançamento de ${when()}`
   }

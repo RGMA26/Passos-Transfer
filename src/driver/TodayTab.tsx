@@ -9,6 +9,7 @@ import { enqueue } from '../lib/offline/queue'
 import { localDate } from '../lib/periods'
 import type { Car } from '../lib/types'
 import PhotoInput from '../components/PhotoInput'
+import TodayEntries from './TodayEntries'
 import { useShift } from './useShift'
 import type { ShiftState } from './useShift'
 
@@ -76,6 +77,7 @@ export default function TodayTab() {
       ) : (
         <StartShift uid={uid} carId={profile.current_car_id} onQueued={refresh} />
       )}
+      <TodayEntries uid={uid} ops={ops} />
     </section>
   )
 }

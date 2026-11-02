@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import TodayTab from './TodayTab'
@@ -17,6 +17,7 @@ vi.mock('../lib/api', () => ({
   getTodaySummary: vi.fn(),
   getCar: vi.fn(),
   endShift: vi.fn(),
+  listTodayEntries: vi.fn(async () => []),
 }))
 vi.mock('../lib/offline/queue', () => ({
   enqueue: vi.fn(async () => {}),
@@ -61,6 +62,7 @@ beforeEach(() => {
   mApi.getShiftRides.mockResolvedValue([])
   mApi.getTodaySummary.mockResolvedValue(summary)
   mApi.getCar.mockResolvedValue(car as never)
+  mApi.listTodayEntries.mockResolvedValue([])
 })
 
 describe('TodayTab', () => {
@@ -273,5 +275,100 @@ describe('TodayTab', () => {
     ui()
     expect(await screen.findByText('Transfers pendentes')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Iniciar turno' })).not.toBeInTheDocument()
+  })
+
+  describe('Lançamentos de hoje', () => {
+    const entries: api.TodayEntry[] = [
+      { kind: 'ride', id: 'r1', platform: 'uber', amount: 100, km: 30, liters: null, editable: true },
+      { kind: 'ride', id: 'r2', platform: 'blablacar', amount: 40, km: 20, liters: null, editable: false },
+      { kind: 'fueling', id: 'f1', amount: 200, liters: 40, km: null, editable: true },
+    ]
+    let confirmSpy: ReturnType<typeof vi.spyOn>
+    beforeEach(() => {
+      mApi.getOpenShift.mockResolvedValue(openShift as never)
+      mApi.listTodayEntries.mockResolvedValue(entries)
+      confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    })
+    afterEach(() => confirmSpy.mockRestore())
+
+    const item = async (text: RegExp) =>
+      within((await screen.findByText(text)).closest('li') as HTMLElement)
+
+    it('lista corridas e abastecimentos; só os editáveis têm Editar/Excluir', async () => {
+      ui()
+      const list = within(await screen.findByRole('region', { name: 'Lançamentos de hoje' }))
+      expect(list.getByText(/Uber R\$\s100,00 · 30 km/)).toBeInTheDocument()
+      expect(list.getAllByRole('button', { name: 'Editar' })).toHaveLength(2)
+      const locked = await item(/BlaBlaCar R\$\s40,00/)
+      expect(locked.queryByRole('button', { name: 'Editar' })).toBeNull()
+      expect(locked.getByText(/conferido/)).toBeInTheDocument()
+    })
+
+    it('Editar corrida enfileira update_ride com valor e km', async () => {
+      const u = userEvent.setup()
+      ui()
+      const r = await item(/Uber R\$\s100,00/)
+      await u.click(r.getByRole('button', { name: 'Editar' }))
+      await u.clear(r.getByLabelText('Valor'))
+      await u.type(r.getByLabelText('Valor'), '90,50')
+      await u.clear(r.getByLabelText('Km'))
+      await u.type(r.getByLabelText('Km'), '25')
+      await u.click(r.getByRole('button', { name: 'Salvar alteração' }))
+      await waitFor(() => expect(mEnqueue).toHaveBeenCalledTimes(1))
+      expect(mEnqueue.mock.calls[0][0]).toMatchObject({
+        kind: 'update_ride',
+        ownerId: 'u1',
+        payload: { id: 'r1', amount: 90.5, km: 25 },
+      })
+    })
+
+    it('Editar abastecimento enfileira update_fueling com valor e litros', async () => {
+      const u = userEvent.setup()
+      ui()
+      const f = await item(/Abastecimento R\$\s200,00/)
+      await u.click(f.getByRole('button', { name: 'Editar' }))
+      await u.clear(f.getByLabelText('Litros'))
+      await u.type(f.getByLabelText('Litros'), '38,5')
+      await u.click(f.getByRole('button', { name: 'Salvar alteração' }))
+      await waitFor(() => expect(mEnqueue).toHaveBeenCalledTimes(1))
+      expect(mEnqueue.mock.calls[0][0]).toMatchObject({
+        kind: 'update_fueling',
+        ownerId: 'u1',
+        payload: { id: 'f1', amount: 200, liters: 38.5 },
+      })
+    })
+
+    it('Excluir pede confirmação e enfileira delete', async () => {
+      const u = userEvent.setup()
+      ui()
+      const f = await item(/Abastecimento R\$\s200,00/)
+      await u.click(f.getByRole('button', { name: 'Excluir' }))
+      expect(confirmSpy).toHaveBeenCalledWith('Excluir este lançamento?')
+      await waitFor(() => expect(mEnqueue).toHaveBeenCalledTimes(1))
+      expect(mEnqueue.mock.calls[0][0]).toMatchObject({ kind: 'delete_fueling', ownerId: 'u1', payload: { id: 'f1' } })
+    })
+
+    it('cancelar a confirmação não exclui', async () => {
+      confirmSpy.mockReturnValue(false)
+      const u = userEvent.setup()
+      ui()
+      const r = await item(/Uber R\$\s100,00/)
+      await u.click(r.getByRole('button', { name: 'Excluir' }))
+      expect(mEnqueue).not.toHaveBeenCalled()
+    })
+
+    it('exclusão/edição pendentes na fila já aparecem na lista', async () => {
+      const pending = (kind: string, payload: Record<string, unknown>) => ({
+        id: crypto.randomUUID(), kind, ownerId: 'u1', status: 'pending', createdAt: Date.now() * 1000, photos: [], payload,
+      })
+      mList.mockResolvedValue([
+        pending('delete_ride', { id: 'r1' }),
+        pending('update_fueling', { id: 'f1', amount: 150, liters: 30 }),
+      ] as never)
+      ui()
+      const list = within(await screen.findByRole('region', { name: 'Lançamentos de hoje' }))
+      expect(await list.findByText(/Abastecimento R\$\s150,00 · 30 L/)).toBeInTheDocument()
+      expect(list.queryByText(/Uber R\$\s100,00/)).toBeNull()
+    })
   })
 })

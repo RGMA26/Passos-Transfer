@@ -299,6 +299,11 @@ function ShiftItem({ shift, onDone }: { shift: api.PendingShift; onDone: () => v
     >
       <strong>{shift.driver_name}</strong>
       <span>{`${fmtDay(shift.start_date)} · odômetro ${shift.odometer_start} → ${shift.odometer_end ?? '—'}`}</span>
+      <span className="shift-totals">
+        {`Uber: ${formatBRL(shift.totals.uber.amount)} (${shift.totals.uber.km} km)`}
+      </span>
+      <span>{`BlaBlaCar: ${formatBRL(shift.totals.blablacar.amount)} (${shift.totals.blablacar.km} km)`}</span>
+      <span>{`Transfers: ${shift.totals.transfer_km} km`}</span>
       {shift.review_status === 'rejected' && (
         <span className="error">{`Recusado: ${shift.reject_reason ?? '—'}`}</span>
       )}

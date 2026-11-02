@@ -8,6 +8,10 @@ const api = vi.hoisted(() => ({
   startShift: vi.fn(),
   endShift: vi.fn(),
   completeTransfer: vi.fn(),
+  updateRide: vi.fn(),
+  deleteRide: vi.fn(),
+  updateFueling: vi.fn(),
+  deleteFueling: vi.fn(),
 }))
 const photos = vi.hoisted(() => ({ uploadPhoto: vi.fn() }))
 vi.mock('../api', () => api)
@@ -167,5 +171,38 @@ describe('fila offline', () => {
     await flush()
     expect(api.insertRide).toHaveBeenCalledTimes(2)
     expect(await listOps()).toEqual([])
+  })
+
+  it('edição e exclusão de lançamentos despacham na ordem com os args certos', async () => {
+    const order: string[] = []
+    api.updateRide.mockImplementation(async () => void order.push('update_ride'))
+    api.deleteRide.mockImplementation(async () => void order.push('delete_ride'))
+    api.updateFueling.mockImplementation(async () => void order.push('update_fueling'))
+    api.deleteFueling.mockImplementation(async () => void order.push('delete_fueling'))
+    await enqueue(op('u1', { kind: 'update_ride', payload: { id: 'r1', amount: 90, km: 20 } }))
+    await enqueue(op('d1', { kind: 'delete_ride', payload: { id: 'r2' } }))
+    await enqueue(op('u2', { kind: 'update_fueling', payload: { id: 'f1', amount: 150, liters: 30 } }))
+    await enqueue(op('d2', { kind: 'delete_fueling', payload: { id: 'f2' } }))
+    await flush()
+    expect(order).toEqual(['update_ride', 'delete_ride', 'update_fueling', 'delete_fueling'])
+    expect(api.updateRide).toHaveBeenCalledWith({ id: 'r1', amount: 90, km: 20 })
+    expect(api.deleteRide).toHaveBeenCalledWith({ id: 'r2' })
+    expect(api.updateFueling).toHaveBeenCalledWith({ id: 'f1', amount: 150, liters: 30 })
+    expect(api.deleteFueling).toHaveBeenCalledWith({ id: 'f2' })
+    expect(await listOps()).toEqual([])
+  })
+
+  it('NOT_EDITABLE (lançamento já conferido) marca failed com mensagem', async () => {
+    api.updateFueling.mockRejectedValueOnce(codeErr('NOT_EDITABLE'))
+    await enqueue(op('u', { kind: 'update_fueling', payload: { id: 'f1', amount: 1, liters: 1 } }))
+    await flush()
+    expect((await listOps())[0]).toMatchObject({
+      status: 'failed',
+      error: 'Não enviado: lançamento já conferido, não pode mais ser alterado',
+    })
+  })
+
+  it('edição/exclusão também exige ownerId', async () => {
+    await expect(enqueue(op('a', { kind: 'delete_ride', payload: { id: 'r' }, ownerId: '' }))).rejects.toThrow()
   })
 })
