@@ -9,3 +9,4 @@ supabase/.branches/
 *.tsbuildinfo
 test-results/
 playwright-report/
+.mcp.json
