@@ -18,10 +18,10 @@ Não há dados reais em produção; as mudanças são migrações novas (0010+) 
 ## 2. Quinzena por motorista
 
 ### 2.1 Ciclo
-- `profiles.cycle_start_date date not null` = data local (America/Sao_Paulo) do cadastro do motorista. Definida na criação e **não editável**.
+- `profiles.cycle_start_date date not null` = data local (America/Sao_Paulo) do cadastro do motorista. Definida na criação; não é editável diretamente — só muda pela **retomada após pausa** (§2.4).
 - Quinzena = **15 dias corridos**. A quinzena *n* (n ≥ 0) vai de `cycle_start_date + 15n` até `cycle_start_date + 15n + 14`.
   Ex.: cadastro 10/11 → 10/11–24/11, 25/11–09/12, 10/12–24/12.
-- Tabela `driver_periods(id, driver_id, start_date, end_date, status 'open'|'closed', closed_at, unique(driver_id, start_date))`. Função `driver_period_for(p_driver uuid, p_date date) returns uuid` cria (se necessário) e devolve a quinzena que contém a data — mesma técnica concorrência-segura de `period_for_date`.
+- Tabela `driver_periods(id, driver_id, start_date, end_date, status 'open'|'closed', closed_at, unique(driver_id, start_date))`. Função `driver_period_for(p_driver uuid, p_date date) returns uuid` devolve a quinzena **já existente** do motorista que contém a data; se não houver, cria a quinzena do ciclo atual (a partir de `cycle_start_date`) que contém a data — mesma técnica concorrência-segura de `period_for_date`. Datas entre o fim de uma quinzena encurtada por pausa e a retomada não pertencem a quinzena alguma (§2.4).
 - Lançamentos com data **anterior** ao `cycle_start_date` do motorista são recusados (`BEFORE_CYCLE_START`).
 - Pertencimento: corrida por `ride_date`; abastecimento por `fueled_on`; turno por `start_date`; despesa pela corrida; ajuste pela sua quinzena (`driver_period_id`).
 - A tabela global `periods`, `period_for_date`, `period_drivers` e `periods.reference_fuel_price` são removidos; `statements` e `adjustments` passam a referenciar `driver_period_id`.
@@ -34,8 +34,18 @@ Não há dados reais em produção; as mudanças são migrações novas (0010+) 
 - Gera **um** `statement` (linhas congeladas de `compute_statement`) e marca a quinzena `closed`. Mantêm-se: congelamento do extrato (só `paid_at`/`payment_method` mudam), bloqueio de escrita na quinzena fechada (por motorista, com o lock `FOR SHARE` atual), `mark_statement_paid`.
 - Fechar a quinzena de um motorista não afeta nenhum outro.
 
+### 2.4 Pausa e retomada do motorista
+- Para afastamentos (doença, viagem etc.), o admin usa **"Pausar"** na ficha do motorista, informando a **data da pausa** (padrão: hoje) e um motivo opcional. Tabela `driver_pauses(id, driver_id, paused_on, resumed_on null, reason, created_at)`; `profiles.paused boolean`.
+- Ao pausar:
+  - a quinzena aberta que contém a data da pausa é **encurtada**: `end_date` passa a ser a data da pausa (último dia trabalhado). Ela pode ser fechada normalmente (já terminou);
+  - pausar exige não haver turno aberto do motorista (`OPEN_SHIFTS`);
+  - enquanto pausado, o motorista consegue entrar no app e ver o Extrato, mas **não consegue lançar nada** (corrida, abastecimento, turno, conclusão de Transfer, despesa): erro `DRIVER_PAUSED` → "Seu cadastro está pausado. Fale com a empresa." Transfers não podem ser atribuídos a motorista pausado.
+- Ao **"Retomar"**, o admin informa a **data de retorno** (padrão: hoje; deve ser posterior à pausa): `cycle_start_date` passa a ser a data de retorno e as novas quinzenas contam a partir dela (15 dias corridos). `driver_pauses.resumed_on` é preenchido e `paused` volta a falso.
+- A ficha do motorista mostra o histórico de pausas (de–até, motivo). Motorista pausado aparece com o selo cinza **"Pausado"** nas listas; recebe 🔴 apenas se tiver quinzena terminada e não fechada.
+- Pausar é diferente de **Desativar** (que bloqueia o acesso de vez).
+
 ### 2.3 Sinais de prazo
-- Para cada motorista ativo:
+- Para cada motorista ativo e não pausado (pausados: só o 🔴 descrito em §2.4):
   - 🔴 **vermelho** se existe quinzena com `end_date` < hoje (SP) e status `open`;
   - 🟡 **amarelo** (se não estiver vermelho) quando `end_date` da quinzena atual − hoje ≤ 5 (inclui o último dia);
   - sem sinal caso contrário.
@@ -62,7 +72,8 @@ Não há dados reais em produção; as mudanças são migrações novas (0010+) 
   2. senão, `price_per_liter` da **última nota aprovada** dele com `fueled_on` ≤ fim da quinzena;
   3. senão, a **última nota aprovada da empresa** com `fueled_on` ≤ fim da quinzena;
   4. senão, 0 e o extrato marca `missing_fuel_price = true` (substitui `missing_reference_price`; aviso "Ainda não há nota de abastecimento aprovada para calcular a gasolina").
-- O fechamento é recusado com `MISSING_FUEL_PRICE` quando o caso 4 se aplica e o preço é necessário (Transfer de carro próprio com km > 0, ou km por fora > 0).
+- Quando o caso 4 se aplica e o preço é necessário (Transfer de carro próprio com km > 0, ou km por fora > 0), o fechamento retorna `MISSING_FUEL_PRICE` e a tela pergunta: **"Não há nota de abastecimento aprovada para calcular a gasolina desta quinzena. A gasolina será calculada como R$ 0,00. Tem certeza que deseja fechar?"** Confirmando, fecha com `p_allow_missing_fuel_price = true` (parâmetro novo de `close_driver_period`). O extrato congelado guarda `missing_fuel_price = true`.
+- Quinzenas **fechadas sem nota** exibem uma **❗ exclamação vermelha** ao lado do período em todas as listas de quinzenas do motorista (admin). É só uma marca histórica: não é lembrete, não conta nos sinais 🔴/🟡 e não bloqueia nada. Ao passar o dedo/mouse: "Fechada sem nota de abastecimento".
 - Gasolina dos Transfers de carro próprio e desconto da gasolina por fora usam esse preço.
 
 ## 4. Balanço mensal (aba nova do admin)
@@ -78,7 +89,8 @@ Seletor de mês (padrão: mês atual). Todos os valores em reais, 2 casas.
 - **Combustível** (detalhe): reembolsos de abastecimento, gasolina dos Transfers de carro próprio, desconto da gasolina por fora (negativo).
 - **Pedágios e estacionamentos** reembolsados.
 - **Ajustes**: vales, multas, bônus, correções.
-- **Resultado da empresa** = Faturamento − Devido aos motoristas.
+- **Gastos dos carros da empresa** (§4.6): manutenção, seguro e impostos lançados no mês, por carro e total.
+- **Resultado da empresa** = Faturamento − Devido aos motoristas − Gastos dos carros da empresa.
 - **Comparação** com o mês anterior: diferença em R$ e % do resultado.
 - Selo **"estimado"** quando alguma quinzena com dias no mês ainda está aberta.
 
@@ -92,6 +104,14 @@ Seletor de mês (padrão: mês atual). Todos os valores em reais, 2 casas.
 - **Planilha detalhada do mês** (CSV `;`, BOM, vírgula decimal): uma linha por corrida, abastecimento, pedágio/estacionamento, ajuste e pagamento do mês — data, motorista, CPF, código, tipo, plataforma/descrição, valor bruto, valor para o motorista, quinzena (dd/mm–dd/mm), situação.
 - **Resumo** em CSV e em página de impressão/PDF.
 - **Recibo de pagamento** (página de impressão/PDF) para cada repasse pago: "Passos Transfer — Recibo de pagamento", nome e CPF do motorista, código, período da quinzena, linhas do extrato, valor pago por extenso e em número, data e forma de pagamento, linha para assinatura do motorista.
+
+### 4.6 Gastos dos carros da empresa
+- Só para carros com propriedade **"Empresa"** (não para o carro próprio do motorista).
+- Tabela `car_expenses(id, car_id, kind 'maintenance'|'insurance'|'tax', description, amount numeric(10,2) > 0, expense_date date, created_at)`. Somente admin (RLS); motoristas não veem.
+- Tipos: **Manutenção**, **Seguro** e **Imposto** — no Imposto, `description` é obrigatória e escrita livremente (ex.: "IPVA 2027", "Licenciamento"); nos demais é opcional.
+- Opcional: no cadastro do carro da empresa há a seção **"Gastos do carro (opcional)"**; o carro é salvo sem nenhum gasto. Na lista de Carros, cada carro da empresa tem **"Gastos"** para ver, adicionar, editar e excluir lançamentos a qualquer momento.
+- Cada gasto entra no Balanço no **mês da sua data** (`expense_date`), no bloco "Gastos dos carros da empresa" (por tipo e por carro) e no Resultado da empresa. A planilha detalhada inclui uma linha por gasto (data, carro/placa, tipo, descrição, valor).
+- Gastos não dependem de quinzena e não aparecem para motoristas.
 
 ### 4.5 CPF
 - `profiles.cpf text` obrigatório para motoristas (validação dos dígitos verificadores no app e no banco; único). Campo no cadastro e na edição do motorista; enviado na criação via `create-driver` (novo erro `INVALID_CPF` → "CPF inválido"; `CPF_TAKEN` → "CPF já cadastrado").
@@ -113,14 +133,15 @@ Seletor de mês (padrão: mês atual). Todos os valores em reais, 2 casas.
 | Motorista › Hoje | Lista "Lançamentos de hoje" inclui o preço do litro nos abastecimentos |
 | Motorista › Extrato | Quinzena própria com datas e dias restantes; aviso de preço ausente |
 | Admin › Início | Contadores 🔴/🟡; números passam a ser do mês atual (reaproveita o Balanço) |
-| Admin › Motoristas | CPF no cadastro/edição; círculos; ficha com aba Documentos |
+| Admin › Motoristas | CPF no cadastro/edição; círculos; Pausar/Retomar com histórico; ficha com aba Documentos |
+| Admin › Carros | Seção opcional "Gastos do carro" (manutenção, seguro, imposto) para carros da empresa |
 | Admin › Conferência | Abastecimentos 🟠 com a conta |
 | Admin › Quinzenas | Lista por motorista (quinzena atual, círculo, total, Fechar, Pagar, anexos, Recibo); sem preço de referência; quinzenas anteriores por motorista |
 | Admin › Balanço mensal | Nova aba (§4) |
 
 ## 7. Testes
 
-- **pgTAP**: cálculo do ciclo (virada de mês e ano, cadastro no dia 31, data anterior ao ciclo); fechamento individual e ordem (`PREVIOUS_OPEN`); bloqueio só da quinzena do motorista; `values_conflict` (dentro/fora da tolerância); preço do litro nas quatro situações; reembolso só para carro da empresa; `MISSING_FUEL_PRICE`; sinais 🔴/🟡 (limites de 5 dias); balanço mensal com uma quinzena atravessando dois meses (setembro/outubro) nos três blocos; CPF válido/duplicado; `admin_documents` e bucket inacessíveis ao motorista.
+- **pgTAP**: cálculo do ciclo (virada de mês e ano, cadastro no dia 31, data anterior ao ciclo); fechamento individual e ordem (`PREVIOUS_OPEN`); bloqueio só da quinzena do motorista; `values_conflict` (dentro/fora da tolerância); preço do litro nas quatro situações; reembolso só para carro da empresa; `MISSING_FUEL_PRICE` e fechamento confirmado com a marca ❗; pausa (quinzena encurtada, `DRIVER_PAUSED`, retomada reinicia o ciclo na data de retorno); gastos de carro no Resultado e invisíveis ao motorista; sinais 🔴/🟡 (limites de 5 dias); balanço mensal com uma quinzena atravessando dois meses (setembro/outubro) nos três blocos; CPF válido/duplicado; `admin_documents` e bucket inacessíveis ao motorista.
 - **Vitest**: formulário de abastecimento (conflito, "Salvar mesmo assim"), círculos, Balanço (blocos, comparação, exportações), recibo, Documentos, CPF.
 - **Playwright**: fluxo completo atualizado (cadastro com CPF, abastecimento com preço, conflito, fechamento individual, pagamento com anexos, balanço do mês com o valor esperado).
 
