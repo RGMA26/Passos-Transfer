@@ -4,7 +4,7 @@ import path from 'node:path'
 import { defineConfig, devices } from '@playwright/test'
 
 // E2E contra o Supabase local (npx supabase start) + `npm run dev`.
-// globalSetup e globalTeardown rodam `npx supabase db reset`: o teste é repetível e
+// globalSetup e globalTeardown rodam `npx supabase db reset --local`: o teste é repetível e
 // o banco volta ao seed (os testes pgTAP dependem dele).
 
 /** PATH com o Docker Desktop (a CLI do Supabase precisa do `docker`). */

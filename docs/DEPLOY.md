@@ -9,6 +9,10 @@ Este guia é para o dono da empresa. Siga os passos na ordem. Você vai precisar
 
 Onde aparecer `<algo entre sinais>`, troque pelo seu valor (sem os sinais `<` e `>`).
 
+> **Versão da CLI do Supabase:** ela já vem fixada no projeto (`devDependencies` do `package.json`).
+> Rode `npm install` uma vez na pasta do código; depois disso, todo `npx supabase ...` deste guia usa
+> exatamente essa versão (a mesma usada nos testes), e não a mais nova da internet.
+
 ---
 
 ## 1. Criar o projeto no Supabase
@@ -24,6 +28,7 @@ Onde aparecer `<algo entre sinais>`, troque pelo seu valor (sem os sinais `<` e 
 No computador, abra o terminal dentro da pasta do código e rode:
 
 ```bash
+npm install
 npx supabase login
 npx supabase link --project-ref <reference-id>
 npx supabase db push
@@ -49,6 +54,9 @@ No painel do Supabase, vá em **Authentication → Sign In / Providers** (ou **A
 1. **Desligue** a opção **Allow new users to sign up** (cadastro público). As contas são criadas só pelo admin dentro do app.
 2. Deixe o provedor **Email** ligado.
 3. A confirmação de e-mail não importa: as contas de motorista já são criadas confirmadas pelo app.
+4. **E-mails de login dos motoristas:** por baixo, o código `PASSOS01JOAO` vira o e-mail `passos01joao@login.passostransfer.app`. Esse domínio **não deve receber e-mail** de ninguém:
+   - **não** configure SMTP próprio para mandar "recuperação de senha" aos motoristas — a senha deles é resetada pelo admin (menu **Motoristas → Resetar senha**);
+   - se um dia quiser usar e-mail de verdade, troque o domínio por um que **a empresa controla** (ex.: `login.suaempresa.com.br`) antes de cadastrar motoristas, para nenhum terceiro conseguir receber links de acesso.
 
 ## 5. Criar o primeiro administrador
 
@@ -98,6 +106,19 @@ O app é uma PWA: instala direto pelo navegador, sem loja.
 
 Depois de instalado, o app abre em tela cheia. Lançamentos feitos sem internet ficam guardados no celular com o aviso "pendente de envio" e são enviados sozinhos quando a conexão voltar.
 Atualizações do app chegam automaticamente: basta fechar e abrir o app.
+
+### Teste no celular (antes de liberar para os motoristas)
+
+Faça uma vez em um **Android** e uma vez em um **iPhone**, com um motorista de teste:
+
+- [ ] Instalar o app pela tela inicial (passos acima) e entrar com o código e a senha.
+- [ ] Iniciar um turno com a internet ligada.
+- [ ] Ligar o **modo avião**.
+- [ ] **Fechar o app de verdade** (tirar da lista de apps abertos).
+- [ ] Abrir o app de novo, ainda no modo avião: ele deve abrir na aba **Hoje**, no turno aberto (sem pedir login).
+- [ ] Lançar uma corrida Uber e um abastecimento com foto: aparece "pendente(s) de envio".
+- [ ] Desligar o modo avião e abrir o app: o aviso some sozinho em até 1 minuto.
+- [ ] No computador, como admin, conferir em **Conferência** que o abastecimento chegou com a foto.
 
 ## 8. Primeiro uso (checklist)
 
