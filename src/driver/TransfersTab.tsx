@@ -2,18 +2,23 @@ import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import * as api from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { formatBRL, parseBRL } from '../lib/money'
+import { formatBRL } from '../lib/money'
 import { enqueue } from '../lib/offline/queue'
 import type { QueuedOp } from '../lib/offline/queue'
 import type { Ride, RideExpense } from '../lib/types'
 import MoneyInput from '../components/MoneyInput'
 import PhotoInput from '../components/PhotoInput'
+import ReceiptInput from '../components/ReceiptInput'
+import PausedNotice from './PausedNotice'
 import { useShift } from './useShift'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
+const MSG_SAVE = 'Não foi possível salvar. Tente de novo.'
+const MSG_ODO_LOWER = 'O odômetro final não pode ser menor que o inicial'
 const STATUS: Record<string, string> = {
   assigned: 'Atribuída',
-  completed: 'Concluída',
+  in_progress: 'Em andamento',
+  completed: 'Aguardando conferência',
   checked: 'Conferida',
 }
 const REVIEW: Record<string, string> = {
@@ -31,11 +36,46 @@ const whenFmt = new Intl.DateTimeFormat('pt-BR', {
   hour: '2-digit',
   minute: '2-digit',
 })
+const kmFmt = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 })
+
+/** Inteiro >= 0, ou null. */
+function parseOdometer(text: string): number | null {
+  const t = text.trim()
+  return /^\d+$/.test(t) ? Number(t) : null
+}
+
+/** "Rua, bairro, cidade/UF" (cai no texto antigo origin/destination). */
+function address(street: string | null, district: string | null, city: string | null, state: string | null) {
+  const place = [city, state].filter(Boolean).join('/')
+  return [street, district, place].filter(Boolean).join(', ')
+}
+
+function route(r: Ride): string | null {
+  const from = address(r.origin_street, r.origin_district, r.origin_city, r.origin_state) || r.origin || ''
+  const to = address(r.dest_street, r.dest_district, r.dest_city, r.dest_state) || r.destination || ''
+  return from || to ? `${from} → ${to}` : null
+}
+
+/** Status visto pelo motorista: servidor + iniciar/concluir ainda na fila. */
+function effective(ride: Ride, ops: QueuedOp[]): { status: string; odometerStart: number | null } {
+  let status = ride.transfer_status ?? 'assigned'
+  let odometerStart = ride.odometer_start
+  const start = ops.find((o) => o.kind === 'start_transfer' && o.status === 'pending')
+  if (start && status === 'assigned') {
+    status = 'in_progress'
+    odometerStart = Number(start.payload.odometer)
+  }
+  if (ops.some((o) => o.kind === 'complete_transfer' && o.status === 'pending') && status === 'in_progress') {
+    status = 'completed'
+  }
+  return { status, odometerStart }
+}
 
 export default function TransfersTab() {
   const { session, profile } = useAuth()
   const uid = session?.user.id
   const company = profile?.driver_type === 'company_car'
+  const paused = !!profile?.paused
   const { ops, shift } = useShift(uid, true)
   const [rides, setRides] = useState<Ride[] | null>(null)
   const [expenses, setExpenses] = useState<RideExpense[]>([])
@@ -82,6 +122,7 @@ export default function TransfersTab() {
   return (
     <section>
       <h2>Transfers</h2>
+      {paused && <PausedNotice />}
       {rides.length === 0 && <p className="hint">Nenhum transfer atribuído.</p>}
       {rides.map((r) => (
         <RideCard
@@ -90,7 +131,8 @@ export default function TransfersTab() {
           ride={r}
           expenses={expenses.filter((e) => e.ride_id === r.id)}
           ops={ops.filter((o) => o.payload.ride_id === r.id)}
-          noShift={company && !shift && !r.shift_id}
+          noShift={company && !shift}
+          paused={paused}
           open={openId === r.id}
           onToggle={() => setOpenId(openId === r.id ? null : r.id)}
         />
@@ -105,6 +147,7 @@ function RideCard({
   expenses,
   ops,
   noShift,
+  paused,
   open,
   onToggle,
 }: {
@@ -113,34 +156,41 @@ function RideCard({
   expenses: RideExpense[]
   ops: QueuedOp[]
   noShift: boolean
+  paused: boolean
   open: boolean
   onToggle: () => void
 }) {
-  const status = ride.transfer_status ?? 'assigned'
-  const actionable = status === 'assigned' || status === 'completed'
-  const queued = ops.filter(
-    (o) => (o.kind === 'complete_transfer' || o.kind === 'insert_expense') && o.status === 'pending',
-  )
+  const { status, odometerStart } = effective(ride, ops)
+  const queued = ops.filter((o) => o.status === 'pending')
   const failedOps = ops.filter((o) => o.status === 'failed')
+  const where = route(ride)
+  const expensesOpen = status !== 'checked' && !paused
 
   return (
     <div className="panel">
       <button type="button" className="card-head" onClick={onToggle} aria-expanded={open}>
         <strong>{ride.client_name}</strong>
         {ride.scheduled_at && <span>{whenFmt.format(new Date(ride.scheduled_at))}</span>}
-        {(ride.origin || ride.destination) && (
-          <span>{`${ride.origin ?? ''} → ${ride.destination ?? ''}`}</span>
-        )}
+        {where && <span>{where}</span>}
+        {ride.estimated_km != null && <span>{`Km estimado: ${kmFmt.format(Number(ride.estimated_km))}`}</span>}
         <span>{`Valor contratado: ${formatBRL(Number(ride.amount))}`}</span>
         <span className="badge">{STATUS[status] ?? status}</span>
-        {ride.reject_reason && <span className="error">{`Recusado: ${ride.reject_reason}`}</span>}
+        {ride.reject_reason && status === 'in_progress' && (
+          <span className="error">{`Recusado: ${ride.reject_reason}`}</span>
+        )}
         {queued.length > 0 && <span className="hint">pendente de envio</span>}
       </button>
       {failedOps.map((o) => (
-        <p key={o.id} className="error">{o.error}</p>
+        <p key={o.id} className="error">
+          {o.error}
+        </p>
       ))}
       {open && (
         <div>
+          {odometerStart != null && <p className="hint">{`Odômetro inicial: ${odometerStart}`}</p>}
+          {(status === 'completed' || status === 'checked') && ride.km != null && (
+            <p className="hint">{`Km: ${kmFmt.format(Number(ride.km))}`}</p>
+          )}
           {expenses.length > 0 && (
             <ul>
               {expenses.map((e) => (
@@ -152,54 +202,109 @@ function RideCard({
               ))}
             </ul>
           )}
-          {actionable && <Actions uid={uid} ride={ride} noShift={noShift} />}
+          {status === 'assigned' && (
+            <OdometerForm
+              uid={uid}
+              rideId={ride.id}
+              kind="start_transfer"
+              label="Odômetro inicial"
+              button="Iniciar"
+              blocked={paused || noShift}
+              hint={noShift && !paused ? 'Inicie um turno para iniciar o Transfer' : null}
+            />
+          )}
+          {status === 'in_progress' && (
+            <OdometerForm
+              uid={uid}
+              rideId={ride.id}
+              kind="complete_transfer"
+              label="Odômetro final"
+              button="Concluir"
+              min={odometerStart}
+              blocked={paused}
+              hint={null}
+            />
+          )}
+          {expensesOpen && <ExpenseButtons uid={uid} rideId={ride.id} />}
         </div>
       )}
     </div>
   )
 }
 
-function Actions({ uid, ride, noShift }: { uid: string; ride: Ride; noShift: boolean }) {
-  const [km, setKm] = useState('')
-  const [kmError, setKmError] = useState('')
+/** Iniciar (assigned) ou Concluir (in_progress): leitura do odômetro + foto. Ninguém digita km. */
+function OdometerForm({
+  uid,
+  rideId,
+  kind,
+  label,
+  button,
+  min,
+  blocked,
+  hint,
+}: {
+  uid: string
+  rideId: string
+  kind: 'start_transfer' | 'complete_transfer'
+  label: string
+  button: string
+  min?: number | null
+  blocked: boolean
+  hint: string | null
+}) {
+  const [odo, setOdo] = useState('')
+  const [photo, setPhoto] = useState<Blob | null>(null)
+  const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [expKind, setExpKind] = useState<'toll' | 'parking' | null>(null)
 
-  async function complete(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault()
-    const n = parseBRL(km)
-    if (n === null) return setKmError('Informe o km')
-    setKmError('')
+    const odometer = parseOdometer(odo)
+    if (odometer === null) return setError('Informe o odômetro')
+    if (min != null && odometer < min) return setError(MSG_ODO_LOWER)
+    if (!photo) return setError('Adicione a foto do odômetro')
+    setError('')
     setBusy(true)
     try {
       await enqueue({
         id: crypto.randomUUID(),
-        kind: 'complete_transfer',
+        kind,
         ownerId: uid,
-        payload: { ride_id: ride.id, km: n },
-        photos: [],
+        payload: { ride_id: rideId, odometer },
+        photos: [{ field: 'photo', photoId: crypto.randomUUID(), blob: photo }],
       })
-      setKm('')
+      setOdo('')
     } catch {
-      setKmError('Não foi possível salvar. Tente de novo.')
+      setError(MSG_SAVE)
     } finally {
       setBusy(false)
     }
   }
 
   return (
+    <form onSubmit={(e) => void submit(e)} noValidate>
+      <label className="field">
+        {label}
+        <input inputMode="numeric" value={odo} onChange={(e) => setOdo(e.target.value)} />
+      </label>
+      <PhotoInput label="Foto do odômetro" onChange={setPhoto} />
+      {hint && <p className="hint">{hint}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <button type="submit" className="big" disabled={busy || blocked}>
+        {button}
+      </button>
+    </form>
+  )
+}
+
+function ExpenseButtons({ uid, rideId }: { uid: string; rideId: string }) {
+  const [expKind, setExpKind] = useState<'toll' | 'parking' | null>(null)
+  return (
     <>
-      <form onSubmit={(e) => void complete(e)} noValidate>
-        <label className="field">
-          Km
-          <input inputMode="decimal" value={km} onChange={(e) => setKm(e.target.value)} />
-        </label>
-        {noShift && <p className="hint">Inicie um turno para concluir</p>}
-        {kmError && <p className="error" role="alert">{kmError}</p>}
-        <button type="submit" className="big" disabled={busy || noShift}>
-          Concluir
-        </button>
-      </form>
       <div className="seg">
         <button type="button" onClick={() => setExpKind('toll')}>
           Adicionar pedágio
@@ -209,13 +314,7 @@ function Actions({ uid, ride, noShift }: { uid: string; ride: Ride; noShift: boo
         </button>
       </div>
       {expKind && (
-        <ExpenseForm
-          key={expKind}
-          uid={uid}
-          rideId={ride.id}
-          kind={expKind}
-          onDone={() => setExpKind(null)}
-        />
+        <ExpenseForm key={expKind} uid={uid} rideId={rideId} kind={expKind} onDone={() => setExpKind(null)} />
       )}
     </>
   )
@@ -233,14 +332,14 @@ function ExpenseForm({
   onDone: () => void
 }) {
   const [amount, setAmount] = useState<number | null>(null)
-  const [photo, setPhoto] = useState<Blob | null>(null)
+  const [receipt, setReceipt] = useState<Blob | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     if (amount === null || amount <= 0) return setError('Informe um valor válido')
-    if (!photo) return setError('Adicione a foto do comprovante')
+    if (!receipt) return setError('Adicione o comprovante')
     setError('')
     setBusy(true)
     try {
@@ -250,21 +349,25 @@ function ExpenseForm({
         kind: 'insert_expense',
         ownerId: uid,
         payload: { id, ride_id: rideId, kind, amount },
-        photos: [{ field: 'photo_path', photoId: crypto.randomUUID(), blob: photo }],
+        photos: [{ field: 'photo_path', photoId: crypto.randomUUID(), blob: receipt }],
       })
       onDone()
     } catch {
-      setError('Não foi possível salvar. Tente de novo.')
+      setError(MSG_SAVE)
       setBusy(false)
     }
   }
 
   return (
     <form onSubmit={(e) => void submit(e)} noValidate>
-      <strong>{kind === 'toll' ? 'Pedágio' : 'Estacionamento'}</strong>
+      <strong>{KIND[kind]}</strong>
       <MoneyInput label="Valor" onChange={setAmount} />
-      <PhotoInput label="Foto do comprovante" onChange={setPhoto} />
-      {error && <p className="error" role="alert">{error}</p>}
+      <ReceiptInput label="Comprovante" onChange={setReceipt} />
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
       <button type="submit" disabled={busy}>
         Salvar despesa
       </button>

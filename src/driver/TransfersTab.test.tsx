@@ -24,6 +24,9 @@ vi.mock('./useShift', () => ({ useShift: vi.fn() }))
 vi.mock('../components/PhotoInput', async () => ({
   default: (await import('./testUtils')).FakePhotoInput,
 }))
+vi.mock('../components/ReceiptInput', async () => ({
+  default: (await import('./testUtils')).FakePhotoInput,
+}))
 
 const mApi = vi.mocked(api)
 const mEnqueue = vi.mocked(enqueue)
@@ -33,10 +36,21 @@ const ride = (over = {}) => ({
   id: 'r1',
   client_name: 'Hotel Sol',
   scheduled_at: '2026-10-30T15:30:00Z',
-  origin: 'Aeroporto',
-  destination: 'Centro',
+  origin: null,
+  destination: null,
+  origin_street: 'Av. Aeroporto, 100',
+  origin_district: 'Carianos',
+  origin_city: 'Florianópolis',
+  origin_state: 'SC',
+  dest_street: 'Rua Central, 5',
+  dest_district: 'Centro',
+  dest_city: 'Florianópolis',
+  dest_state: 'SC',
   amount: 200,
   km: null,
+  estimated_km: 18.5,
+  odometer_start: null,
+  odometer_end: null,
   transfer_status: 'assigned',
   reject_reason: null,
   shift_id: null,
@@ -53,6 +67,10 @@ function shiftState(open: boolean, ops: unknown[] = []) {
   })
 }
 
+const pendingOp = (kind: string, payload: Record<string, unknown>) => ({
+  id: `o-${kind}`, kind, status: 'pending', payload, photos: [],
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   profile = makeProfile({ driver_type: 'own_car' })
@@ -67,53 +85,142 @@ async function open() {
 }
 
 describe('TransfersTab', () => {
-  it('lista card com dados e status', async () => {
+  it('lista card com endereço, km estimado e status', async () => {
     render(<TransfersTab />)
     expect(await screen.findByText(/Hotel Sol/)).toBeInTheDocument()
-    expect(screen.getByText('Aeroporto → Centro')).toBeInTheDocument()
+    expect(
+      screen.getByText('Av. Aeroporto, 100, Carianos, Florianópolis/SC → Rua Central, 5, Centro, Florianópolis/SC'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Km estimado: 18,5')).toBeInTheDocument()
     expect(screen.getByText('Atribuída')).toBeInTheDocument()
     expect(screen.getByText(/Valor contratado/)).toBeInTheDocument()
   })
 
-  it('mostra motivo da recusa', async () => {
-    mApi.listMyTransfers.mockResolvedValue([ride({ reject_reason: 'Km errado' })] as never)
-    render(<TransfersTab />)
-    expect(await screen.findByText('Recusado: Km errado')).toBeInTheDocument()
-  })
-
-  it('Concluir exige km', async () => {
+  it('atribuída: Iniciar pede odômetro e foto, sem campo de km', async () => {
     await open()
-    await userEvent.click(screen.getByRole('button', { name: 'Concluir' }))
-    expect(screen.getByText('Informe o km')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Km')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Concluir' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Iniciar' }))
+    expect(screen.getByText('Informe o odômetro')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Odômetro inicial'), '5000')
+    await userEvent.click(screen.getByRole('button', { name: 'Iniciar' }))
+    expect(screen.getByText('Adicione a foto do odômetro')).toBeInTheDocument()
     expect(mEnqueue).not.toHaveBeenCalled()
+    await userEvent.upload(screen.getByLabelText('Foto do odômetro'), photoFile())
+    await userEvent.click(screen.getByRole('button', { name: 'Iniciar' }))
+    await waitFor(() => expect(mEnqueue).toHaveBeenCalledTimes(1))
+    const op = mEnqueue.mock.calls[0][0]
+    expect(op.kind).toBe('start_transfer')
+    expect(op.ownerId).toBe('u1')
+    expect(op.payload).toEqual({ ride_id: 'r1', odometer: 5000 })
+    expect(op.photos.map((p) => p.field)).toEqual(['photo'])
   })
 
-  it('Concluir enfileira complete_transfer', async () => {
+  it('carro da empresa sem turno não inicia', async () => {
+    profile = makeProfile({ driver_type: 'company_car' })
     await open()
-    await userEvent.type(screen.getByLabelText('Km'), '42')
+    expect(screen.getByText('Inicie um turno para iniciar o Transfer')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Iniciar' })).toBeDisabled()
+  })
+
+  it('carro da empresa com turno aberto inicia', async () => {
+    profile = makeProfile({ driver_type: 'company_car' })
+    shiftState(true)
+    await open()
+    expect(screen.queryByText('Inicie um turno para iniciar o Transfer')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Iniciar' })).toBeEnabled()
+  })
+
+  it('em andamento: Concluir com odômetro final e foto', async () => {
+    mApi.listMyTransfers.mockResolvedValue([
+      ride({ transfer_status: 'in_progress', odometer_start: 5000 }),
+    ] as never)
+    await open()
+    expect(screen.getAllByText('Em andamento').length).toBeGreaterThan(0)
+    expect(screen.getByText('Odômetro inicial: 5000')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Iniciar' })).toBeNull()
+    expect(screen.queryByLabelText('Km')).toBeNull()
+    await userEvent.type(screen.getByLabelText('Odômetro final'), '4990')
+    await userEvent.upload(screen.getByLabelText('Foto do odômetro'), photoFile())
+    await userEvent.click(screen.getByRole('button', { name: 'Concluir' }))
+    expect(screen.getByText('O odômetro final não pode ser menor que o inicial')).toBeInTheDocument()
+    expect(mEnqueue).not.toHaveBeenCalled()
+    await userEvent.clear(screen.getByLabelText('Odômetro final'))
+    await userEvent.type(screen.getByLabelText('Odômetro final'), '5042')
     await userEvent.click(screen.getByRole('button', { name: 'Concluir' }))
     await waitFor(() => expect(mEnqueue).toHaveBeenCalledTimes(1))
     const op = mEnqueue.mock.calls[0][0]
     expect(op.kind).toBe('complete_transfer')
-    expect(op.ownerId).toBe('u1')
-    expect(op.payload).toEqual({ ride_id: 'r1', km: 42 })
-    expect(op.photos).toEqual([])
+    expect(op.payload).toEqual({ ride_id: 'r1', odometer: 5042 })
+    expect(op.photos.map((p) => p.field)).toEqual(['photo'])
   })
 
-  it('despesa exige valor', async () => {
+  it('iniciar ainda na fila já mostra Em andamento e Concluir', async () => {
+    shiftState(false, [pendingOp('start_transfer', { ride_id: 'r1', odometer: 7000 })])
     await open()
-    await userEvent.click(screen.getByRole('button', { name: 'Adicionar pedágio' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }))
-    expect(screen.getByText('Informe um valor válido')).toBeInTheDocument()
-    expect(mEnqueue).not.toHaveBeenCalled()
+    expect(screen.getAllByText('Em andamento').length).toBeGreaterThan(0)
+    expect(screen.getByText('pendente de envio')).toBeInTheDocument()
+    expect(screen.getByText('Odômetro inicial: 7000')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Concluir' })).toBeInTheDocument()
   })
 
-  it('despesa exige foto', async () => {
+  it('concluída: aguardando conferência, sem iniciar/concluir', async () => {
+    mApi.listMyTransfers.mockResolvedValue([
+      ride({ transfer_status: 'completed', odometer_start: 5000, odometer_end: 5042, km: 42 }),
+    ] as never)
+    await open()
+    expect(screen.getAllByText('Aguardando conferência').length).toBeGreaterThan(0)
+    expect(screen.getByText('Km: 42')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Concluir' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Iniciar' })).toBeNull()
+    // despesas ainda podem ser lançadas até a conferência
+    expect(screen.getByRole('button', { name: 'Adicionar pedágio' })).toBeInTheDocument()
+  })
+
+  it('concluir ainda na fila mostra aguardando conferência', async () => {
+    mApi.listMyTransfers.mockResolvedValue([
+      ride({ transfer_status: 'in_progress', odometer_start: 5000 }),
+    ] as never)
+    shiftState(false, [pendingOp('complete_transfer', { ride_id: 'r1', odometer: 5042 })])
+    await open()
+    expect(screen.getAllByText('Aguardando conferência').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Concluir' })).toBeNull()
+  })
+
+  it('recusado mostra o motivo e volta a Concluir', async () => {
+    mApi.listMyTransfers.mockResolvedValue([
+      ride({ transfer_status: 'in_progress', odometer_start: 5000, reject_reason: 'Foto ilegível' }),
+    ] as never)
+    await open()
+    expect(screen.getByText('Recusado: Foto ilegível')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Concluir' })).toBeInTheDocument()
+  })
+
+  it('conferida não tem ações', async () => {
+    mApi.listMyTransfers.mockResolvedValue([ride({ transfer_status: 'checked' })] as never)
+    await open()
+    expect(screen.getAllByText('Conferida').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Concluir' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Iniciar' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Adicionar pedágio' })).toBeNull()
+  })
+
+  it('pausado: aviso e ações desabilitadas', async () => {
+    profile = makeProfile({ driver_type: 'own_car', paused: true })
+    await open()
+    expect(screen.getByText('Seu cadastro está pausado. Fale com a empresa.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Iniciar' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Adicionar pedágio' })).toBeNull()
+  })
+
+  it('despesa exige valor e comprovante', async () => {
     await open()
     await userEvent.click(screen.getByRole('button', { name: 'Adicionar estacionamento' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }))
+    expect(screen.getByText('Informe um valor válido')).toBeInTheDocument()
     await userEvent.type(screen.getByLabelText('Valor'), '15,00')
     await userEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }))
-    expect(screen.getByText('Adicione a foto do comprovante')).toBeInTheDocument()
+    expect(screen.getByText('Adicione o comprovante')).toBeInTheDocument()
     expect(mEnqueue).not.toHaveBeenCalled()
   })
 
@@ -121,12 +228,11 @@ describe('TransfersTab', () => {
     await open()
     await userEvent.click(screen.getByRole('button', { name: 'Adicionar pedágio' }))
     await userEvent.type(screen.getByLabelText('Valor'), '15,50')
-    await userEvent.upload(screen.getByLabelText('Foto do comprovante'), photoFile())
+    await userEvent.upload(screen.getByLabelText('Comprovante'), photoFile())
     await userEvent.click(screen.getByRole('button', { name: 'Salvar despesa' }))
     await waitFor(() => expect(mEnqueue).toHaveBeenCalledTimes(1))
     const op = mEnqueue.mock.calls[0][0]
     expect(op.kind).toBe('insert_expense')
-    expect(op.ownerId).toBe('u1')
     expect(op.payload).toMatchObject({ ride_id: 'r1', kind: 'toll', amount: 15.5 })
     expect(typeof op.payload.id).toBe('string')
     expect(op.photos[0].field).toBe('photo_path')
@@ -134,43 +240,10 @@ describe('TransfersTab', () => {
 
   it('lista despesas com status', async () => {
     mApi.listExpenses.mockResolvedValue([
-      { id: 'e1', ride_id: 'r1', kind: 'toll', amount: 10, review_status: 'rejected', reject_reason: 'Ilegível' },
+      { id: 'e1', ride_id: 'r1', kind: 'toll', amount: 10, review_status: 'pending', reject_reason: null },
     ] as never)
     await open()
     expect(await screen.findByText(/Pedágio/)).toBeInTheDocument()
-    expect(screen.getByText(/Ilegível/)).toBeInTheDocument()
-  })
-
-  it('carro da empresa sem turno bloqueia Concluir', async () => {
-    profile = makeProfile({ driver_type: 'company_car' })
-    shiftState(false)
-    await open()
-    expect(screen.getByText('Inicie um turno para concluir')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Concluir' })).toBeDisabled()
-  })
-
-  it('carro da empresa com turno aberto permite concluir', async () => {
-    profile = makeProfile({ driver_type: 'company_car' })
-    shiftState(true)
-    await open()
-    expect(screen.queryByText('Inicie um turno para concluir')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Concluir' })).toBeEnabled()
-  })
-
-  it('transfer conferida não tem ações', async () => {
-    mApi.listMyTransfers.mockResolvedValue([ride({ transfer_status: 'checked' })] as never)
-    await open()
-    expect(screen.getAllByText('Conferida').length).toBeGreaterThan(0)
-    expect(screen.queryByRole('button', { name: 'Concluir' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Adicionar pedágio' })).toBeNull()
-  })
-
-  it('mostra pendente de envio', async () => {
-    shiftState(false, [
-      { id: 'o1', kind: 'complete_transfer', status: 'pending', payload: { ride_id: 'r1', km: 5 }, photos: [] },
-    ])
-    render(<TransfersTab />)
-    expect(await screen.findByText('pendente de envio')).toBeInTheDocument()
   })
 
   it('erro de carregamento com tentar de novo', async () => {
