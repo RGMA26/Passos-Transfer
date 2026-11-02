@@ -1,5 +1,5 @@
 begin;
-select plan(58);
+select plan(69);
 
 -- Fixtures próprias (uuids 2xxx). Admin do seed: ad01.
 -- Carros: f1 flex (gasolina 10, álcool 7) empresa | f2 diesel 12 empresa | f3 flex sem consumo empresa
@@ -194,6 +194,71 @@ select throws_ok(
 select lives_ok(
   $$select start_shift('00000000-0000-0000-0000-000000002b11','00000000-0000-0000-0000-000000002cf1',1200,'p.jpg')$$,
   'start_shift igual ao último odômetro');
+reset role;
+
+-- ===== Consumo cadastrado/alterado depois: custo calculado na hora =====
+-- h (2a07): carro f6 flex sem consumo; turno 2000→2020 (20 km por fora)
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
+insert into auth.users (id) values ('00000000-0000-0000-0000-000000002a07'), ('00000000-0000-0000-0000-000000002a08');
+insert into cars (id, model, plate, fuel_type, ownership) values
+  ('00000000-0000-0000-0000-000000002cf6','Argo','FUE0A06','flex','company');
+insert into profiles (id, role, login_code, seq_number, name, driver_type, uber_pct, transfer_pct, current_car_id, cpf, cycle_start_date) values
+  ('00000000-0000-0000-0000-000000002a07','driver','fu-7',9907,'H','company_car',40,30,'00000000-0000-0000-0000-000000002cf6','20000000701','2026-04-01'),
+  ('00000000-0000-0000-0000-000000002a08','driver','fu-8',9908,'I','company_car',40,30,'00000000-0000-0000-0000-000000002cf1','20000000884','2026-04-20');
+insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path, review_status) values
+  ('00000000-0000-0000-0000-000000002a07','00000000-0000-0000-0000-000000002cf6','2026-04-05','gasolina',100,16,6.25,'x','approved');
+insert into shifts (driver_id, car_id, start_date, odometer_start, ended_at, odometer_end) values
+  ('00000000-0000-0000-0000-000000002a07','00000000-0000-0000-0000-000000002cf6','2026-04-05',2000,'2026-04-05 20:00-03',2020);
+create temp table ph as select driver_period_for('00000000-0000-0000-0000-000000002a07','2026-04-05') as id;
+grant select on ph to authenticated;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
+select is((compute_statement('00000000-0000-0000-0000-000000002a07', (select id from ph))->>'missing_consumption')::boolean,
+  true, 'consumo depois: antes de cadastrar, missing_consumption');
+reset role;
+update cars set km_per_l_gasolina = 10 where id = '00000000-0000-0000-0000-000000002cf6';
+set local role authenticated;
+select is((compute_statement('00000000-0000-0000-0000-000000002a07', (select id from ph))->>'missing_consumption')::boolean,
+  false, 'consumo depois: cadastrado vale para a nota já aprovada');
+select is((compute_statement('00000000-0000-0000-0000-000000002a07', (select id from ph))->>'off_duty_fuel_discount')::numeric,
+  12.50, 'consumo depois: desconto 20 × 0,625');
+reset role;
+-- segunda nota gravada com 10 km/l (km_equivalent 100); a primeira continua com km_equivalent nulo gravado
+insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path, review_status) values
+  ('00000000-0000-0000-0000-000000002a07','00000000-0000-0000-0000-000000002cf6','2026-04-07','gasolina',50,10,5,'x','approved');
+select is((cost_per_km_for('00000000-0000-0000-0000-000000002a07', (select id from ph))->>'cost_per_km')::numeric,
+  150 / 260::numeric, 'consumo depois: 150 ÷ (16 + 10) × 10, sem usar o km_equivalent gravado');
+update cars set km_per_l_gasolina = 12 where id = '00000000-0000-0000-0000-000000002cf6';
+select is((cost_per_km_for('00000000-0000-0000-0000-000000002a07', (select id from ph))->>'cost_per_km')::numeric,
+  150 / 312::numeric, 'consumo alterado 10 → 12 vale para todas as notas da quinzena');
+set local role authenticated;
+select is((compute_statement('00000000-0000-0000-0000-000000002a07', (select id from ph))->>'off_duty_fuel_discount')::numeric,
+  9.62, 'consumo alterado: desconto 20 × 150 ÷ 312');
+reset role;
+-- i (2a08, carro f1 10 km/l, quinzena 20/04–04/05) sem nota: reserva da empresa = nota de h em 07/04,
+-- convertida pelo consumo do carro da nota (f6, 12 km/l): 50 ÷ 120
+create temp table pi as select driver_period_for('00000000-0000-0000-0000-000000002a08','2026-04-25') as id;
+select is(cost_per_km_for('00000000-0000-0000-0000-000000002a08', (select id from pi))->>'source', 'company_last',
+  'reserva da empresa com carro diferente: fonte');
+select is((cost_per_km_for('00000000-0000-0000-0000-000000002a08', (select id from pi))->>'cost_per_km')::numeric,
+  50 / 120::numeric, 'reserva da empresa usa o consumo do carro da nota (12), não o do motorista (10)');
+
+-- ===== Motorista só lança abastecimento do carro atual =====
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000002a01","role":"authenticated"}';
+select throws_ok(
+  $$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
+    values (auth.uid(),'00000000-0000-0000-0000-000000002cf6','2026-04-07','gasolina',50,10,5,'x')$$,
+  'P0001', 'FUEL_CAR_NOT_ALLOWED', 'motorista não lança abastecimento de outro carro');
+select lives_ok(
+  $$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
+    values (auth.uid(),'00000000-0000-0000-0000-000000002cf1','2026-04-07','gasolina',50,10,5,'x')$$,
+  'motorista lança abastecimento do carro atual');
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
+select lives_ok(
+  $$insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path)
+    values ('00000000-0000-0000-0000-000000002a01','00000000-0000-0000-0000-000000002cf6','2026-04-07','gasolina',50,10,5,'x')$$,
+  'admin lança abastecimento de qualquer carro');
 reset role;
 
 select * from finish();

@@ -172,7 +172,8 @@ alter table fuelings
   alter column fuel set not null,
   alter column unit_price set not null;
 
--- Calcula sempre values_conflict e km_equivalent (ninguém grava à mão) e confere o combustível.
+-- Calcula sempre values_conflict e km_equivalent (exibição; ninguém grava à mão), confere o
+-- combustível e o carro (motorista: só o carro atual → FUEL_CAR_NOT_ALLOWED).
 create function fuelings_fuel() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -181,6 +182,12 @@ begin
   -- compatibilidade só quando o combustível/carro é informado (a conferência não esbarra
   -- numa troca posterior do tipo do carro); km_equivalent usa o consumo atual a cada escrita
   select fuel_type into v_type from cars where id = new.car_id;
+  -- o motorista só lança abastecimento do carro atual dele (admin não é barrado)
+  if (tg_op = 'INSERT' or new.car_id is distinct from old.car_id)
+     and auth.uid() is not null and auth.uid() = new.driver_id and not is_admin()
+     and new.car_id is distinct from (select current_car_id from profiles where id = new.driver_id) then
+    raise exception 'FUEL_CAR_NOT_ALLOWED' using errcode = 'P0001';
+  end if;
   if (tg_op = 'INSERT' or new.fuel is distinct from old.fuel or new.car_id is distinct from old.car_id)
      and (v_type is null or not (
        new.fuel = v_type
@@ -200,10 +207,12 @@ create trigger fuelings_fuel before insert or update on fuelings
   for each row execute function fuelings_fuel();
 
 -- ===== Custo por km =====
--- 1) quinzena: Σ valor ÷ Σ km_equivalent das notas aprovadas do motorista com km_equivalent;
+-- O km de cada nota é calculado na hora (quantity × consumo ATUAL do carro da nota): consumo
+-- cadastrado/alterado depois vale para as notas já lançadas. fuelings.km_equivalent é só exibição.
+-- 1) quinzena: Σ valor ÷ Σ km das notas aprovadas do motorista com consumo;
 --    notas aprovadas na quinzena mas nenhuma com consumo → missing_consumption (sem reserva);
--- 2) última nota aprovada do motorista (fueled_on ≤ fim) com km_equivalent;
--- 3) última nota aprovada da empresa (fueled_on ≤ fim) com km_equivalent; senão nulo.
+-- 2) última nota aprovada do motorista (fueled_on ≤ fim) com consumo;
+-- 3) última nota aprovada da empresa (fueled_on ≤ fim) com consumo; senão nulo.
 create function cost_per_km_for(p_driver uuid, p_period uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -218,13 +227,14 @@ begin
     return jsonb_build_object('cost_per_km', null, 'source', null, 'missing_consumption', false);
   end if;
 
-  select sum(amount) filter (where km_equivalent > 0),
-         sum(km_equivalent) filter (where km_equivalent > 0),
+  select sum(f.amount) filter (where k.km > 0),
+         sum(k.km) filter (where k.km > 0),
          count(*)
     into v_amount, v_km, v_count
-    from fuelings
-   where driver_id = p_driver and review_status = 'approved'
-     and fueled_on between per.start_date and per.end_date;
+    from fuelings f
+    cross join lateral (select f.quantity * car_consumption(f.car_id, f.fuel) as km) k
+   where f.driver_id = p_driver and f.review_status = 'approved'
+     and f.fueled_on between per.start_date and per.end_date;
   if v_km > 0 then
     return jsonb_build_object('cost_per_km', v_amount / v_km, 'source', 'period',
                               'missing_consumption', false);
@@ -233,21 +243,23 @@ begin
     return jsonb_build_object('cost_per_km', null, 'source', null, 'missing_consumption', true);
   end if;
 
-  select amount / km_equivalent into v_cost
-    from fuelings
-   where driver_id = p_driver and review_status = 'approved' and km_equivalent > 0
-     and fueled_on <= per.end_date
-   order by fueled_on desc, created_at desc, id desc limit 1;
+  select f.amount / k.km into v_cost
+    from fuelings f
+    cross join lateral (select f.quantity * car_consumption(f.car_id, f.fuel) as km) k
+   where f.driver_id = p_driver and f.review_status = 'approved' and k.km > 0
+     and f.fueled_on <= per.end_date
+   order by f.fueled_on desc, f.created_at desc, f.id desc limit 1;
   if v_cost is not null then
     return jsonb_build_object('cost_per_km', v_cost, 'source', 'driver_last',
                               'missing_consumption', false);
   end if;
 
-  select amount / km_equivalent into v_cost
-    from fuelings
-   where review_status = 'approved' and km_equivalent > 0
-     and fueled_on <= per.end_date
-   order by fueled_on desc, created_at desc, id desc limit 1;
+  select f.amount / k.km into v_cost
+    from fuelings f
+    cross join lateral (select f.quantity * car_consumption(f.car_id, f.fuel) as km) k
+   where f.review_status = 'approved' and k.km > 0
+     and f.fueled_on <= per.end_date
+   order by f.fueled_on desc, f.created_at desc, f.id desc limit 1;
   if v_cost is not null then
     return jsonb_build_object('cost_per_km', v_cost, 'source', 'company_last',
                               'missing_consumption', false);
