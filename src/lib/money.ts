@@ -2,6 +2,8 @@ export function parseBRL(input: string): number | null {
   let s = input.replace(/R\$/gi, '').replace(/\s/g, '')
   if (s === '') return null
   if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.')
+  // sem vírgula, "1.200" / "12.345.678" é milhar (convenção BR); "1.5" e "12.50" seguem decimais
+  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '')
   if (!/^\d+(\.\d+)?$/.test(s)) return null
   const n = Number(s)
   return Number.isFinite(n) && n >= 0 ? n : null
