@@ -35,6 +35,14 @@ alter table rides drop constraint rides_transfer_status_check;
 alter table rides add constraint rides_transfer_status_check
   check (transfer_status in ('assigned','in_progress','completed','checked'));
 
+-- Transfers já existentes (sem dados reais): preenche o endereço antes do check (que fica VALID)
+update rides
+   set origin_street = coalesce(nullif(btrim(origin), ''), 'Não informado'),
+       dest_street = coalesce(nullif(btrim(destination), ''), 'Não informado'),
+       origin_district = 'Não informado', origin_city = 'Não informado', origin_state = 'Não informado',
+       dest_district = 'Não informado', dest_city = 'Não informado', dest_state = 'Não informado'
+ where platform = 'transfer';
+
 -- Transfer exige origem e destino (rua e número, bairro, cidade, UF); CEP e referência opcionais
 alter table rides add constraint rides_transfer_address_check check (
   platform <> 'transfer' or (
@@ -57,7 +65,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
       from shifts where car_id = p_car
     union all
     select greatest(odometer_start, coalesce(odometer_end, odometer_start))
-      from rides where car_id = p_car and odometer_start is not null
+      from rides where car_id = p_car and platform = 'transfer' and odometer_start is not null
   ) x
 $$;
 
@@ -117,7 +125,11 @@ end $$;
 -- ===== rides_before_write: igual à 0011, mais =====
 --  * corrida Uber/BlaBlaCar lançada pelo próprio motorista exige comprovante (RECEIPT_REQUIRED);
 --    o admin pode lançar/corrigir sem;
---  * Transfer em andamento reatribuído a outro motorista volta para 'assigned' sem leituras.
+--  * Transfer em andamento reatribuído a outro motorista volta para 'assigned' sem leituras;
+--  * colunas de Transfer (leituras, carro, km estimado, endereço) são anuladas em Uber/BlaBlaCar
+--    (não envenenam o último odômetro do carro);
+--  * em Transfer, o motorista só muda leituras/status/carro/km/turno pelas RPCs
+--    (start_transfer/complete_transfer ligam a flag de sessão passos.transfer_rpc) → FORBIDDEN_FIELD.
 create or replace function rides_before_write() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -138,6 +150,29 @@ begin
   else
     -- snapshot imutável: ninguém edita por corrida
     new.driver_pct := old.driver_pct;
+  end if;
+
+  if new.platform <> 'transfer' then
+    new.odometer_start := null;
+    new.odometer_start_photo := null;
+    new.odometer_end := null;
+    new.odometer_end_photo := null;
+    new.started_at := null;
+    new.car_id := null;
+    new.estimated_km := null;
+    new.origin_street := null; new.origin_district := null; new.origin_city := null;
+    new.origin_state := null; new.origin_zip := null; new.origin_ref := null;
+    new.dest_street := null; new.dest_district := null; new.dest_city := null;
+    new.dest_state := null; new.dest_zip := null; new.dest_ref := null;
+  elsif auth.uid() is not null and auth.uid() = new.driver_id and not is_admin()
+        and coalesce(current_setting('passos.transfer_rpc', true), '') <> 'on'
+        and tg_op = 'UPDATE' and old.platform = 'transfer'
+        and ((new.transfer_status, new.odometer_start, new.odometer_start_photo, new.odometer_end,
+                 new.odometer_end_photo, new.started_at, new.car_id, new.km, new.shift_id)
+                is distinct from
+                (old.transfer_status, old.odometer_start, old.odometer_start_photo, old.odometer_end,
+                 old.odometer_end_photo, old.started_at, old.car_id, old.km, old.shift_id)) then
+    raise exception 'FORBIDDEN_FIELD' using errcode = 'P0001';
   end if;
 
   if new.platform in ('uber', 'blablacar') then
@@ -250,12 +285,14 @@ begin
     end if;
   end if;
 
+  perform set_config('passos.transfer_rpc', 'on', true);
   update rides
      set transfer_status = 'in_progress', odometer_start = p_odometer,
          odometer_start_photo = p_photo, started_at = now(), car_id = v_car,
          shift_id = v_shift.id, odometer_end = null, odometer_end_photo = null, km = null
    where id = r.id
    returning * into r;
+  perform set_config('passos.transfer_rpc', '', true);
   return r;
 end $$;
 
@@ -297,12 +334,73 @@ begin
     raise exception 'PHOTO_REQUIRED' using errcode = 'P0001';
   end if;
 
+  perform set_config('passos.transfer_rpc', 'on', true);
   update rides
      set transfer_status = 'completed', odometer_end = p_odometer, odometer_end_photo = p_photo,
          km = p_odometer - r.odometer_start, reject_reason = null
    where id = r.id
    returning * into r;
+  perform set_config('passos.transfer_rpc', '', true);
   return r;
+end $$;
+
+-- ===== end_shift: igual à 0011, mas não encerra com Transfer do turno em andamento =====
+create or replace function end_shift(p_shift_id uuid, p_odometer int, p_photo text, p_uber_photo text)
+returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  s shifts%rowtype;
+  v_total int;
+  v_service numeric;
+  v_off numeric;
+  v_cost numeric;
+  v_period uuid;
+begin
+  if not is_active_driver() then
+    raise exception 'FORBIDDEN' using errcode = 'P0001';
+  end if;
+
+  select * into s from shifts where id = p_shift_id and driver_id = auth.uid() for update;
+  if not found then
+    raise exception 'NOT_FOUND' using errcode = 'P0001';
+  end if;
+
+  if s.ended_at is null then
+    if exists (select 1 from rides
+                where shift_id = s.id and platform = 'transfer' and transfer_status = 'in_progress') then
+      raise exception 'TRANSFER_IN_PROGRESS' using errcode = 'P0001';
+    end if;
+    if p_odometer is null or p_odometer < s.odometer_start then
+      raise exception 'ODOMETER_BELOW_START' using errcode = 'P0001';
+    end if;
+    if p_photo is null or btrim(p_photo) = '' then
+      raise exception 'PHOTO_REQUIRED' using errcode = 'P0001';
+    end if;
+    if (p_uber_photo is null or btrim(p_uber_photo) = '')
+       and exists (select 1 from rides where shift_id = s.id and platform = 'uber') then
+      raise exception 'UBER_PHOTO_REQUIRED' using errcode = 'P0001';
+    end if;
+    update shifts
+      set ended_at = now(), odometer_end = p_odometer, odometer_end_photo = p_photo,
+          uber_earnings_photo = nullif(btrim(p_uber_photo), '')
+      where id = s.id
+      returning * into s;
+  end if;
+
+  v_total := s.odometer_end - s.odometer_start;
+  select coalesce(sum(km), 0) into v_service from rides
+   where shift_id = s.id and driver_id = s.driver_id
+     and (platform <> 'transfer' or transfer_status in ('completed', 'checked'));
+  v_off := greatest(v_total - v_service, 0);
+  -- statement separado: a quinzena pode ser criada aqui e cost_per_km_for (stable)
+  -- só a enxerga num snapshot posterior
+  v_period := driver_period_for(s.driver_id, s.start_date);
+  v_cost := (cost_per_km_for(s.driver_id, v_period)->>'cost_per_km')::numeric;
+  return jsonb_build_object(
+    'km_total', v_total,
+    'km_service', v_service,
+    'km_off', v_off,
+    'off_discount_estimate', round(v_off * v_cost, 2));
 end $$;
 
 -- ===== Conferência =====

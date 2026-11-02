@@ -1,5 +1,5 @@
 begin;
-select plan(95);
+select plan(96);
 -- Endereço padrão dos Transfers destas fixtures (check de origem/destino da 0012; revertido no rollback).
 -- O check em si é testado em transfer_flow.test.sql.
 alter table rides
@@ -413,8 +413,17 @@ select is((select shift_id from start_transfer('00000000-0000-0000-0000-00000000
 select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006ab', 1050, 'b.jpg')$$, 'Maria conclui T (km 50)');
 reset role;
 -- defesa: mesmo com shift_id inconsistente, as somas exigem motorista da corrida = do turno
+-- (fixture sem as claims da Maria: senão conta como escrita do motorista fora da RPC)
+set local request.jwt.claims = '{}';
 update rides set shift_id = '00000000-0000-0000-0000-0000000006bb' where id = '00000000-0000-0000-0000-0000000006ab';
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000006db","role":"authenticated"}';
+set local role authenticated;
+select throws_ok(
+  $$select end_shift('00000000-0000-0000-0000-0000000006bb',1100,'f.jpg','u.jpg')$$,
+  'P0001', 'TRANSFER_IN_PROGRESS', 'turno com Transfer recusado (em andamento) não encerra');
+reset role;
+-- encerra o turno como fixture; end_shift repetido só recalcula os totais
+update shifts set ended_at = now(), odometer_end = 1100 where id = '00000000-0000-0000-0000-0000000006bb';
 set local role authenticated;
 select is(
   end_shift('00000000-0000-0000-0000-0000000006bb',1100,'f.jpg','u.jpg'),

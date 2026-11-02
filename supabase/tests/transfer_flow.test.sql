@@ -1,5 +1,5 @@
 begin;
-select plan(79);
+select plan(91);
 
 -- Personas do seed: admin ad01, João d001 (company_car, carro c001 da empresa),
 -- Maria d002 (own_car, carro c002 próprio). Fixtures próprias: uuids 3xxx.
@@ -91,6 +91,27 @@ select throws_ok(
 select lives_ok(
   $$update rides set amount = 25 where id = '00000000-0000-0000-0000-0000000031ab'$$,
   'motorista edita corrida mantendo o comprovante');
+-- colunas de Transfer numa corrida Uber são anuladas (não envenenam o último odômetro do carro)
+select lives_ok(
+  $$insert into rides (id, driver_id, platform, ride_date, amount, km, receipt_path,
+      car_id, odometer_start, odometer_end, started_at, estimated_km, origin_street)
+    values ('00000000-0000-0000-0000-0000000031ac','00000000-0000-0000-0000-00000000d001','uber','2026-03-05',20,0,'d001/u2.jpg',
+      '00000000-0000-0000-0000-00000000c001',999999,999999,now(),5,'Rua X')$$,
+  'Uber com colunas de Transfer');
+select is(
+  (select coalesce(car_id::text, 'null') || '/' || coalesce(odometer_start::text, 'null') || '/'
+          || coalesce(odometer_end::text, 'null') || '/' || coalesce(estimated_km::text, 'null') || '/'
+          || coalesce(origin_street, 'null') from rides where id = '00000000-0000-0000-0000-0000000031ac'),
+  'null/null/null/null/null', 'Uber: colunas de Transfer anuladas no insert');
+select lives_ok(
+  $$update rides set car_id = '00000000-0000-0000-0000-00000000c001', odometer_end = 999999 where id = '00000000-0000-0000-0000-0000000031ac'$$,
+  'motorista tenta gravar odômetro numa corrida Uber');
+select is((select coalesce(odometer_end::text, 'null') from rides where id = '00000000-0000-0000-0000-0000000031ac'), 'null', 'Uber: anulado no update');
+-- Transfer: o motorista não grava leituras fora das RPCs
+select lives_ok(
+  $$update rides set odometer_start = 999999, car_id = '00000000-0000-0000-0000-00000000c001' where id = '00000000-0000-0000-0000-0000000031a2'$$,
+  'motorista tenta gravar odômetro do Transfer direto');
+select is((select coalesce(odometer_start::text, 'null') from rides where id = '00000000-0000-0000-0000-0000000031a2'), 'null', 'Transfer: leitura direta não gravada');
 
 -- iniciar
 select throws_ok(
@@ -237,6 +258,9 @@ select lives_ok(
 select lives_ok(
   $$select start_transfer('00000000-0000-0000-0000-0000000031a2', 5200, 'a.jpg')$$,
   'T2 iniciado em 5200');
+select throws_ok(
+  $$select end_shift('00000000-0000-0000-0000-0000000031b2', 5250, 'f.jpg', null)$$,
+  'P0001', 'TRANSFER_IN_PROGRESS', 'turno não encerra com Transfer em andamento');
 select lives_ok(
   $$select complete_transfer('00000000-0000-0000-0000-0000000031a2', 5300, 'b.jpg')$$,
   'T2 concluído em 5300');
@@ -298,6 +322,38 @@ select lives_ok(
 select throws_ok(
   $$select start_transfer('00000000-0000-0000-0000-0000000031a4', 900, 'a.jpg')$$,
   'P0001', 'ODOMETER_BELOW_LAST', 'start 900 após turno 1200');
+select lives_ok($$select start_transfer('00000000-0000-0000-0000-0000000031a4', 1200, 'a.jpg')$$, 'T4 iniciado em 1200');
+reset role;
+
+-- ===== Quinzena fechada: não conclui =====
+update driver_periods set status = 'closed', closed_at = now()
+ where driver_id = '00000000-0000-0000-0000-00000000d001' and '2026-03-05' between start_date and end_date;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000d001","role":"authenticated"}';
+set local role authenticated;
+select throws_ok(
+  $$select complete_transfer('00000000-0000-0000-0000-0000000031a4', 1250, 'b.jpg')$$,
+  'P0001', 'PERIOD_CLOSED', 'quinzena fechada: não conclui');
+reset role;
+
+-- ===== Motorista pausado: não inicia nem conclui depois do fim da última quinzena =====
+insert into rides (id, driver_id, platform, ride_date, amount, client_name, transfer_status,
+    origin_street, origin_district, origin_city, origin_state, dest_street, dest_district, dest_city, dest_state) values
+  ('00000000-0000-0000-0000-0000000031a5','00000000-0000-0000-0000-00000000d002','transfer','2026-03-20',100,'Cli 5','assigned','Rua A, 1','Centro','Passos','MG','Av. B, 2','Centro','Franca','SP'),
+  ('00000000-0000-0000-0000-0000000031a6','00000000-0000-0000-0000-00000000d002','transfer','2026-03-20',100,'Cli 6','assigned','Rua A, 1','Centro','Passos','MG','Av. B, 2','Centro','Franca','SP');
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000d002","role":"authenticated"}';
+set local role authenticated;
+select lives_ok($$select start_transfer('00000000-0000-0000-0000-0000000031a6', 30100, 'a.jpg')$$, 'Maria inicia T6 antes da pausa');
+reset role;
+-- pausa no dia 18/03: quinzena 17/03–31/03 encurtada (como a pausa fará)
+update driver_periods set end_date = '2026-03-18' where driver_id = '00000000-0000-0000-0000-00000000d002' and start_date = '2026-03-17';
+update profiles set paused = true where id = '00000000-0000-0000-0000-00000000d002';
+set local role authenticated;
+select throws_ok(
+  $$select start_transfer('00000000-0000-0000-0000-0000000031a5', 30100, 'a.jpg')$$,
+  'P0001', 'DRIVER_PAUSED', 'pausado: não inicia');
+select throws_ok(
+  $$select complete_transfer('00000000-0000-0000-0000-0000000031a6', 30150, 'b.jpg')$$,
+  'P0001', 'DRIVER_PAUSED', 'pausado: não conclui');
 reset role;
 
 select * from finish();
