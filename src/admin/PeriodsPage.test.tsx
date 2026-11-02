@@ -138,7 +138,42 @@ describe('quinzenas', () => {
     await screen.findByText('Maria Souza')
     await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
     expect(confirmSpy).toHaveBeenCalledWith('Fechar a quinzena 16/10 – 31/10? Os valores serão congelados.')
-    await waitFor(() => expect(m.closePeriod).toHaveBeenCalledWith('p1'))
+    await waitFor(() => expect(m.closePeriod).toHaveBeenCalledWith('p1', false))
+  })
+
+  it('quinzena atual (ainda não terminou) pergunta antes e fecha com force', async () => {
+    const user = userEvent.setup()
+    m.listPeriods.mockResolvedValue([period({ end_date: '2099-12-31' })])
+    m.closePeriod.mockResolvedValue(1)
+    renderPage()
+    await screen.findByText('Maria Souza')
+    await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
+    await waitFor(() => expect(m.closePeriod).toHaveBeenCalledWith('p1', true))
+    expect(confirmSpy).toHaveBeenLastCalledWith('A quinzena ainda não terminou. Fechar mesmo assim?')
+    expect(m.closePeriod).toHaveBeenCalledTimes(1)
+  })
+
+  it('PERIOD_NOT_ENDED do servidor pede segunda confirmação e fecha com force', async () => {
+    const user = userEvent.setup()
+    m.closePeriod.mockRejectedValueOnce(new Error('PERIOD_NOT_ENDED')).mockResolvedValueOnce(1)
+    renderPage()
+    await screen.findByText('Maria Souza')
+    await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
+    await waitFor(() => expect(m.closePeriod).toHaveBeenCalledWith('p1', true))
+    expect(confirmSpy).toHaveBeenLastCalledWith('A quinzena ainda não terminou. Fechar mesmo assim?')
+    expect(m.closePeriod).toHaveBeenNthCalledWith(1, 'p1', false)
+  })
+
+  it('cancelar a segunda confirmação não fecha', async () => {
+    const user = userEvent.setup()
+    m.closePeriod.mockRejectedValueOnce(new Error('PERIOD_NOT_ENDED'))
+    confirmSpy.mockReturnValueOnce(true).mockReturnValueOnce(false)
+    renderPage()
+    await screen.findByText('Maria Souza')
+    await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(2))
+    expect(m.closePeriod).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('A quinzena ainda não terminou')).toBeNull()
   })
 
   it('não fecha se o usuário cancelar', async () => {

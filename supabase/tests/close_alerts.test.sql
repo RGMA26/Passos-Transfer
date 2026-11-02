@@ -131,11 +131,11 @@ insert into shifts (id, driver_id, car_id, consumption_km_l, start_date, started
   ('00000000-0000-0000-0000-0000000007d5','00000000-0000-0000-0000-000000000715','00000000-0000-0000-0000-0000000007c1',10,'2026-03-05', now() - interval '2 hours',1000);
 
 -- ===== Privilégios =====
-select ok(not has_function_privilege('anon', 'close_period(uuid)', 'execute'), 'anon não executa close_period');
+select ok(not has_function_privilege('anon', 'close_period(uuid,boolean)', 'execute'), 'anon não executa close_period');
 select ok(not has_function_privilege('anon', 'mark_statement_paid(uuid,date,text)', 'execute'), 'anon não executa mark_statement_paid');
 select ok(not has_function_privilege('anon', 'admin_alerts()', 'execute'), 'anon não executa admin_alerts');
 select ok(not has_function_privilege('anon', 'period_summary(uuid)', 'execute'), 'anon não executa period_summary');
-select ok(has_function_privilege('authenticated', 'close_period(uuid)', 'execute'), 'authenticated executa close_period');
+select ok(has_function_privilege('authenticated', 'close_period(uuid,boolean)', 'execute'), 'authenticated executa close_period');
 select ok(not has_function_privilege('authenticated', 'period_movement_drivers(uuid)', 'execute'), 'period_movement_drivers é interno');
 
 -- ===== Motorista não chama nada =====
@@ -154,13 +154,13 @@ select throws_ok($$select close_period('00000000-0000-0000-0000-000000007e03')$$
 select throws_ok($$select close_period('00000000-0000-0000-0000-000000007e04')$$, 'P0001', 'PENDING_REVIEW', 'abastecimento pendente bloqueia (vence preço)');
 select throws_ok($$select close_period('00000000-0000-0000-0000-000000007e05')$$, 'P0001', 'MISSING_REFERENCE_PRICE', 'falta preço de referência');
 select throws_ok($$select close_period('00000000-0000-0000-0000-000000007e06')$$, 'P0001', 'PENDING_REVIEW', 'transfer concluído sem conferência bloqueia');
-select throws_ok($$select close_period('00000000-0000-0000-0000-000000007e07')$$, 'P0001', 'PENDING_REVIEW', 'turno pendente bloqueia');
-select throws_ok($$select close_period('00000000-0000-0000-0000-000000007e08')$$, 'P0001', 'PENDING_REVIEW', 'despesa pendente bloqueia');
+select throws_ok($$select close_period('00000000-0000-0000-0000-000000007e07', true)$$, 'P0001', 'PENDING_REVIEW', 'turno pendente bloqueia');
+select throws_ok($$select close_period('00000000-0000-0000-0000-000000007e08', true)$$, 'P0001', 'PENDING_REVIEW', 'despesa pendente bloqueia');
 select is((select status from periods where id = '00000000-0000-0000-0000-000000007e02'), 'open', 'falha não fecha a quinzena');
 
 -- quinzena fechada com sucesso depois de resolver a pendência: p9 vazia fecha com 0 extratos
-select is(close_period('00000000-0000-0000-0000-000000007e09'), 0, 'quinzena sem movimento fecha com 0 extratos');
-select throws_ok($$select close_period('00000000-0000-0000-0000-000000007e09')$$, 'P0001', 'ALREADY_CLOSED', 'fechar de novo');
+select is(close_period('00000000-0000-0000-0000-000000007e09', true), 0, 'quinzena sem movimento fecha com 0 extratos');
+select throws_ok($$select close_period('00000000-0000-0000-0000-000000007e09', true)$$, 'P0001', 'ALREADY_CLOSED', 'fechar de novo');
 
 -- ===== Alertas =====
 create temp table al as select * from admin_alerts();

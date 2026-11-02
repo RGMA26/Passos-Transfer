@@ -48,11 +48,16 @@ const today = new Intl.DateTimeFormat('en-CA', {
 
 /** Erros do navegador (console/exceções/HTTP >= 400) — o fluxo feliz não deve ter nenhum. */
 const browserErrors: string[] = []
+/** Mensagens de confirm()/alert() (todas aceitas). */
+const dialogs: string[] = []
 
 async function newPage(browser: Browser, who: string): Promise<Page> {
   const ctx = await browser.newContext()
   const page = await ctx.newPage()
-  page.on('dialog', (d) => void d.accept())
+  page.on('dialog', (d) => {
+    dialogs.push(d.message())
+    void d.accept()
+  })
   page.on('pageerror', (e) => browserErrors.push(`${who} pageerror: ${e.message}`))
   page.on('console', (m) => {
     if (m.type() === 'error') browserErrors.push(`${who} console: ${m.text()}`)
@@ -234,8 +239,11 @@ test('fluxo completo: cadastro → turno → transfer → conferência → fecha
   await expect(admin.getByText('Preço salvo')).toBeVisible()
   const row = admin.getByRole('row', { name: /Carlos Teste/ })
   await expect(row).toContainText(brl('345,00'))
+  // a quinzena atual ainda não terminou: o servidor responde PERIOD_NOT_ENDED e o app
+  // pede a segunda confirmação antes de fechar com p_force
   await admin.getByRole('button', { name: 'Fechar quinzena' }).click()
   await expect(admin.getByRole('button', { name: 'Fechar quinzena' })).toHaveCount(0)
+  expect(dialogs).toContain('A quinzena ainda não terminou. Fechar mesmo assim?')
   await expect(row).toContainText('A pagar')
   await expect(row).toContainText(brl('345,00'))
 

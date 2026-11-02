@@ -771,8 +771,9 @@ export async function periodDriverStatements(periodId: string): Promise<PeriodDr
   return out.sort((a, b) => a.driver_name.localeCompare(b.driver_name, 'pt-BR'))
 }
 
-export async function closePeriod(periodId: string): Promise<number> {
-  const { data, error } = await supabase.rpc('close_period', { p_period: periodId })
+/** `force` fecha antes do fim da quinzena (senão o servidor responde PERIOD_NOT_ENDED). */
+export async function closePeriod(periodId: string, force = false): Promise<number> {
+  const { data, error } = await supabase.rpc('close_period', { p_period: periodId, p_force: force })
   if (error) throw Object.assign(new Error(error.message), { code: error.code })
   return data as number
 }

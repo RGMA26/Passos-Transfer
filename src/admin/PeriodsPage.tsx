@@ -11,11 +11,13 @@ import { localDate } from '../lib/periods'
 import { toCSV } from '../lib/csv'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
+const MSG_NOT_ENDED = 'A quinzena ainda não terminou. Fechar mesmo assim?'
 const CLOSE_ERRORS: Record<string, string> = {
   OPEN_SHIFTS: 'Há turnos abertos',
   ASSIGNED_TRANSFERS: 'Há transfers não concluídos',
   PENDING_REVIEW: 'Há itens aguardando conferência',
   SHIFTS_NOT_APPROVED: 'Há turnos não aprovados',
+  PERIOD_NOT_ENDED: 'A quinzena ainda não terminou',
   MISSING_REFERENCE_PRICE: 'Defina o preço de referência do litro',
 }
 const KIND_LABEL: Record<api.AdjustmentKind, string> = {
@@ -106,8 +108,18 @@ export default function PeriodsPage() {
     if (!period) return
     if (!window.confirm(`Fechar a quinzena ${rangeShort(period)}? Os valores serão congelados.`)) return
     setCloseError('')
+    // quinzena em andamento: pede a segunda confirmação antes (evita a ida e volta com erro)
+    const notEnded = localDate() <= period.end_date
+    if (notEnded && !window.confirm(MSG_NOT_ENDED)) return
     try {
-      await api.closePeriod(period.id)
+      try {
+        await api.closePeriod(period.id, notEnded)
+      } catch (err) {
+        // relógio do aparelho atrasado: o servidor é quem decide
+        if ((err as Error).message !== 'PERIOD_NOT_ENDED') throw err
+        if (!window.confirm(MSG_NOT_ENDED)) return
+        await api.closePeriod(period.id, true)
+      }
       await loadPeriods()
       await loadDetail(period.id)
     } catch (err) {

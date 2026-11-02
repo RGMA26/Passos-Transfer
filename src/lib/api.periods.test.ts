@@ -15,7 +15,7 @@ vi.mock('./supabase', () => ({
     },
   },
 }))
-import { periodDriverStatements } from './api'
+import { closePeriod, periodDriverStatements } from './api'
 
 beforeEach(() => {
   rpc.mockReset()
@@ -42,5 +42,15 @@ describe('periodDriverStatements (quinzena aberta)', () => {
       ['Ana', 10],
       ['Beto (inativo)', 20],
     ])
+  })
+})
+
+describe('closePeriod', () => {
+  it('sempre envia p_force (false por padrão, true ao forçar)', async () => {
+    rpc.mockResolvedValue({ data: 1, error: null })
+    await closePeriod('p1')
+    expect(rpc).toHaveBeenLastCalledWith('close_period', { p_period: 'p1', p_force: false })
+    await closePeriod('p1', true)
+    expect(rpc).toHaveBeenLastCalledWith('close_period', { p_period: 'p1', p_force: true })
   })
 })

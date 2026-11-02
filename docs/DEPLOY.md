@@ -109,6 +109,12 @@ Entre como admin no computador e faça, nesta ordem:
 - [ ] **Definir o preço de referência do litro** na quinzena atual (menu **Quinzenas**). Ele é usado na gasolina dos motoristas de carro próprio e quando não houver abastecimento na quinzena. Sem ele a quinzena não fecha.
 - [ ] Pedir a cada motorista para **instalar o app** (passo 7) e entrar uma vez para conferir.
 
+## Fechamento da quinzena
+
+- Feche a quinzena **1 a 2 dias depois de ela terminar** (ex.: a de 1–15 no dia 16 ou 17), **depois que os motoristas abrirem o app com internet** para enviar o que ficou pendente de envio. O que chegar depois do fechamento é recusado ("quinzena fechada").
+- Se tentar fechar antes do último dia, o app pergunta "A quinzena ainda não terminou. Fechar mesmo assim?". Só confirme se tiver certeza de que não haverá mais lançamentos nela.
+- Turnos recusados também impedem o fechamento ("Há turnos não aprovados"): o motorista corrige as corridas do turno e ele volta para a **Conferência**.
+
 ## Backup
 
 O Supabase faz backup diário do banco nos planos pagos (**Database → Backups**). Recomenda-se o plano Pro para a empresa ter esse backup.

@@ -256,7 +256,7 @@ isOneToOne: false
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
 "close_period":
-{ Args: { "p_period": string }; Returns: number
+{ Args: { "p_force"?: boolean,"p_period": string }; Returns: number
                            },
 "complete_transfer":
 { Args: { "p_km": number,"p_ride_id": string }; Returns: {
