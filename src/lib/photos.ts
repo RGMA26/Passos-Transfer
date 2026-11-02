@@ -6,7 +6,8 @@ export async function compressImage(file: File): Promise<Blob> {
     maxWidthOrHeight: 1600,
     maxSizeMB: 0.5,
     fileType: 'image/jpeg',
-    useWebWorker: true,
+    // sem worker: a lib baixaria o script do worker de uma CDN (falha offline / CSP)
+    useWebWorker: false,
   })
 }
 

@@ -10,10 +10,12 @@ interface Props {
 export default function PhotoInput({ label, required, onChange }: Props) {
   const [preview, setPreview] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview) }, [preview])
 
   async function pick(file: File | undefined) {
+    setError('')
     if (!file) {
       setPreview(null)
       onChange(null)
@@ -27,6 +29,7 @@ export default function PhotoInput({ label, required, onChange }: Props) {
     } catch {
       setPreview(null)
       onChange(null)
+      setError('Não foi possível usar esta foto. Tente outra.')
     } finally {
       setBusy(false)
     }
@@ -44,6 +47,7 @@ export default function PhotoInput({ label, required, onChange }: Props) {
       />
       {busy && <small>Comprimindo...</small>}
       {preview && <img src={preview} alt="Pré-visualização" width={96} />}
+      {error && <small className="error" role="alert">{error}</small>}
     </label>
   )
 }
