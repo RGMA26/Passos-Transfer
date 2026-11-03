@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import * as api from '../lib/api'
 import type { DriverPeriod } from '../lib/types'
 import StatementView, { formatDay } from '../components/StatementView'
@@ -41,6 +41,9 @@ export default function PeriodsPage() {
   const [rows, setRows] = useState<api.PeriodOverviewRow[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [selected, setSelected] = useState<api.PeriodOverviewRow | null>(null)
+  const [params] = useSearchParams()
+  const wanted = params.get('motorista')
+  const opened = useRef(false)
 
   const load = useCallback(async () => {
     setFailed(false)
@@ -54,6 +57,14 @@ export default function PeriodsPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // ?motorista=<id> (vindo das pendências): abre esse motorista uma única vez
+  useEffect(() => {
+    if (!rows || !wanted || opened.current) return
+    opened.current = true
+    const row = rows.find((r) => r.driver_id === wanted)
+    if (row) setSelected(row)
+  }, [rows, wanted])
 
   if (failed) {
     return (

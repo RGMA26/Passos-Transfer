@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import ReviewPage from './ReviewPage'
 import * as api from '../lib/api'
 
@@ -12,6 +13,12 @@ vi.mock('../lib/api', () => ({
   updateShiftOdometers: vi.fn(),
 }))
 const m = vi.mocked(api)
+const renderPage = (url = '/admin/conferencia') =>
+  render(
+    <MemoryRouter initialEntries={[url]}>
+      <ReviewPage />
+    </MemoryRouter>,
+  )
 
 const transfer = (over: Partial<api.PendingTransfer> = {}): api.PendingTransfer => ({
   id: 't1',
@@ -62,7 +69,7 @@ const section = (name: string) => screen.getByRole('region', { name })
 
 describe('fila', () => {
   it('lista abastecimentos, turnos e transfers com foto; não há seção de despesas avulsas', async () => {
-    render(<ReviewPage />)
+    renderPage()
     const f = within(await waitFor(() => section('Abastecimentos')))
     expect(f.getByText(/Maria/)).toBeInTheDocument()
     const img = await f.findByRole('img', { name: 'Foto do abastecimento' })
@@ -82,7 +89,7 @@ describe('fila', () => {
       { ...q.fuelings[0], id: 'f3', fuel: 'eletrico', quantity: 50, amount: 40, unit_price: 0.8 },
     ]
     m.listPendingReview.mockResolvedValue(q)
-    render(<ReviewPage />)
+    renderPage()
     const f = within(await waitFor(() => section('Abastecimentos')))
     expect(f.getByText(/35 L/)).toBeInTheDocument()
     expect(f.getByText(/20 m³/)).toBeInTheDocument()
@@ -94,7 +101,7 @@ describe('fila', () => {
     const q = full()
     q.fuelings = [{ ...q.fuelings[0], quantity: 40, unit_price: 6.19, amount: 274.6, values_conflict: true }]
     m.listPendingReview.mockResolvedValue(q)
-    render(<ReviewPage />)
+    renderPage()
     const f = within(await waitFor(() => section('Abastecimentos')))
     const label = f.getByText('🟠 Valores conflitantes')
     expect(label.closest('.review-item')).toHaveClass('conflict')
@@ -102,20 +109,20 @@ describe('fila', () => {
   })
 
   it('abastecimento sem conflito não mostra o aviso', async () => {
-    render(<ReviewPage />)
+    renderPage()
     const f = within(await waitFor(() => section('Abastecimentos')))
     expect(f.queryByText('🟠 Valores conflitantes')).toBeNull()
   })
 
   it('estado vazio', async () => {
     m.listPendingReview.mockResolvedValue(empty())
-    render(<ReviewPage />)
+    renderPage()
     expect(await screen.findByText('Nada para conferir.')).toBeInTheDocument()
   })
 
   it('Aprovar chama reviewItem com os quatro parâmetros e recarrega', async () => {
     const user = userEvent.setup()
-    render(<ReviewPage />)
+    renderPage()
     const f = within(await waitFor(() => section('Abastecimentos')))
     m.listPendingReview.mockResolvedValue(empty())
     await user.click(f.getByRole('button', { name: 'Aprovar' }))
@@ -125,7 +132,7 @@ describe('fila', () => {
 
   it('Recusar sem motivo fica bloqueado', async () => {
     const user = userEvent.setup()
-    render(<ReviewPage />)
+    renderPage()
     const f = within(await waitFor(() => section('Abastecimentos')))
     await user.click(f.getByRole('button', { name: 'Recusar' }))
     await user.click(f.getByRole('button', { name: 'Confirmar recusa' }))
@@ -135,7 +142,7 @@ describe('fila', () => {
 
   it('Recusar com motivo envia o motivo', async () => {
     const user = userEvent.setup()
-    render(<ReviewPage />)
+    renderPage()
     const t = within(await waitFor(() => section('Transfers concluídos')))
     await user.click(t.getByRole('button', { name: 'Recusar' }))
     await user.type(t.getByLabelText('Motivo'), '  km errado ')
@@ -146,7 +153,7 @@ describe('fila', () => {
   it('PERIOD_CLOSED mostra mensagem amigável', async () => {
     m.reviewItem.mockRejectedValue(new Error('PERIOD_CLOSED'))
     const user = userEvent.setup()
-    render(<ReviewPage />)
+    renderPage()
     const f = within(await waitFor(() => section('Abastecimentos')))
     await user.click(f.getByRole('button', { name: 'Aprovar' }))
     expect(await screen.findByText('Quinzena fechada: não é possível alterar')).toBeInTheDocument()
@@ -155,7 +162,7 @@ describe('fila', () => {
 
 describe('conferência única do transfer', () => {
   it('mostra odômetros, fotos, km real × estimado e as despesas com comprovante', async () => {
-    render(<ReviewPage />)
+    renderPage()
     const t = within(await waitFor(() => section('Transfers concluídos')))
     expect(t.getByText(/1000 → 1040/)).toBeInTheDocument()
     expect(t.getByText(/Km real: 40 · Km estimado: 38/)).toBeInTheDocument()
@@ -171,7 +178,7 @@ describe('conferência única do transfer', () => {
     const q = full()
     q.transfers = [transfer({ km: 46, estimated_km: 38 })]
     m.listPendingReview.mockResolvedValue(q)
-    render(<ReviewPage />)
+    renderPage()
     const t = within(await waitFor(() => section('Transfers concluídos')))
     const warn = t.getByText('Km acima do estimado')
     expect(warn).toHaveClass('warn')
@@ -181,7 +188,7 @@ describe('conferência única do transfer', () => {
     const q = full()
     q.transfers = [transfer({ id: 'ta', km: 45.6, estimated_km: 38 }), transfer({ id: 'tb', km: 90, estimated_km: null })]
     m.listPendingReview.mockResolvedValue(q)
-    render(<ReviewPage />)
+    renderPage()
     await waitFor(() => section('Transfers concluídos'))
     expect(screen.queryByText('Km acima do estimado')).toBeNull()
   })
@@ -192,7 +199,7 @@ describe('conferência única do transfer', () => {
       transfer({ expenses: [{ id: 'e2', kind: 'parking', amount: 8, review_status: 'pending', photo_path: 'u/e2.pdf' }] }),
     ]
     m.listPendingReview.mockResolvedValue(q)
-    render(<ReviewPage />)
+    renderPage()
     const t = within(await waitFor(() => section('Transfers concluídos')))
     const link = await t.findByRole('link', { name: /Comprovante do estacionamento \(PDF\)/ })
     expect(link).toHaveAttribute('href', 'https://signed/u/e2.pdf')
@@ -200,7 +207,7 @@ describe('conferência única do transfer', () => {
 
   it('Aprovar é único: aprova o transfer (e as despesas) numa chamada', async () => {
     const user = userEvent.setup()
-    render(<ReviewPage />)
+    renderPage()
     const t = within(await waitFor(() => section('Transfers concluídos')))
     expect(t.getAllByRole('button', { name: 'Aprovar' })).toHaveLength(1)
     expect(t.getAllByRole('button', { name: 'Recusar' })).toHaveLength(1)
@@ -212,7 +219,7 @@ describe('conferência única do transfer', () => {
 
 describe('totais do turno', () => {
   it('mostra o que o motorista lançou ao lado do print da Uber', async () => {
-    render(<ReviewPage />)
+    renderPage()
     const s = within(await waitFor(() => section('Turnos')))
     expect(s.getByText(/^Uber: R\$\s150,00 \(40 km\)$/)).toBeInTheDocument()
     expect(s.getByText(/^BlaBlaCar: R\$\s80,00 \(70 km\)$/)).toBeInTheDocument()
@@ -226,7 +233,7 @@ describe('turno recusado', () => {
     q.shifts = [{ ...q.shifts[0], id: 's2', review_status: 'rejected', reject_reason: 'Km errado' }]
     m.listPendingReview.mockResolvedValue(q)
     const user = userEvent.setup()
-    render(<ReviewPage />)
+    renderPage()
     const s = within(await waitFor(() => section('Turnos')))
     expect(s.getByText('Recusado: Km errado')).toBeInTheDocument()
     await user.click(s.getByRole('button', { name: 'Aprovar' }))
@@ -237,7 +244,7 @@ describe('turno recusado', () => {
 describe('odômetro do turno', () => {
   async function openEdit() {
     const user = userEvent.setup()
-    render(<ReviewPage />)
+    renderPage()
     const s = within(await waitFor(() => section('Turnos')))
     await user.click(s.getByRole('button', { name: 'Corrigir odômetro' }))
     return { user, s }
@@ -277,7 +284,7 @@ describe('alertas', () => {
       { kind: 'NEGATIVE_OFF_KM', driver_id: 'd2', driver_name: 'João', shift_id: 's2', detail: { km_off: -10, km_total: 100 } },
       { kind: 'SHIFT_OPEN_24H', driver_id: 'd3', driver_name: 'Ana', shift_id: 's3', detail: { started_at: '2026-10-28T12:00:00Z' } },
     ])
-    render(<ReviewPage />)
+    renderPage()
     const a = within(await screen.findByRole('region', { name: 'Alertas' }))
     expect(a.getByText(/km por fora acima de 20%/)).toBeInTheDocument()
     expect(a.getByText(/Maria/)).toBeInTheDocument()
@@ -285,5 +292,17 @@ describe('alertas', () => {
     expect(a.getByText(/km lançado maior que o rodado/)).toBeInTheDocument()
     expect(a.getByText(/Turno aberto há mais de 24 h/)).toBeInTheDocument()
     expect(a.getByText(/28\/10\/2026/)).toBeInTheDocument()
+  })
+})
+
+describe('âncoras #item-<id>', () => {
+  it('cada item tem id item-<id> e o item do hash entra na tela', async () => {
+    const scroll = vi.fn()
+    Element.prototype.scrollIntoView = scroll
+    renderPage('/admin/conferencia#item-t1')
+    await waitFor(() => expect(document.getElementById('item-f1')).not.toBeNull())
+    expect(document.getElementById('item-t1')).not.toBeNull()
+    await waitFor(() => expect(scroll).toHaveBeenCalled())
+    expect(scroll.mock.instances[0]).toBe(document.getElementById('item-t1'))
   })
 })

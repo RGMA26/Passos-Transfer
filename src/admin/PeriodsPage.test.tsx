@@ -96,9 +96,9 @@ beforeEach(() => {
 })
 afterEach(() => confirmSpy.mockRestore())
 
-const renderPage = () =>
+const renderPage = (url = '/') =>
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[url]}>
       <PeriodsPage />
     </MemoryRouter>,
   )
@@ -512,5 +512,12 @@ describe('PrintReceiptPage', () => {
     m.getStatement.mockRejectedValue(new Error('x'))
     renderAt('/admin/recibo/s1', '/admin/recibo/:statementId', <PrintReceiptPage />)
     expect(await screen.findByText('Não foi possível carregar. Tente novamente.')).toBeInTheDocument()
+  })
+})
+
+describe('?motorista=', () => {
+  it('abre direto o motorista do parâmetro', async () => {
+    renderPage('/admin/quinzenas?motorista=d2')
+    expect(await screen.findByRole('heading', { name: /Quinzenas — João Lima/ })).toBeInTheDocument()
   })
 })

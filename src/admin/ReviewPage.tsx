@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import * as api from '../lib/api'
 import { formatBRL } from '../lib/money'
@@ -33,6 +34,7 @@ export default function ReviewPage() {
   const [queue, setQueue] = useState<api.PendingReview | null>(null)
   const [alerts, setAlerts] = useState<api.AdminAlert[]>([])
   const [failed, setFailed] = useState(false)
+  const { hash } = useLocation()
 
   const load = useCallback(async () => {
     setFailed(false)
@@ -48,6 +50,12 @@ export default function ReviewPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // #item-<id>: leva o item pendente (vindo do Início/pendências) para a tela
+  useEffect(() => {
+    if (!queue || !hash.startsWith('#item-')) return
+    document.getElementById(hash.slice(1))?.scrollIntoView?.({ block: 'center' })
+  }, [queue, hash])
 
   if (failed) {
     return (
@@ -201,6 +209,7 @@ function ReviewItem({
 
   return (
     <div
+      id={`item-${id}`}
       className={conflict ? 'review-item conflict' : 'review-item'}
       style={{ borderTop: '1px solid #e5e7eb', paddingTop: '0.5rem', ...(conflict ? { background: '#fff4e5' } : {}) }}
     >
