@@ -7,12 +7,17 @@ import { formatBRL } from '../lib/money'
 import { localDate } from '../lib/periods'
 import AddressFields, { EMPTY_ADDRESS, hasStreetNumber, isAddressComplete } from './AddressFields'
 
-const MSG_STREET_NUMBER = 'Informe o número da rua'
 import type { AddressValue } from './AddressFields'
+
+const MSG_STREET_NUMBER = 'Informe o número da rua'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
 const MSG_NO_ESTIMATE = 'Não foi possível calcular o km estimado'
 const MSG_NOT_DELETABLE = 'Este transfer não pode mais ser excluído'
+const MSG_SAVE_EDIT = 'Não foi possível salvar o transfer'
+const MSG_COMPLETED_EDIT = 'Concluído: só o valor e os endereços podem ser alterados.'
+const KNOWN_EDIT_ERRORS = ['Quinzena fechada: não é possível alterar', 'Este transfer não pode mais ser alterado']
+const EDITABLE = ['assigned', 'in_progress', 'completed']
 const STATUS_LABEL: Record<string, string> = {
   assigned: 'Atribuída',
   in_progress: 'Em andamento',
@@ -36,6 +41,46 @@ const kmFmt = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 })
 const fmtKm = (n: number) => kmFmt.format(Number(n))
 const fmtWhen = (iso: string | null) => (iso ? dateTimeFmt.format(new Date(iso)) : '—')
 
+const spDateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' })
+const spTimeFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+/** Data (AAAA-MM-DD) e hora (HH:MM) de Brasília para os campos do formulário. */
+const spDateTime = (iso: string | null) =>
+  iso ? { date: spDateFmt.format(new Date(iso)), time: spTimeFmt.format(new Date(iso)) } : { date: '', time: '' }
+/** Data e hora digitadas (Brasília, -03:00). */
+const parseWhen = (date: string, time: string) => {
+  const when = date && time ? new Date(`${date}T${time}:00-03:00`) : null
+  return when && !Number.isNaN(when.getTime()) ? when : null
+}
+
+const toAddressInput = (a: AddressValue): api.AddressInput => ({
+  street: a.street.trim(),
+  district: a.district.trim(),
+  city: a.city.trim(),
+  state: a.state.trim(),
+  zip: a.zip.trim() || null,
+  ref: a.ref.trim() || null,
+})
+
+const sameAddress = (a: api.AddressInput, b: api.AddressInput) =>
+  a.street === b.street && a.district === b.district && a.city === b.city && a.state === b.state &&
+  (a.zip ?? null) === (b.zip ?? null) && (a.ref ?? null) === (b.ref ?? null)
+
+/** Endereço gravado no Transfer → campos do formulário. */
+function rowAddress(r: api.TransferRow, p: 'origin' | 'dest'): AddressValue {
+  const g = (k: string) => String((r as unknown as Record<string, unknown>)[`${p}_${k}`] ?? '')
+  return { street: g('street'), district: g('district'), city: g('city'), state: g('state'), zip: g('zip'), ref: g('ref') }
+}
+
+/** Erros do endereço (os mesmos do cadastro). */
+function addressErrors(origin: AddressValue, destination: AddressValue): Record<string, string> {
+  const errs: Record<string, string> = {}
+  if (!isAddressComplete(origin)) errs.origin = 'Preencha o endereço de origem'
+  else if (!hasStreetNumber(origin)) errs.origin = MSG_STREET_NUMBER
+  if (!isAddressComplete(destination)) errs.destination = 'Preencha o endereço de destino'
+  else if (!hasStreetNumber(destination)) errs.destination = MSG_STREET_NUMBER
+  return errs
+}
+
 export default function TransfersPage() {
   const [status, setStatus] = useState<string | undefined>(undefined)
   const [rows, setRows] = useState<api.TransferRow[] | null>(null)
@@ -43,6 +88,7 @@ export default function TransfersPage() {
   const [failed, setFailed] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [reassignId, setReassignId] = useState<string | null>(null)
+  const [editId, setEditId] = useState<string | null>(null)
   const [actionError, setActionError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -108,6 +154,18 @@ export default function TransfersPage() {
           }}
         />
       )}
+      {editId && rows.find((r) => r.id === editId) && (
+        <EditTransferForm
+          key={editId}
+          row={rows.find((r) => r.id === editId)!}
+          onCancel={() => setEditId(null)}
+          onSaved={(noEstimate) => {
+            setEditId(null)
+            setNotice(noEstimate ? MSG_NO_ESTIMATE : '')
+            void load()
+          }}
+        />
+      )}
       <div className="seg" role="group" aria-label="Filtrar por status">
         {FILTERS.map((f) => (
           <button
@@ -145,6 +203,17 @@ export default function TransfersPage() {
                 <td>{r.km === null ? '—' : fmtKm(r.km)}</td>
                 <td>{STATUS_LABEL[r.transfer_status ?? ''] ?? '—'}</td>
                 <td className="actions">
+                  {EDITABLE.includes(r.transfer_status ?? '') && reassignId !== r.id && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowForm(false)
+                        setEditId(r.id)
+                      }}
+                    >
+                      Editar
+                    </button>
+                  )}
                   {r.transfer_status === 'assigned' &&
                     (reassignId === r.id ? (
                       <Reassign
@@ -249,28 +318,17 @@ function NewTransferForm({
     e.preventDefault()
     const errs: Record<string, string> = {}
     if (!client.trim()) errs.client = 'Informe o cliente'
-    const when = date && time ? new Date(`${date}T${time}:00-03:00`) : null
-    if (!when || Number.isNaN(when.getTime())) errs.when = 'Informe data e horário'
+    const when = parseWhen(date, time)
+    if (!when) errs.when = 'Informe data e horário'
     if (amount === null || amount <= 0) errs.amount = 'Informe um valor válido'
     if (!driverId) errs.driver = 'Escolha o motorista'
-    if (!isAddressComplete(origin)) errs.origin = 'Preencha o endereço de origem'
-    else if (!hasStreetNumber(origin)) errs.origin = MSG_STREET_NUMBER
-    if (!isAddressComplete(destination)) errs.destination = 'Preencha o endereço de destino'
-    else if (!hasStreetNumber(destination)) errs.destination = MSG_STREET_NUMBER
+    Object.assign(errs, addressErrors(origin, destination))
     setErrors(errs)
     setError('')
     if (Object.keys(errs).length > 0 || !when || amount === null) return
     setBusy(true)
-    const addr = (a: AddressValue): api.AddressInput => ({
-      street: a.street.trim(),
-      district: a.district.trim(),
-      city: a.city.trim(),
-      state: a.state.trim(),
-      zip: a.zip.trim() || null,
-      ref: a.ref.trim() || null,
-    })
-    const o = addr(origin)
-    const d = addr(destination)
+    const o = toAddressInput(origin)
+    const d = toAddressInput(destination)
     const km = await api.estimateRoute(o, d)
     try {
       await api.createTransfer({
@@ -328,6 +386,117 @@ function NewTransferForm({
       {error && <p className="error" role="alert">{error}</p>}
       <button type="submit" disabled={busy}>
         Criar transfer
+      </button>
+      <button type="button" className="link" onClick={onCancel}>
+        Cancelar
+      </button>
+    </form>
+  )
+}
+
+/**
+ * Edição pelo admin. Atribuída/em andamento: cliente, data/hora, endereços e valor; concluída: só valor
+ * e endereços. Endereço alterado → recalcula o km estimado (falha: nulo e aviso). O servidor
+ * (update_transfer) confere de novo e nunca mexe em leituras, status, motorista ou km real.
+ */
+function EditTransferForm({
+  row,
+  onCancel,
+  onSaved,
+}: {
+  row: api.TransferRow
+  onCancel: () => void
+  onSaved: (noEstimate: boolean) => void
+}) {
+  const full = row.transfer_status !== 'completed'
+  const initialWhen = spDateTime(row.scheduled_at)
+  const initialOrigin = rowAddress(row, 'origin')
+  const initialDest = rowAddress(row, 'dest')
+  const [client, setClient] = useState(row.client_name ?? '')
+  const [date, setDate] = useState(initialWhen.date)
+  const [time, setTime] = useState(initialWhen.time)
+  const [origin, setOrigin] = useState<AddressValue>(initialOrigin)
+  const [destination, setDestination] = useState<AddressValue>(initialDest)
+  const [amount, setAmount] = useState<number | null>(Number(row.amount))
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    const errs: Record<string, string> = {}
+    const when = full ? parseWhen(date, time) : null
+    if (full && !client.trim()) errs.client = 'Informe o cliente'
+    if (full && !when) errs.when = 'Informe data e horário'
+    if (amount === null || amount <= 0) errs.amount = 'Informe um valor válido'
+    Object.assign(errs, addressErrors(origin, destination))
+    setErrors(errs)
+    setError('')
+    if (Object.keys(errs).length > 0 || amount === null) return
+
+    const patch: api.TransferPatch = {}
+    if (full && client.trim() !== (row.client_name ?? '')) patch.client_name = client.trim()
+    if (full && when && (date !== initialWhen.date || time !== initialWhen.time)) {
+      patch.scheduled_at = when.toISOString()
+      patch.ride_date = localDate(when)
+    }
+    if (amount !== Number(row.amount)) patch.amount = amount
+    const o = toAddressInput(origin)
+    const d = toAddressInput(destination)
+    const addressChanged =
+      !sameAddress(o, toAddressInput(initialOrigin)) || !sameAddress(d, toAddressInput(initialDest))
+    if (!addressChanged && Object.keys(patch).length === 0) return onCancel()
+
+    setBusy(true)
+    let noEstimate = false
+    if (addressChanged) {
+      const km = await api.estimateRoute(o, d)
+      patch.origin = o
+      patch.destination = d
+      patch.estimated_km = km
+      noEstimate = km === null
+    }
+    try {
+      await api.updateTransfer(row.id, patch)
+      onSaved(noEstimate)
+    } catch (err) {
+      const msg = (err as Error).message
+      setError(KNOWN_EDIT_ERRORS.includes(msg) ? msg : MSG_SAVE_EDIT)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="panel" aria-label="Editar transfer" onSubmit={(e) => void submit(e)} noValidate>
+      <strong>{`Editar transfer – ${row.client_name ?? ''}`}</strong>
+      {!full && <p className="hint">{MSG_COMPLETED_EDIT}</p>}
+      <label className="field">
+        Cliente
+        <input value={client} disabled={!full} onChange={(e) => setClient(e.target.value)} />
+      </label>
+      {errors.client && <p className="error">{errors.client}</p>}
+      <label className="field">
+        Data
+        <input type="date" value={date} disabled={!full} onChange={(e) => setDate(e.target.value)} />
+      </label>
+      <label className="field">
+        Horário
+        <input type="time" value={time} disabled={!full} onChange={(e) => setTime(e.target.value)} />
+      </label>
+      {errors.when && <p className="error">{errors.when}</p>}
+      <AddressFields legend="Origem" value={origin} onChange={setOrigin} />
+      {errors.origin && <p className="error">{errors.origin}</p>}
+      <AddressFields legend="Destino" value={destination} onChange={setDestination} />
+      {errors.destination && <p className="error">{errors.destination}</p>}
+      <MoneyInput
+        label="Valor contratado"
+        initial={Number(row.amount).toFixed(2).replace('.', ',')}
+        onChange={setAmount}
+      />
+      {errors.amount && <p className="error">{errors.amount}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
+      <button type="submit" disabled={busy}>
+        Salvar alterações
       </button>
       <button type="button" className="link" onClick={onCancel}>
         Cancelar

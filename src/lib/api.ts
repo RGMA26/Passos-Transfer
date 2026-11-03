@@ -864,6 +864,49 @@ export async function createTransfer(input: NewTransferInput): Promise<void> {
   if (error) throw Object.assign(new Error(error.message), { code: error.code })
 }
 
+export const MSG_TRANSFER_PERIOD_CLOSED = 'Quinzena fechada: não é possível alterar'
+export const MSG_TRANSFER_NOT_CHANGEABLE = 'Este transfer não pode mais ser alterado'
+
+/** Campos editáveis de um Transfer (o servidor confere quais valem para o status). */
+export interface TransferPatch {
+  client_name?: string
+  scheduled_at?: string
+  ride_date?: string
+  amount?: number
+  origin?: AddressInput
+  destination?: AddressInput
+  estimated_km?: number | null
+}
+
+const addressColumns = (prefix: 'origin' | 'dest', a: AddressInput) => ({
+  [prefix === 'origin' ? 'origin' : 'destination']: formatAddress(a),
+  [`${prefix}_street`]: a.street,
+  [`${prefix}_district`]: a.district,
+  [`${prefix}_city`]: a.city,
+  [`${prefix}_state`]: a.state,
+  [`${prefix}_zip`]: a.zip?.trim() || null,
+  [`${prefix}_ref`]: a.ref?.trim() || null,
+})
+
+/** Edição pelo admin (RPC update_transfer: guarda por status, nunca toca leituras/status/motorista/km). */
+export async function updateTransfer(id: string, patch: TransferPatch): Promise<void> {
+  const { origin, destination, ...rest } = patch
+  const fields = {
+    ...rest,
+    ...(origin ? addressColumns('origin', origin) : {}),
+    ...(destination ? addressColumns('dest', destination) : {}),
+  }
+  const { error } = await supabase.rpc('update_transfer', { p_id: id, p_fields: fields })
+  if (!error) return
+  if (error.message === 'PERIOD_CLOSED') {
+    throw Object.assign(new Error(MSG_TRANSFER_PERIOD_CLOSED), { code: 'PERIOD_CLOSED' })
+  }
+  if (['NOT_CHANGEABLE', 'FORBIDDEN_FIELD', 'NOT_FOUND'].includes(error.message)) {
+    throw Object.assign(new Error(MSG_TRANSFER_NOT_CHANGEABLE), { code: error.message })
+  }
+  throw Object.assign(new Error(error.message), { code: error.code })
+}
+
 export async function reassignTransfer(id: string, driverId: string): Promise<void> {
   const res = await supabase
     .from('rides')

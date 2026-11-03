@@ -16,7 +16,7 @@ vi.mock('./supabase', () => ({
     }),
   },
 }))
-import { closeDriverPeriod, createTransfer, estimateRoute, type AddressInput } from './api'
+import { closeDriverPeriod, createTransfer, estimateRoute, updateTransfer, type AddressInput } from './api'
 
 const o: AddressInput = { street: 'Rua A, 10', district: 'Centro', city: 'Palmas', state: 'TO', zip: '77000-000', ref: 'Portão azul' }
 const d: AddressInput = { street: 'Av B, 20', district: 'Plano', city: 'Palmas', state: 'TO' }
@@ -100,5 +100,34 @@ describe('closeDriverPeriod', () => {
   it('erro do servidor vira Error com o código na mensagem', async () => {
     rpc.mockResolvedValue({ data: null, error: { message: 'PREVIOUS_OPEN', code: 'P0001' } })
     await expect(closeDriverPeriod('p1')).rejects.toThrow('PREVIOUS_OPEN')
+  })
+})
+
+describe('updateTransfer', () => {
+  it('chama update_transfer com as colunas de endereço e só os campos informados', async () => {
+    rpc.mockResolvedValue({ data: {}, error: null })
+    await updateTransfer('t1', { amount: 300, origin: o, estimated_km: null })
+    expect(rpc).toHaveBeenCalledWith('update_transfer', {
+      p_id: 't1',
+      p_fields: {
+        amount: 300,
+        estimated_km: null,
+        origin: 'Rua A, 10 – Centro, Palmas/TO',
+        origin_street: 'Rua A, 10',
+        origin_district: 'Centro',
+        origin_city: 'Palmas',
+        origin_state: 'TO',
+        origin_zip: '77000-000',
+        origin_ref: 'Portão azul',
+      },
+    })
+  })
+  it.each([
+    ['PERIOD_CLOSED', 'Quinzena fechada: não é possível alterar'],
+    ['NOT_CHANGEABLE', 'Este transfer não pode mais ser alterado'],
+    ['FORBIDDEN_FIELD', 'Este transfer não pode mais ser alterado'],
+  ])('%s vira mensagem', async (code, msg) => {
+    rpc.mockResolvedValue({ data: null, error: { message: code, code: 'P0001' } })
+    await expect(updateTransfer('t1', { amount: 1 })).rejects.toThrow(msg)
   })
 })

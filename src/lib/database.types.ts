@@ -547,7 +547,51 @@ isOneToOne: true
                            },
 "unaccent":
 { Args: { "": string }; Returns: string
-                           }
+                           },
+"update_transfer":
+{ Args: { "p_fields": Json,"p_id": string }; Returns: {
+              "amount": number,
+"car_id": string | null,
+"client_name": string | null,
+"created_at": string,
+"dest_city": string | null,
+"dest_district": string | null,
+"dest_ref": string | null,
+"dest_state": string | null,
+"dest_street": string | null,
+"dest_zip": string | null,
+"destination": string | null,
+"driver_id": string,
+"driver_pct": number | null,
+"estimated_km": number | null,
+"id": string,
+"km": number | null,
+"odometer_end": number | null,
+"odometer_end_photo": string | null,
+"odometer_start": number | null,
+"odometer_start_photo": string | null,
+"origin": string | null,
+"origin_city": string | null,
+"origin_district": string | null,
+"origin_ref": string | null,
+"origin_state": string | null,
+"origin_street": string | null,
+"origin_zip": string | null,
+"platform": string,
+"receipt_path": string | null,
+"reject_reason": string | null,
+"ride_date": string,
+"scheduled_at": string | null,
+"shift_id": string | null,
+"started_at": string | null,
+"transfer_status": string | null
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "rides"
+        isOneToOne: true
+        isSetofReturn: false
+      } }
           }
           Enums: {
             [_ in never]: never
