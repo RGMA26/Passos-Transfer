@@ -13,3 +13,6 @@ export function parsePct(input: string): number | null {
 }
 
 export const onlyDigits = (s: string) => s.replace(/\D/g, '')
+
+/** Confirmação de "Desfazer conferência" (Transfers e Conferência). */
+export const MSG_CONFIRM_UNDO = 'Desfazer a conferência deste item? Ele volta para a fila de conferência.'

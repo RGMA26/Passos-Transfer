@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 import type { Car, DriverPeriod, Profile, Ride, RideExpense, Shift, StatementLines } from './types'
 import type { Database } from './database.types'
 import { localDate } from './periods'
+import { formatBRL } from './money'
 
 export type Fuel = 'gasolina' | 'alcool' | 'diesel' | 'gnv' | 'eletrico'
 
@@ -1145,6 +1146,90 @@ export async function reviewItem(
     ...(expenseIds ? { p_expense_ids: expenseIds } : {}),
   })
   if (error) throw Object.assign(new Error(error.message), { code: error.code })
+}
+
+export type UnreviewKind = 'fueling' | 'shift' | 'transfer' | 'expense'
+
+/** Desfaz a conferência (o item volta para a fila). Erro: código do servidor (ex.: PERIOD_CLOSED). */
+export async function unreviewItem(kind: UnreviewKind, id: string): Promise<void> {
+  const { error } = await supabase.rpc('unreview_item', { p_kind: kind, p_id: id })
+  if (error) throw Object.assign(new Error(error.message), { code: error.code })
+}
+
+/** Item já conferido (para "Desfazer conferência"). */
+export interface ReviewedItem {
+  kind: 'fueling' | 'shift' | 'transfer'
+  id: string
+  driver_name: string
+  date: string
+  text: string
+  status: string
+}
+
+const intFmt = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 })
+/** 10102500 → "10.102.500". */
+export const fmtInt = (n: number) => intFmt.format(Number(n))
+
+/** Conferidos dos últimos 45 dias (abastecimentos, turnos aprovados, Transfers conferidos). */
+export async function listReviewed(): Promise<ReviewedItem[]> {
+  const since = localDate(new Date(Date.now() - 45 * 86400000))
+  const [f, s, t, names] = await Promise.all([
+    supabase
+      .from('fuelings')
+      .select('id, driver_id, fueled_on, amount, review_status')
+      .in('review_status', ['approved', 'rejected'])
+      .gte('fueled_on', since)
+      .order('fueled_on', { ascending: false })
+      .limit(30),
+    supabase
+      .from('shifts')
+      .select('id, driver_id, start_date, odometer_start, odometer_end, review_status')
+      .eq('review_status', 'approved')
+      .gte('start_date', since)
+      .order('start_date', { ascending: false })
+      .limit(30),
+    supabase
+      .from('rides')
+      .select('id, driver_id, ride_date, client_name, km, odometer_start, odometer_end, transfer_status')
+      .eq('platform', 'transfer')
+      .eq('transfer_status', 'checked')
+      .gte('ride_date', since)
+      .order('ride_date', { ascending: false })
+      .limit(30),
+    driverNames(),
+  ])
+  const n = (id: string) => names.get(id) ?? '—'
+  const odo = (a: number | null, b: number | null) =>
+    `odômetro ${a == null ? '—' : fmtInt(a)} → ${b == null ? '—' : fmtInt(b)}`
+  const out: ReviewedItem[] = [
+    ...(must(f) ?? []).map((x) => ({
+      kind: 'fueling' as const,
+      id: x.id,
+      driver_name: n(x.driver_id),
+      date: x.fueled_on,
+      text: `Abastecimento · ${formatBRL(Number(x.amount))}${x.review_status === 'rejected' ? ' · recusado' : ''}`,
+      status: x.review_status,
+    })),
+    ...(must(s) ?? []).map((x) => ({
+      kind: 'shift' as const,
+      id: x.id,
+      driver_name: n(x.driver_id),
+      date: x.start_date,
+      text: `Turno · ${odo(x.odometer_start, x.odometer_end)}`,
+      status: x.review_status,
+    })),
+    ...(must(t) ?? []).map((x) => ({
+      kind: 'transfer' as const,
+      id: x.id,
+      driver_name: n(x.driver_id),
+      date: x.ride_date,
+      text: `Transfer · ${x.client_name ?? '—'} · ${odo(x.odometer_start, x.odometer_end)} · ${
+        x.km == null ? '—' : fmtInt(Number(x.km))
+      } km`,
+      status: x.transfer_status ?? 'checked',
+    })),
+  ]
+  return out.sort((a, b) => b.date.localeCompare(a.date))
 }
 
 export interface AdminAlert {

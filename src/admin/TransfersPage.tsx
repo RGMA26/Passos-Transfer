@@ -5,6 +5,7 @@ import type { Profile } from '../lib/types'
 import MoneyInput from '../components/MoneyInput'
 import { formatBRL } from '../lib/money'
 import { localDate } from '../lib/periods'
+import { MSG_CONFIRM_UNDO } from './helpers'
 import AddressFields, { EMPTY_ADDRESS, hasStreetNumber, isAddressComplete } from './AddressFields'
 
 import type { AddressValue } from './AddressFields'
@@ -17,7 +18,8 @@ const MSG_NOT_DELETABLE = 'Este transfer não pode mais ser excluído'
 const MSG_SAVE_EDIT = 'Não foi possível salvar o transfer'
 const MSG_COMPLETED_EDIT = 'Concluído: só o valor e os endereços podem ser alterados.'
 const KNOWN_EDIT_ERRORS = ['Quinzena fechada: não é possível alterar', 'Este transfer não pode mais ser alterado']
-const EDITABLE = ['assigned', 'in_progress', 'completed']
+
+const EDITABLE =['assigned', 'in_progress', 'completed']
 const STATUS_LABEL: Record<string, string> = {
   assigned: 'Atribuída',
   in_progress: 'Em andamento',
@@ -120,6 +122,18 @@ export default function TransfersPage() {
     }
   }
 
+  async function unreview(r: api.TransferRow) {
+    if (!window.confirm(MSG_CONFIRM_UNDO)) return
+    setActionError('')
+    try {
+      await api.unreviewItem('transfer', r.id)
+    } catch (err) {
+      const msg = (err as Error).message
+      setActionError(msg === 'PERIOD_CLOSED' ? KNOWN_EDIT_ERRORS[0] : 'Não foi possível desfazer a conferência')
+    }
+    await load()
+  }
+
   if (failed) {
     return (
       <section>
@@ -212,6 +226,11 @@ export default function TransfersPage() {
                       }}
                     >
                       Editar
+                    </button>
+                  )}
+                  {r.transfer_status === 'checked' && (
+                    <button type="button" onClick={() => void unreview(r)}>
+                      Desfazer conferência
                     </button>
                   )}
                   {r.transfer_status === 'assigned' &&

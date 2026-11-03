@@ -548,6 +548,9 @@ isOneToOne: true
 "unaccent":
 { Args: { "": string }; Returns: string
                            },
+"unreview_item":
+{ Args: { "p_id": string,"p_kind": string }; Returns: undefined
+                           },
 "update_transfer":
 { Args: { "p_fields": Json,"p_id": string }; Returns: {
               "amount": number,

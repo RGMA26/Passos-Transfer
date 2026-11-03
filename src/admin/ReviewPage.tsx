@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import * as api from '../lib/api'
 import { formatBRL } from '../lib/money'
 import { conflictText, formatQty, fuelUnit } from '../lib/fuel'
-import { parseDecimal } from './helpers'
+import { MSG_CONFIRM_UNDO, parseDecimal } from './helpers'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
 const MSG_PERIOD_CLOSED = 'Quinzena fechada: não é possível alterar'
@@ -37,6 +37,8 @@ export default function ReviewPage() {
   const [failed, setFailed] = useState(false)
   const { hash } = useLocation()
 
+  const [reviewed, setReviewed] = useState<api.ReviewedItem[]>([])
+
   const load = useCallback(async () => {
     setFailed(false)
     try {
@@ -45,6 +47,12 @@ export default function ReviewPage() {
       setAlerts(a)
     } catch {
       setFailed(true)
+    }
+    // conferidos recentes ("Desfazer conferência"): falha aqui não derruba a fila
+    try {
+      setReviewed((await api.listReviewed()) ?? [])
+    } catch {
+      setReviewed([])
     }
   }, [])
 
@@ -119,7 +127,51 @@ export default function ReviewPage() {
           ))}
         </section>
       )}
+      <ReviewedPanel items={reviewed} onDone={reload} />
     </section>
+  )
+}
+
+function ReviewedPanel({ items, onDone }: { items: api.ReviewedItem[]; onDone: () => void }) {
+  if (items.length === 0) return null
+  return (
+    <section className="panel" aria-label="Conferidos recentemente">
+      <h3>Conferidos recentemente</h3>
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+        {items.map((it) => (
+          <ReviewedRow key={`${it.kind}-${it.id}`} item={it} onDone={onDone} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function ReviewedRow({ item, onDone }: { item: api.ReviewedItem; onDone: () => void }) {
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function undo() {
+    if (!window.confirm(MSG_CONFIRM_UNDO)) return
+    setError('')
+    setBusy(true)
+    try {
+      await api.unreviewItem(item.kind, item.id)
+      onDone()
+    } catch (err) {
+      setError(errorText(err, 'Não foi possível desfazer a conferência'))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <li style={{ borderTop: '1px solid #e5e7eb', padding: '0.5rem 0', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+      <strong>{item.driver_name}</strong>
+      <span>{fmtDay(item.date)}</span>
+      <span>{item.text}</span>
+      {error && <p className="error" role="alert">{error}</p>}
+      <button type="button" disabled={busy} onClick={() => void undo()}>
+        Desfazer conferência
+      </button>
+    </li>
   )
 }
 
