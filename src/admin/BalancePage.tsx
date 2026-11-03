@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as api from '../lib/api'
 import { downloadCSV, toCSV } from '../lib/csv'
+import { detailCsv } from './detailCsv'
 import { localDate } from '../lib/periods'
 import BalanceView, { monthLabel, summaryRows } from './BalanceView'
 
@@ -9,47 +10,38 @@ const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
 const MSG_EXPORT = 'Não foi possível exportar. Tente novamente.'
 const ISO_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
 
-const br = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '')
-
 export default function BalancePage() {
   const [ym, setYm] = useState(() => localDate().slice(0, 7))
   const [b, setB] = useState<api.MonthlyBalance | null>(null)
   const [failed, setFailed] = useState(false)
   const [exportError, setExportError] = useState(false)
+  // só a resposta do último pedido vale (trocar de mês rápido não deixa um mês antigo na tela)
+  const req = useRef(0)
+  const valid = ISO_MONTH.test(ym)
 
   const load = useCallback(async () => {
+    const id = ++req.current
     setFailed(false)
     setB(null)
     try {
-      setB(await api.monthlyBalance(`${ym}-01`))
+      const r = await api.monthlyBalance(`${ym}-01`)
+      if (id === req.current) setB(r)
     } catch {
-      setFailed(true)
+      if (id === req.current) setFailed(true)
     }
   }, [ym])
 
   useEffect(() => {
     if (ISO_MONTH.test(ym)) void load()
+    else req.current++ // mês apagado: descarta respostas pendentes
   }, [ym, load])
 
   async function exportDetail() {
     setExportError(false)
     try {
+      if (!ISO_MONTH.test(ym)) return
       const rows = await api.monthlyDetail(`${ym}-01`)
-      const csv = toCSV(
-        rows.map((r) => ({
-          data: br(r.occurred_on),
-          motorista: r.driver_name ?? '',
-          cpf: r.cpf ?? '',
-          codigo: r.login_code ?? '',
-          tipo: r.kind,
-          descricao: r.description ?? '',
-          valor_bruto: r.gross ?? 0,
-          valor_motorista: r.driver_amount ?? 0,
-          quinzena: r.period_label ?? '',
-          situacao: r.status ?? '',
-        })),
-      )
-      downloadCSV(`passos-balanco-detalhado-${ym}.csv`, csv)
+      downloadCSV(`passos-balanco-detalhado-${ym}.csv`, detailCsv(rows))
     } catch {
       setExportError(true)
     }
@@ -62,7 +54,7 @@ export default function BalancePage() {
         Mês
         <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
       </label>
-      {ISO_MONTH.test(ym) && <h3>{monthLabel(ym)}</h3>}
+      {valid ? <h3>{monthLabel(ym)}</h3> : <p className="hint">Escolha um mês.</p>}
       {failed && (
         <>
           <p className="error">{MSG_LOAD}</p>
@@ -71,8 +63,8 @@ export default function BalancePage() {
           </button>
         </>
       )}
-      {!failed && !b && <p className="loading">Carregando…</p>}
-      {b && (
+      {valid && !failed && !b && <p className="loading">Carregando…</p>}
+      {valid && b && (
         <>
           <div className="seg">
             <button type="button" onClick={() => void exportDetail()}>
