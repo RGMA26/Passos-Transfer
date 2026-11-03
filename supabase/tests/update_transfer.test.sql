@@ -1,5 +1,5 @@
 begin;
-select plan(29);
+select plan(33);
 
 -- 0018: update_transfer(p_id, p_fields) — edição do Transfer pelo admin, com guarda por status.
 -- assigned/in_progress: cliente, data/hora, endereços, valor (e km estimado recalculado);
@@ -114,6 +114,18 @@ select throws_ok(
 select throws_ok(
   $$select update_transfer('00000000-0000-0000-0000-0000000018a1', '{"ride_date": "2026-01-06", "scheduled_at": "2026-01-06T10:00:00-03:00"}')$$,
   'P0001', 'PERIOD_CLOSED', 'mudar a data para uma quinzena fechada');
+
+-- ride_date derivada no servidor (Brasília); ride_date enviada é ignorada
+select lives_ok(
+  $$select update_transfer('00000000-0000-0000-0000-0000000018a2', '{"scheduled_at": "2026-11-03T02:30:00Z", "ride_date": "2030-01-01"}')$$,
+  'scheduled_at com ride_date enviada (ignorada)');
+select is((select ride_date from rides where id = '00000000-0000-0000-0000-0000000018a2'), '2026-11-02'::date,
+  '23:30 de 02/11 em Brasília → ride_date 2026-11-02');
+select lives_ok(
+  $$select update_transfer('00000000-0000-0000-0000-0000000018a2', '{"ride_date": "2030-01-01"}')$$,
+  'só ride_date: ignorada, sem erro');
+select is((select ride_date from rides where id = '00000000-0000-0000-0000-0000000018a2'), '2026-11-02'::date,
+  'ride_date não muda sozinha');
 
 -- validações
 select throws_ok(

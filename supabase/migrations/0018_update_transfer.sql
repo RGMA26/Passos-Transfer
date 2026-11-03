@@ -1,5 +1,6 @@
 -- Edição do Transfer pelo admin (lista de Transfers → "Editar").
--- assigned / in_progress: cliente, data/hora (scheduled_at + ride_date), origem, destino, valor;
+-- assigned / in_progress: cliente, data/hora (scheduled_at; ride_date é derivada no servidor pela data de
+--   Brasília; ride_date enviada é ignorada), origem, destino, valor;
 -- completed (aguardando conferência): só valor e endereços;
 -- checked: nada (NOT_CHANGEABLE).
 -- estimated_km acompanha os endereços (o app recalcula quando o endereço muda; nulo se não achar).
@@ -16,6 +17,7 @@ declare
     'destination', 'dest_street', 'dest_district', 'dest_city', 'dest_state', 'dest_zip', 'dest_ref',
     'estimated_km', 'amount'];
   v_allowed text[];
+  v_fields jsonb;
 begin
   if not is_admin() then
     raise exception 'FORBIDDEN' using errcode = 'P0001';
@@ -24,27 +26,33 @@ begin
     raise exception 'INVALID_FIELD' using errcode = 'P0001';
   end if;
 
+  -- ride_date nunca vem do cliente: é derivada de scheduled_at (ignorada se enviada)
+  v_fields := p_fields - 'ride_date';
+
   select * into r from rides where id = p_id and platform = 'transfer' for update;
   if not found then
     raise exception 'NOT_FOUND' using errcode = 'P0001';
   end if;
 
   v_allowed := case r.transfer_status
-    when 'assigned' then v_addr || array['client_name', 'scheduled_at', 'ride_date']
-    when 'in_progress' then v_addr || array['client_name', 'scheduled_at', 'ride_date']
+    when 'assigned' then v_addr || array['client_name', 'scheduled_at']
+    when 'in_progress' then v_addr || array['client_name', 'scheduled_at']
     when 'completed' then v_addr
   end;
   if v_allowed is null then
     raise exception 'NOT_CHANGEABLE' using errcode = 'P0001';
   end if;
 
-  for k in select jsonb_object_keys(p_fields) loop
+  for k in select jsonb_object_keys(v_fields) loop
     if not (k = any (v_allowed)) then
       raise exception 'FORBIDDEN_FIELD' using errcode = 'P0001', detail = k;
     end if;
   end loop;
 
-  v := jsonb_populate_record(r, p_fields);
+  v := jsonb_populate_record(r, v_fields);
+  if v_fields ? 'scheduled_at' and v.scheduled_at is not null then
+    v.ride_date := (v.scheduled_at at time zone 'America/Sao_Paulo')::date;
+  end if;
   if btrim(coalesce(v.client_name, '')) = '' or v.amount is null or v.amount <= 0
      or v.scheduled_at is null or v.ride_date is null then
     raise exception 'INVALID_FIELD' using errcode = 'P0001';

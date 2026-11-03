@@ -870,8 +870,8 @@ export const MSG_TRANSFER_NOT_CHANGEABLE = 'Este transfer não pode mais ser alt
 /** Campos editáveis de um Transfer (o servidor confere quais valem para o status). */
 export interface TransferPatch {
   client_name?: string
+  /** ride_date é derivada no servidor a partir de scheduled_at. */
   scheduled_at?: string
-  ride_date?: string
   amount?: number
   origin?: AddressInput
   destination?: AddressInput

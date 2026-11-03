@@ -1,5 +1,5 @@
 begin;
-select plan(29);
+select plan(32);
 -- 0017: cars.fuels (conjunto de combustíveis do carro). fuel_type vira legado (nulo ou rótulo derivado).
 
 -- ===== Esquema =====
@@ -7,6 +7,10 @@ select has_column('public', 'cars', 'fuels', 'cars.fuels existe');
 select col_type_is('public', 'cars', 'fuels', 'text[]', 'fuels text[]');
 select col_not_null('public', 'cars', 'fuels', 'fuels obrigatório');
 select col_is_null('public', 'cars', 'fuel_type', 'fuel_type agora é opcional');
+
+select ok(not has_function_privilege('anon', 'fuels_for_type(text)', 'execute'), 'anon não executa fuels_for_type');
+select ok(not has_function_privilege('anon', 'normalize_fuels(text[])', 'execute'), 'anon não executa normalize_fuels');
+select ok(not has_function_privilege('anon', 'fuel_type_label(text[])', 'execute'), 'anon não executa fuel_type_label');
 
 -- ===== Mapeamento do tipo antigo (usado no backfill e por clientes antigos) =====
 select is(fuels_for_type('flex'), array['gasolina','alcool'], 'flex → gasolina + álcool');

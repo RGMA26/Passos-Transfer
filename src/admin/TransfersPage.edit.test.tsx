@@ -109,7 +109,6 @@ describe('editar transfer', () => {
     expect(m.updateTransfer).toHaveBeenCalledWith('t1', {
       client_name: 'Hotel Novo',
       scheduled_at: '2026-10-31T02:30:00.000Z',
-      ride_date: '2026-10-30',
       amount: 300,
     })
     await waitFor(() => expect(screen.queryByRole('form', { name: 'Editar transfer' })).toBeNull())

@@ -36,6 +36,14 @@ language sql immutable set search_path = public, pg_temp as $$
          end
 $$;
 
+-- Uso interno (gatilho/backfill); o gatilho não é security definer, então authenticated mantém execute.
+revoke execute on function fuels_for_type(text) from public, anon;
+revoke execute on function normalize_fuels(text[]) from public, anon;
+revoke execute on function fuel_type_label(text[]) from public, anon;
+grant execute on function fuels_for_type(text) to authenticated;
+grant execute on function normalize_fuels(text[]) to authenticated;
+grant execute on function fuel_type_label(text[]) to authenticated;
+
 alter table cars add column fuels text[];
 update cars set fuels = fuels_for_type(fuel_type);
 alter table cars

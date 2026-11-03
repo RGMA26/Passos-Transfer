@@ -437,8 +437,8 @@ function EditTransferForm({
     const patch: api.TransferPatch = {}
     if (full && client.trim() !== (row.client_name ?? '')) patch.client_name = client.trim()
     if (full && when && (date !== initialWhen.date || time !== initialWhen.time)) {
+      // ride_date é derivada no servidor (update_transfer) pela data de Brasília
       patch.scheduled_at = when.toISOString()
-      patch.ride_date = localDate(when)
     }
     if (amount !== Number(row.amount)) patch.amount = amount
     const o = toAddressInput(origin)
