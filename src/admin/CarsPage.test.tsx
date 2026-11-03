@@ -11,6 +11,11 @@ vi.mock('../lib/api', () => ({
   createCar: vi.fn(),
   updateCar: vi.fn(),
   assignCar: vi.fn(),
+  listCarExpenses: vi.fn(),
+  createCarExpense: vi.fn(),
+  updateCarExpense: vi.fn(),
+  finishCarExpense: vi.fn(),
+  deleteCarExpense: vi.fn(),
 }))
 const m = vi.mocked(api)
 
@@ -50,7 +55,8 @@ describe('CarsPage', () => {
     await ready()
     const r = within(screen.getByText('ABC1D23').closest('tr')!)
     expect(r.getByText('Corolla')).toBeInTheDocument()
-    expect(r.getByText('12')).toBeInTheDocument()
+    expect(r.getByText('12 km/l')).toBeInTheDocument()
+    expect(r.getByText('Flex')).toBeInTheDocument()
     expect(r.getByText('Empresa')).toBeInTheDocument()
     expect(r.getByText('Maria')).toBeInTheDocument()
   })
@@ -61,7 +67,7 @@ describe('CarsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Novo carro' }))
     await user.type(screen.getByLabelText('Modelo'), 'Onix')
     await user.type(screen.getByLabelText('Placa'), 'abc1d24')
-    await user.type(screen.getByLabelText('Consumo km/l'), '11,5')
+    await user.type(screen.getByLabelText('Consumo gasolina (km/l)'), '11,5')
     await user.selectOptions(screen.getByLabelText('Propriedade'), 'own')
     await user.click(screen.getByRole('button', { name: 'Criar carro' }))
     expect(m.createCar).toHaveBeenCalledWith({
@@ -69,6 +75,7 @@ describe('CarsPage', () => {
       plate: 'ABC1D24',
       fuel_type: 'flex',
       km_per_l_gasolina: 11.5,
+      km_per_l_alcool: null,
       ownership: 'own',
     })
   })
@@ -78,7 +85,7 @@ describe('CarsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Novo carro' }))
     await user.type(screen.getByLabelText('Modelo'), 'Onix')
     await user.type(screen.getByLabelText('Placa'), 'abc1d24')
-    await user.type(screen.getByLabelText('Consumo km/l'), '0')
+    await user.type(screen.getByLabelText('Consumo gasolina (km/l)'), '0')
     await user.click(screen.getByRole('button', { name: 'Criar carro' }))
     expect(await screen.findByText('Informe um consumo maior que zero')).toBeInTheDocument()
     expect(m.createCar).not.toHaveBeenCalled()
@@ -90,7 +97,7 @@ describe('CarsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Novo carro' }))
     await user.type(screen.getByLabelText('Modelo'), 'Onix')
     await user.type(screen.getByLabelText('Placa'), 'abc1d23')
-    await user.type(screen.getByLabelText('Consumo km/l'), '10')
+    await user.type(screen.getByLabelText('Consumo gasolina (km/l)'), '10')
     await user.click(screen.getByRole('button', { name: 'Criar carro' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Placa já cadastrada')
   })
@@ -99,12 +106,12 @@ describe('CarsPage', () => {
     m.updateCar.mockResolvedValue()
     const user = await ready()
     await user.click(screen.getByRole('button', { name: 'Editar' }))
-    const c = screen.getByLabelText('Novo consumo km/l')
+    const c = screen.getByLabelText('Consumo gasolina (km/l)')
     await user.clear(c)
     await user.type(c, '13,2')
     await user.click(screen.getByRole('button', { name: 'Salvar' }))
     await waitFor(() =>
-      expect(m.updateCar).toHaveBeenCalledWith('c1', { model: 'Corolla', km_per_l_gasolina: 13.2 }),
+      expect(m.updateCar).toHaveBeenCalledWith('c1', { model: 'Corolla', fuel_type: 'flex', km_per_l_gasolina: 13.2, km_per_l_alcool: null }),
     )
   })
 
