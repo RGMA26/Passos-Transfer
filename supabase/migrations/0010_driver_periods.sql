@@ -3,6 +3,34 @@
 -- compute_statement / fuel_price_for / end_shift / admin_alerts ficam numa versão
 -- provisória sobre driver_periods (Tasks 2–3 recriam); close_period é removido (Task 3).
 
+-- ===== Trava de segurança da atualização =====
+-- Antes desta migração não existe CPF: todo motorista cadastrado está sem CPF, e
+-- extratos/ajustes antigos apontam para a tabela global periods (que some aqui).
+do $$
+declare
+  n_drv int;
+  n_st int;
+  n_adj int;
+  has_cpf boolean;
+begin
+  select exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'profiles' and column_name = 'cpf')
+    into has_cpf;
+  if has_cpf then
+    execute 'select count(*) from public.profiles where role = ''driver'' and cpf is null' into n_drv;
+  else
+    select count(*) into n_drv from public.profiles where role = 'driver';
+  end if;
+  select count(*) into n_st from public.statements;
+  select count(*) into n_adj from public.adjustments;
+  if n_drv > 0 then
+    raise exception 'Atualização interrompida: há % motorista(s) sem CPF. Rode antes o script supabase/deploy/2026-11-cleanup-test-driver.sql (veja docs/DEPLOY.md, seção Atualização).', n_drv;
+  end if;
+  if n_st > 0 or n_adj > 0 then
+    raise exception 'Atualização interrompida: há % extrato(s) e % ajuste(s) da versão antiga. Rode antes o script supabase/deploy/2026-11-cleanup-test-driver.sql (veja docs/DEPLOY.md, seção Atualização).', n_st, n_adj;
+  end if;
+end $$;
+
 -- ===== Remove o modelo global =====
 drop function if exists close_period(uuid, boolean);
 drop function if exists close_period(uuid);

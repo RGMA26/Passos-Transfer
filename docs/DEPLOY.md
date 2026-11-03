@@ -131,24 +131,29 @@ Entre como admin no computador e faça, nesta ordem:
 
 ## Atualização: quinzena por motorista, Balanço mensal e Documentos (migrações 0010–0014)
 
-Só para quem **já tem o app no ar** com a versão anterior. Faça uma vez, nesta ordem, no computador, dentro da pasta do código (já ligada ao projeto pelo passo 2):
+Só para quem **já tem o app no ar** com a versão anterior. Faça uma vez, **nesta ordem**, no computador, dentro da pasta do código (já ligada ao projeto pelo passo 2):
 
 1. **Backup:** no painel do Supabase, em **Database → Backups**, confira se há um backup recente.
-2. **Motorista de teste:** os dados do motorista de teste (lançamentos, turnos, quinzenas) são apagados **antes** da atualização. Quem cuida disso é o responsável técnico, e só depois de você confirmar. Não há dados reais a migrar. Atenção: a atualização exige CPF de todo motorista; se houver outro motorista cadastrado sem CPF além do de teste, o `db push` falha. Nesse caso, fale com o responsável técnico antes.
+2. **Apagar o motorista de teste** (a nova versão exige CPF de todo motorista e muda o jeito das quinzenas; não há dados reais a migrar):
+   - No Supabase, abra **SQL Editor** e rode `select login_code, name from profiles where role = 'driver';` para ver o **código de login** do motorista de teste.
+   - Abra o arquivo `supabase/deploy/2026-11-cleanup-test-driver.sql`, copie tudo para o SQL Editor e **confira o código** na linha `v_login text := '...';` (troque se for diferente). Clique em **Run**.
+   - O script apaga, numa única operação, os turnos, corridas, gastos, abastecimentos, ajustes e extratos desse motorista, **a conta de login dele** (o motorista de teste deixa de existir) e as quinzenas antigas vazias. As mensagens mostram quanto foi apagado. Se o código não existir, nada é apagado.
+   - Se precisar do motorista de teste depois, **cadastre-o de novo** (já com CPF) em **Motoristas**, depois do passo 6.
 3. **Aplicar as mudanças no banco** (migrações `0010` a `0014`: quinzena de cada motorista, CPF, combustível e consumo, Transfer com Iniciar/Concluir, pausa, gastos dos carros, documentos e Balanço mensal):
 
    ```bash
    npx supabase db push
    ```
 
-   O comando lista as migrações novas (`0010_driver_periods`, `0011_fuel`, `0012_transfer_flow`, `0013_driver_close`, `0014_balance_docs`) e pede confirmação. Responda `Y`.
-4. **Publicar as funções novas e atualizadas:**
+   O comando lista as migrações novas (`0010_driver_periods`, `0011_fuel`, `0012_transfer_flow`, `0013_driver_close`, `0014_balance_docs`) e pede confirmação. Responda `Y`. Se aparecer "Atualização interrompida: há motorista(s) sem CPF" ou "extrato(s) e ajuste(s) da versão antiga", o passo 2 não foi feito (ou havia outro motorista cadastrado): nada foi alterado; fale com o responsável técnico.
+4. **Publicar o app novo:** envie o código para o ramo `main` do GitHub (ex.: `git push origin feat/quinzena-motorista:main`, ou faça o merge do pull request). A Vercel publica sozinha em 1–2 minutos (veja em **Deployments** na Vercel).
+5. **Publicar as funções novas e atualizadas:**
 
    ```bash
    npx supabase functions deploy create-driver update-driver estimate-route
    ```
 
-5. **Conferir:** entre como admin e veja se aparecem o menu **Balanço mensal**, as bolinhas no **Início** e o campo **CPF** no cadastro de motorista.
+6. **Conferir:** entre como admin e veja se aparecem o menu **Balanço mensal**, as bolinhas no **Início** e o campo **CPF** no cadastro de motorista. Se usar o motorista de teste, cadastre-o de novo com CPF.
 
 ## Fechamento da quinzena
 
