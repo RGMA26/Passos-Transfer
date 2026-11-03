@@ -1,5 +1,5 @@
 begin;
-select plan(44);
+select plan(52);
 
 -- 0015: foto do odômetro / print da Uber não bloqueiam turno nem Transfer; chegam depois por
 -- attach_photo e, até lá, o admin vê a pendência 📷 (categoria 'photo').
@@ -198,6 +198,39 @@ select pg_temp.refresh_pend();
 select is(pg_temp.photo_labels('00000000-0000-0000-0000-0000000015b2'), 'Turno sem foto do odômetro (fim)',
   'sem Uber no turno não cobra print');
 select is((select count(*)::int from pend where category = 'photo'), 1, 'só essa pendência 📷 sobra');
+
+-- ===== Repetição (offline) com a foto: preenche só a coluna vazia =====
+insert into rides (id, driver_id, platform, ride_date, amount, client_name, transfer_status) values
+  ('00000000-0000-0000-0000-0000000015a2','00000000-0000-0000-0000-00000000d001','transfer',
+   (now() at time zone 'America/Sao_Paulo')::date,200,'Cli 2','assigned');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000d001","role":"authenticated"}';
+select start_shift('00000000-0000-0000-0000-0000000015b3','00000000-0000-0000-0000-00000000c001',1300,null);
+select is((select odometer_start_photo from start_shift('00000000-0000-0000-0000-0000000015b3','00000000-0000-0000-0000-00000000c001',1300,'d001/s1.jpg')),
+  'd001/s1.jpg', 'start_shift repetido com foto preenche a foto vazia');
+select is((select odometer_start_photo from start_shift('00000000-0000-0000-0000-0000000015b3','00000000-0000-0000-0000-00000000c001',1300,'d001/s2.jpg')),
+  'd001/s1.jpg', 'start_shift repetido não troca foto já preenchida');
+
+select start_transfer('00000000-0000-0000-0000-0000000015a2', 1310, null);
+select is((select odometer_start_photo from start_transfer('00000000-0000-0000-0000-0000000015a2', 1310, 'd001/t1.jpg')),
+  'd001/t1.jpg', 'start_transfer repetido com foto preenche a foto vazia');
+select is((select odometer_start_photo from start_transfer('00000000-0000-0000-0000-0000000015a2', 1310, 'd001/t2.jpg')),
+  'd001/t1.jpg', 'start_transfer repetido não troca foto já preenchida');
+
+select complete_transfer('00000000-0000-0000-0000-0000000015a2', 1320, null);
+select is((select odometer_end_photo from complete_transfer('00000000-0000-0000-0000-0000000015a2', 1320, 'd001/c1.jpg')),
+  'd001/c1.jpg', 'complete_transfer repetido com foto preenche a foto vazia');
+select is((select odometer_end_photo from complete_transfer('00000000-0000-0000-0000-0000000015a2', 1320, 'd001/c2.jpg')),
+  'd001/c1.jpg', 'complete_transfer repetido não troca foto já preenchida');
+
+select end_shift('00000000-0000-0000-0000-0000000015b3', 1400, null, null);
+select end_shift('00000000-0000-0000-0000-0000000015b3', 1400, 'd001/e1.jpg', 'd001/u1.jpg');
+select is((select odometer_end_photo || ' ' || uber_earnings_photo from shifts where id = '00000000-0000-0000-0000-0000000015b3'),
+  'd001/e1.jpg d001/u1.jpg', 'end_shift repetido com fotos preenche foto final e print vazios');
+select end_shift('00000000-0000-0000-0000-0000000015b3', 1400, 'd001/e2.jpg', 'd001/u2.jpg');
+select is((select odometer_end_photo || ' ' || uber_earnings_photo from shifts where id = '00000000-0000-0000-0000-0000000015b3'),
+  'd001/e1.jpg d001/u1.jpg', 'end_shift repetido não troca fotos já preenchidas');
+reset role;
 
 select * from finish();
 rollback;

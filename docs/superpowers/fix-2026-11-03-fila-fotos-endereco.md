@@ -105,3 +105,29 @@ d2b2da3 fix(transfers): Rua e número exige o número (origem e destino)
 - **H:** um código liberado pode ser reaproveitado para outra pessoa, então PDFs ou mensagens antigas com aquele código ficam ambíguos (comportamento pedido).
 - **G:** endereços "S/N" agora são recusados; é preciso digitar algum número.
 - **Pendência 📷:** continua aparecendo depois da conferência enquanto a quinzena estiver aberta. Se o item já foi aprovado, a âncora da Conferência não existe mais e o link abre a Conferência sem rolar até ele.
+
+## Ajustes pedidos na revisão (mesma branch; 0015 editada no lugar, ainda não publicada)
+
+1. **Foto que subiu mas nunca foi ligada ao registro (importante).** Nos ramos de repetição idempotente, as RPCs passam a preencher a foto só se a coluna estiver vazia: `start_shift` (id já existe), `end_shift` (turno já encerrado: foto final e print da Uber), `start_transfer` (mesma leitura) e `complete_transfer` (mesma leitura). Em Transfer isso passa pelo guarda com `passos.transfer_rpc`. Se esse preenchimento for barrado por um gatilho (por exemplo, quinzena fechada), a repetição continua devolvendo o registro existente.
+   Testes pgTAP novos em `photo_pending` (+8, total 52): para cada RPC, a 1ª chamada sem foto e a repetição com foto preenchem a coluna; uma nova repetição com outra foto não troca a que já está lá.
+2. **Login órfão no create-driver.** Se o e-mail já existe, o create-driver procura o usuário de login (`listUsers`, por páginas). Se ele não tiver perfil, é apagado e o cadastro tenta de novo uma única vez. Se tiver perfil, o comportamento é o de antes (cadastro concorrente: tenta outro número). Teste de integração novo cobre o caso: um login órfão com o próximo código é apagado e o motorista é criado com esse mesmo código.
+3. **attach_photo com alvo que sumiu.** `NOT_FOUND` conta como enviado e o anexo sai da fila. Coluna já preenchida o servidor já tratava como sucesso (no-op). Teste Vitest novo.
+
+### RED
+
+```
+pgTAP photo_pending: # Failed test 45: "start_shift repetido com foto preenche a foto vazia"  have: NULL  want: d001/s1.jpg
+                     (falhas 45–52: as 8 novas)
+queue.test.ts:       × attach_photo com alvo que sumiu (NOT_FOUND) conta como enviado … — 1 failed | 46 passed (47)
+integração:          × create-driver: login órfão (sem perfil) com o mesmo e-mail é apagado … — 1 failed | 15 passed (16)
+```
+
+### GREEN: as quatro verificações + integração
+
+```
+db reset + test db:  Files=17, Tests=877 … Result: PASS
+npm test:            Test Files  45 passed | 1 skipped (46) / Tests  463 passed | 12 skipped (479)
+npm run build:       files generated  dist/sw.js  dist/workbox-9c191d2f.js
+playwright:          1 passed (2.2m)
+integração:          Tests  16 passed (16)
+```

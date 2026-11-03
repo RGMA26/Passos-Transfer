@@ -277,7 +277,14 @@ async function pass(): Promise<void> {
       if (attach) {
         const ph = op.photos[0]
         payload.path = await uploadPhoto(await readStoredPhoto(ph), op.ownerId, ph.photoId)
-        await dispatch(op.kind, payload)
+        try {
+          await dispatch(op.kind, payload)
+        } catch (e) {
+          // turno/Transfer sumiu (ex.: excluído): não há onde anexar; coluna já preenchida o servidor
+          // já trata como sucesso (idempotente)
+          const { code, message } = (e ?? {}) as Err
+          if (message !== 'NOT_FOUND' && code !== 'NOT_FOUND') throw e
+        }
         await db.delete('ops', op.id)
         notify()
         continue

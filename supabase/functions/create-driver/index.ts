@@ -1,6 +1,19 @@
 import { corsHeaders, json, randomPin, readBody, requireAdmin } from '../_shared/admin.ts'
 import { normalizeCpf, pctOk } from '../_shared/validate.ts'
 
+/** Id do usuário de login com este e-mail (a API admin não busca por e-mail: percorre as páginas). */
+// deno-lint-ignore no-explicit-any
+async function findAuthUserId(admin: any, email: string): Promise<string | null> {
+  for (let page = 1; page <= 20; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 })
+    if (error || !data?.users?.length) return null
+    const u = data.users.find((x: { email?: string }) => x.email?.toLowerCase() === email)
+    if (u) return u.id
+    if (data.users.length < 200) return null
+  }
+  return null
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return json({ error: 'METHOD_NOT_ALLOWED' }, 405)
@@ -54,6 +67,7 @@ Deno.serve(async (req) => {
     const pin = randomPin()
     let code = ''
     let userId = ''
+    let orphanCleaned = false
     for (let attempt = 0; ; attempt++) {
       if (attempt >= 3) return json({ error: 'CREATE_FAILED' }, 500)
       const { data: gen, error: codeErr } = await admin.rpc('generate_login_code', { p_name: name })
@@ -70,9 +84,22 @@ Deno.serve(async (req) => {
         email_confirm: true,
       })
       if (userErr || !created.user) {
-        // mesmo e-mail (mesmo número e nome) criado por um cadastro concorrente: tenta outro número
-        if (/already|registered|exists/i.test(userErr?.message ?? '')) continue
-        return json({ error: 'CREATE_FAILED' }, 500)
+        if (!/already|registered|exists/i.test(userErr?.message ?? '')) return json({ error: 'CREATE_FAILED' }, 500)
+        // mesmo e-mail: se é login órfão (sem perfil, ex.: cadastro antigo que falhou no meio),
+        // apaga e tenta de novo uma vez; se tem perfil, é um cadastro concorrente: outro número
+        if (!orphanCleaned) {
+          const email = `${code.toLowerCase()}@login.passostransfer.app`
+          const orphanId = await findAuthUserId(admin, email)
+          if (orphanId) {
+            const { data: prof } = await admin.from('profiles').select('id').eq('id', orphanId).maybeSingle()
+            if (!prof) {
+              orphanCleaned = true
+              const { error: delErr } = await admin.auth.admin.deleteUser(orphanId)
+              if (delErr) return json({ error: 'CREATE_FAILED' }, 500)
+            }
+          }
+        }
+        continue
       }
       userId = created.user.id
 

@@ -300,6 +300,24 @@ describe.skipIf(!URL_)('edge functions de contas', () => {
     expect(again.json.login_code).toBe(code)
   })
 
+  it.skipIf(!SERVICE)('create-driver: login órfão (sem perfil) com o mesmo e-mail é apagado e o cadastro segue', async () => {
+    const admin = createClient(URL_, SERVICE!, { auth: { persistSession: false } })
+    const { data: code } = await admin.rpc('generate_login_code', { p_name: 'Orfeu' })
+    const { data: orphan, error } = await admin.auth.admin.createUser({
+      email: `${String(code).toLowerCase()}@login.passostransfer.app`,
+      password: 'x12345678',
+      email_confirm: true,
+    })
+    expect(error).toBeNull()
+    const r = await create({ ...valid, name: 'Orfeu Teste' })
+    expect(r.status).toBe(200)
+    expect(r.json.login_code).toBe(code)
+    expect(r.json.driver_id).not.toBe(orphan.user!.id)
+    const { data: gone } = await admin.auth.admin.getUserById(orphan.user!.id)
+    expect(gone.user).toBeNull()
+    expect(await canLogin(r.json.login_code, r.json.temp_pin)).toBe(true)
+  })
+
   it.skipIf(!SERVICE)('delete: motorista com lançamentos → 400 HAS_ENTRIES (continua existindo)', async () => {
     const r = await create({ ...valid, name: 'Ubirajara Teste' })
     expect(r.status).toBe(200)

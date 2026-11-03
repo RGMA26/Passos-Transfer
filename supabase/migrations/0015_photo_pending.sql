@@ -26,6 +26,15 @@ begin
     select * into s from shifts where id = p_id;
     if found then
       if s.driver_id = uid then
+        -- repetição (offline): a foto que não tinha ido na 1ª vez entra agora, se a coluna estiver vazia
+        if s.odometer_start_photo is null and nullif(btrim(p_photo), '') is not null then
+          begin
+            update shifts set odometer_start_photo = nullif(btrim(p_photo), '')
+             where id = s.id returning * into s;
+          exception when raise_exception then
+            null; -- ex.: quinzena fechada: a repetição continua devolvendo o existente
+          end;
+        end if;
         return s;
       end if;
       raise exception 'FORBIDDEN' using errcode = 'P0001';
@@ -92,6 +101,18 @@ begin
           uber_earnings_photo = nullif(btrim(p_uber_photo), '')
       where id = s.id
       returning * into s;
+  elsif (s.odometer_end_photo is null and nullif(btrim(p_photo), '') is not null)
+     or (s.uber_earnings_photo is null and nullif(btrim(p_uber_photo), '') is not null) then
+    -- repetição (offline): só preenche as fotos que ainda estão vazias
+    begin
+      update shifts
+         set odometer_end_photo = coalesce(odometer_end_photo, nullif(btrim(p_photo), '')),
+             uber_earnings_photo = coalesce(uber_earnings_photo, nullif(btrim(p_uber_photo), ''))
+       where id = s.id
+       returning * into s;
+    exception when raise_exception then
+      null; -- ex.: quinzena fechada: a repetição continua devolvendo o resultado
+    end;
   end if;
 
   v_total := s.odometer_end - s.odometer_start;
@@ -135,6 +156,17 @@ begin
   if r.transfer_status = 'in_progress' then
     -- repetição (offline) com a mesma leitura devolve o existente
     if r.odometer_start is not distinct from p_odometer then
+      -- a foto que não tinha ido na 1ª vez entra agora, se a coluna estiver vazia
+      if r.odometer_start_photo is null and nullif(btrim(p_photo), '') is not null then
+        begin
+          perform set_config('passos.transfer_rpc', 'on', true);
+          update rides set odometer_start_photo = nullif(btrim(p_photo), '')
+           where id = r.id returning * into r;
+          perform set_config('passos.transfer_rpc', '', true);
+        exception when raise_exception then
+          perform set_config('passos.transfer_rpc', '', true);
+        end;
+      end if;
       return r;
     end if;
     raise exception 'ALREADY_STARTED' using errcode = 'P0001';
@@ -206,6 +238,17 @@ begin
   if r.transfer_status = 'completed' then
     -- repetição (offline) com a mesma leitura devolve o existente
     if r.odometer_end is not distinct from p_odometer then
+      -- a foto que não tinha ido na 1ª vez entra agora, se a coluna estiver vazia
+      if r.odometer_end_photo is null and nullif(btrim(p_photo), '') is not null then
+        begin
+          perform set_config('passos.transfer_rpc', 'on', true);
+          update rides set odometer_end_photo = nullif(btrim(p_photo), '')
+           where id = r.id returning * into r;
+          perform set_config('passos.transfer_rpc', '', true);
+        exception when raise_exception then
+          perform set_config('passos.transfer_rpc', '', true);
+        end;
+      end if;
       return r;
     end if;
     raise exception 'ALREADY_COMPLETED' using errcode = 'P0001';

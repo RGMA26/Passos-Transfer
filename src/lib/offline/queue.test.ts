@@ -326,6 +326,18 @@ describe('fila offline', () => {
     expect(await listOps()).toEqual([])
   })
 
+  it('attach_photo com alvo que sumiu (NOT_FOUND) conta como enviado: o anexo sai da fila', async () => {
+    photos.uploadPhoto.mockRejectedValue(netErr())
+    await enqueue(op('s', { kind: 'start_transfer', payload: { ride_id: 'r', odometer: 1 }, photos: [photo()] }))
+    await flush()
+    expect((await listOps()).map((o) => o.kind)).toEqual(['attach_photo'])
+    photos.uploadPhoto.mockReset().mockImplementation(async (_b, d, p) => `${d}/${p}.jpg`)
+    api.attachPhoto.mockRejectedValueOnce(codeErr('NOT_FOUND'))
+    await flush()
+    expect(api.attachPhoto).toHaveBeenCalledTimes(1)
+    expect(await listOps()).toEqual([])
+  })
+
   it('attach_photo que falha não segura as ops seguintes', async () => {
     photos.uploadPhoto.mockRejectedValue(netErr())
     await enqueue(op('s', { kind: 'start_transfer', payload: { ride_id: 'r', odometer: 1 }, photos: [photo()] }))
