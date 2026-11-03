@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as api from '../lib/api'
 import { formatBRL } from '../lib/money'
+import { conflictText, formatQty, fuelUnit } from '../lib/fuel'
 import { parseDecimal } from './helpers'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
@@ -20,7 +21,13 @@ const dateTimeFmt = new Intl.DateTimeFormat('pt-BR', {
 const fmtWhen = (iso?: string | null) => (iso ? dateTimeFmt.format(new Date(iso)) : '—')
 const fmtDay = (d: string) => d.split('-').reverse().join('/')
 
-type Kind = 'fueling' | 'expense' | 'shift' | 'transfer'
+type Kind = 'fueling' | 'shift' | 'transfer'
+
+/** Km real mais de 20% acima do estimado. */
+const kmAboveEstimate = (km: number | null, est: number | null) =>
+  km !== null && est !== null && est > 0 && km > est * 1.2 + 1e-9
+
+const EXPENSE_LABEL: Record<string, string> = { toll: 'Pedágio', parking: 'Estacionamento' }
 
 export default function ReviewPage() {
   const [queue, setQueue] = useState<api.PendingReview | null>(null)
@@ -55,8 +62,7 @@ export default function ReviewPage() {
   }
   if (!queue) return <p className="loading">Carregando…</p>
 
-  const total =
-    queue.fuelings.length + queue.expenses.length + queue.shifts.length + queue.transfers.length
+  const total = queue.fuelings.length + queue.shifts.length + queue.transfers.length
   const reload = () => void load()
 
   return (
@@ -74,27 +80,16 @@ export default function ReviewPage() {
               id={f.id}
               onDone={reload}
               photos={[{ path: f.photo_path, alt: 'Foto do abastecimento' }]}
+              conflict={f.values_conflict}
             >
               <strong>{f.driver_name}</strong>
-              <span>{`${fmtDay(f.fueled_on)} · ${formatBRL(f.amount)} · ${f.liters} L`}</span>
-            </ReviewItem>
-          ))}
-        </section>
-      )}
-      {queue.expenses.length > 0 && (
-        <section className="panel" aria-label="Pedágios e estacionamentos">
-          <h3>Pedágios e estacionamentos</h3>
-          {queue.expenses.map((x) => (
-            <ReviewItem
-              key={x.id}
-              kind="expense"
-              id={x.id}
-              onDone={reload}
-              photos={[{ path: x.photo_path, alt: 'Foto do comprovante' }]}
-            >
-              <strong>{x.driver_name}</strong>
-              <span>{`${x.kind === 'toll' ? 'Pedágio' : 'Estacionamento'} · ${formatBRL(x.amount)}`}</span>
-              <span>{`Transfer: ${x.client_name ?? '—'} (${fmtDay(x.ride_date).slice(0, 5)})`}</span>
+              <span>{`${fmtDay(f.fueled_on)} · ${formatBRL(f.amount)} · ${formatQty(f.quantity)} ${fuelUnit(f.fuel)}`}</span>
+              {f.values_conflict && (
+                <>
+                  <span className="warn">🟠 Valores conflitantes</span>
+                  <span>{conflictText(f.quantity, f.unit_price, f.amount, f.fuel)}</span>
+                </>
+              )}
             </ReviewItem>
           ))}
         </section>
@@ -111,10 +106,7 @@ export default function ReviewPage() {
         <section className="panel" aria-label="Transfers concluídos">
           <h3>Transfers concluídos</h3>
           {queue.transfers.map((t) => (
-            <ReviewItem key={t.id} kind="transfer" id={t.id} onDone={reload} photos={[]}>
-              <strong>{t.driver_name}</strong>
-              <span>{`${t.client_name ?? '—'} · ${fmtWhen(t.scheduled_at)} · ${formatBRL(t.amount)} · ${t.km ?? '—'} km`}</span>
-            </ReviewItem>
+            <TransferItem key={t.id} transfer={t} onDone={reload} />
           ))}
         </section>
       )}
@@ -157,6 +149,13 @@ function Thumb({ path, alt }: { path: string; alt: string }) {
   }, [path])
   if (failed) return <span className="hint">Foto indisponível</span>
   if (!url) return <span className="hint">Carregando foto…</span>
+  if (/\.pdf$/i.test(path)) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer">
+        {`${alt} (PDF)`}
+      </a>
+    )
+  }
   return (
     <a href={url} target="_blank" rel="noreferrer">
       <img src={url} alt={alt} style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 8 }} />
@@ -171,6 +170,7 @@ function ReviewItem({
   onDone,
   children,
   extra,
+  conflict,
 }: {
   kind: Kind
   id: string
@@ -178,6 +178,7 @@ function ReviewItem({
   onDone: () => void
   children: ReactNode
   extra?: ReactNode
+  conflict?: boolean
 }) {
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
@@ -199,7 +200,10 @@ function ReviewItem({
   }
 
   return (
-    <div className="review-item" style={{ borderTop: '1px solid #e5e7eb', paddingTop: '0.5rem' }}>
+    <div
+      className={conflict ? 'review-item conflict' : 'review-item'}
+      style={{ borderTop: '1px solid #e5e7eb', paddingTop: '0.5rem', ...(conflict ? { background: '#fff4e5' } : {}) }}
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>{children}</div>
       {photos.length > 0 && (
         <div className="seg">
@@ -235,6 +239,30 @@ function ReviewItem({
         </div>
       )}
     </div>
+  )
+}
+
+function TransferItem({ transfer: t, onDone }: { transfer: api.PendingTransfer; onDone: () => void }) {
+  const photos = [
+    t.odometer_start_photo && { path: t.odometer_start_photo, alt: 'Foto do odômetro inicial' },
+    t.odometer_end_photo && { path: t.odometer_end_photo, alt: 'Foto do odômetro final' },
+    ...t.expenses.map((e) => ({
+      path: e.photo_path,
+      alt: `Comprovante do ${(EXPENSE_LABEL[e.kind] ?? e.kind).toLowerCase()}`,
+    })),
+  ].filter((p): p is { path: string; alt: string } => !!p)
+  return (
+    <ReviewItem kind="transfer" id={t.id} onDone={onDone} photos={photos}>
+      <strong>{t.driver_name}</strong>
+      <span>{`${t.client_name ?? '—'} · ${fmtWhen(t.scheduled_at)} · ${formatBRL(t.amount)}`}</span>
+      {(t.origin || t.destination) && <span>{`${t.origin ?? '—'} → ${t.destination ?? '—'}`}</span>}
+      <span>{`Odômetro ${t.odometer_start ?? '—'} → ${t.odometer_end ?? '—'}`}</span>
+      <span>{`Km real: ${t.km ?? '—'} · Km estimado: ${t.estimated_km ?? '—'}`}</span>
+      {kmAboveEstimate(t.km, t.estimated_km) && <span className="warn">Km acima do estimado</span>}
+      {t.expenses.map((e) => (
+        <span key={e.id}>{`${EXPENSE_LABEL[e.kind] ?? e.kind} · ${formatBRL(e.amount)}`}</span>
+      ))}
+    </ReviewItem>
   )
 }
 

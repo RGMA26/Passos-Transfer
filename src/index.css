@@ -36,6 +36,9 @@ button.link { background: none; color: inherit; margin: 0; padding: 0.5rem; text
 .seg button[aria-pressed='true'] { background: var(--primary); color: #fff; }
 .ok { color: #047857; font-weight: 600; }
 .hint { color: #4b5563; margin: 0.25rem 0; }
+.warn { color: #c2410c; font-weight: 600; }
+.review-item.conflict { background: #fff4e5; }
+.badge-warn { background: #ffedd5; color: #9a3412; }
 select { font-size: 1rem; padding: 0.75rem; border: 1px solid #9ca3af; border-radius: 8px; background: #fff; }
 a.btn { display: inline-flex; align-items: center; justify-content: center; flex: 1; min-height: 52px; margin-top: 0.75rem; padding: 0.85rem 1rem; border-radius: 8px; background: var(--primary); color: #fff; font-weight: 600; text-decoration: none; }
 .table-wrap { overflow-x: auto; margin-top: 1rem; }

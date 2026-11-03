@@ -9,16 +9,6 @@ export type Ride = Tables['rides']['Row']
 export type RideExpense = Tables['ride_expenses']['Row']
 export type Fueling = Tables['fuelings']['Row']
 export type DriverPeriod = Tables['driver_periods']['Row']
-/** Legado (quinzena global, removida na 0010): só a tela antiga de Quinzenas, refeita na Task 9. */
-export interface Period {
-  id: string
-  start_date: string
-  end_date: string
-  status: string
-  reference_fuel_price: number | null
-  closed_at: string | null
-  created_at: string
-}
 export type Statement = Tables['statements']['Row']
 
 /** Formato jsonb retornado por compute_statement. */

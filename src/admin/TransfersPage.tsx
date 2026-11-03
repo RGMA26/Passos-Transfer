@@ -5,17 +5,22 @@ import type { Profile } from '../lib/types'
 import MoneyInput from '../components/MoneyInput'
 import { formatBRL } from '../lib/money'
 import { localDate } from '../lib/periods'
+import AddressFields, { EMPTY_ADDRESS, isAddressComplete } from './AddressFields'
+import type { AddressValue } from './AddressFields'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
+const MSG_NO_ESTIMATE = 'Não foi possível calcular o km estimado'
 const MSG_NOT_DELETABLE = 'Este transfer não pode mais ser excluído'
 const STATUS_LABEL: Record<string, string> = {
   assigned: 'Atribuída',
+  in_progress: 'Em andamento',
   completed: 'Concluída',
   checked: 'Conferida',
 }
 const FILTERS: { label: string; value: string | undefined }[] = [
   { label: 'Todos', value: undefined },
   { label: 'Atribuída', value: 'assigned' },
+  { label: 'Em andamento', value: 'in_progress' },
   { label: 'Concluída', value: 'completed' },
   { label: 'Conferida', value: 'checked' },
 ]
@@ -25,6 +30,8 @@ const dateTimeFmt = new Intl.DateTimeFormat('pt-BR', {
   dateStyle: 'short',
   timeStyle: 'short',
 })
+const kmFmt = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 })
+const fmtKm = (n: number) => kmFmt.format(Number(n))
 const fmtWhen = (iso: string | null) => (iso ? dateTimeFmt.format(new Date(iso)) : '—')
 
 export default function TransfersPage() {
@@ -35,6 +42,7 @@ export default function TransfersPage() {
   const [showForm, setShowForm] = useState(false)
   const [reassignId, setReassignId] = useState<string | null>(null)
   const [actionError, setActionError] = useState('')
+  const [notice, setNotice] = useState('')
 
   const load = useCallback(async () => {
     setFailed(false)
@@ -81,6 +89,7 @@ export default function TransfersPage() {
     <section>
       <h2>Transfers</h2>
       {actionError && <p className="error" role="alert">{actionError}</p>}
+      {notice && <p className="hint" role="status">{notice}</p>}
       {!showForm && (
         <button type="button" onClick={() => setShowForm(true)}>
           Novo transfer
@@ -90,8 +99,9 @@ export default function TransfersPage() {
         <NewTransferForm
           drivers={drivers}
           onCancel={() => setShowForm(false)}
-          onCreated={() => {
+          onCreated={(noEstimate) => {
             setShowForm(false)
+            setNotice(noEstimate ? MSG_NO_ESTIMATE : '')
             void load()
           }}
         />
@@ -116,7 +126,8 @@ export default function TransfersPage() {
               <th>Data/hora</th>
               <th>Motorista</th>
               <th>Valor</th>
-              <th>Km</th>
+              <th>Km estimado</th>
+              <th>Km real</th>
               <th>Status</th>
               <th>Ações</th>
             </tr>
@@ -128,7 +139,8 @@ export default function TransfersPage() {
                 <td>{fmtWhen(r.scheduled_at)}</td>
                 <td>{r.driver_name}</td>
                 <td>{formatBRL(Number(r.amount))}</td>
-                <td>{r.km ?? '—'}</td>
+                <td>{r.estimated_km === null ? '—' : fmtKm(r.estimated_km)}</td>
+                <td>{r.km === null ? '—' : fmtKm(r.km)}</td>
                 <td>{STATUS_LABEL[r.transfer_status ?? ''] ?? '—'}</td>
                 <td className="actions">
                   {r.transfer_status === 'assigned' &&
@@ -218,13 +230,13 @@ function NewTransferForm({
 }: {
   drivers: Profile[]
   onCancel: () => void
-  onCreated: () => void
+  onCreated: (noEstimate: boolean) => void
 }) {
   const [client, setClient] = useState('')
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
-  const [origin, setOrigin] = useState('')
-  const [destination, setDestination] = useState('')
+  const [origin, setOrigin] = useState<AddressValue>(EMPTY_ADDRESS)
+  const [destination, setDestination] = useState<AddressValue>(EMPTY_ADDRESS)
   const [amount, setAmount] = useState<number | null>(null)
   const [driverId, setDriverId] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -239,21 +251,35 @@ function NewTransferForm({
     if (!when || Number.isNaN(when.getTime())) errs.when = 'Informe data e horário'
     if (amount === null || amount <= 0) errs.amount = 'Informe um valor válido'
     if (!driverId) errs.driver = 'Escolha o motorista'
+    if (!isAddressComplete(origin)) errs.origin = 'Preencha o endereço de origem'
+    if (!isAddressComplete(destination)) errs.destination = 'Preencha o endereço de destino'
     setErrors(errs)
     setError('')
     if (Object.keys(errs).length > 0 || !when || amount === null) return
     setBusy(true)
+    const addr = (a: AddressValue): api.AddressInput => ({
+      street: a.street.trim(),
+      district: a.district.trim(),
+      city: a.city.trim(),
+      state: a.state.trim(),
+      zip: a.zip.trim() || null,
+      ref: a.ref.trim() || null,
+    })
+    const o = addr(origin)
+    const d = addr(destination)
+    const km = await api.estimateRoute(o, d)
     try {
       await api.createTransfer({
         driver_id: driverId,
         client_name: client.trim(),
         scheduled_at: when.toISOString(),
         ride_date: localDate(when),
-        origin: origin.trim() || null,
-        destination: destination.trim() || null,
+        origin: o,
+        destination: d,
         amount,
+        estimated_km: km,
       })
-      onCreated()
+      onCreated(km === null)
     } catch {
       setError('Não foi possível criar o transfer')
       setBusy(false)
@@ -277,14 +303,10 @@ function NewTransferForm({
         <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
       </label>
       {errors.when && <p className="error">{errors.when}</p>}
-      <label className="field">
-        Origem (opcional)
-        <input value={origin} onChange={(e) => setOrigin(e.target.value)} />
-      </label>
-      <label className="field">
-        Destino (opcional)
-        <input value={destination} onChange={(e) => setDestination(e.target.value)} />
-      </label>
+      <AddressFields legend="Origem" value={origin} onChange={setOrigin} />
+      {errors.origin && <p className="error">{errors.origin}</p>}
+      <AddressFields legend="Destino" value={destination} onChange={setDestination} />
+      {errors.destination && <p className="error">{errors.destination}</p>}
       <MoneyInput label="Valor contratado" onChange={setAmount} />
       {errors.amount && <p className="error">{errors.amount}</p>}
       <label className="field">

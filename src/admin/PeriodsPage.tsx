@@ -1,24 +1,29 @@
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import * as api from '../lib/api'
-import type { Period } from '../lib/types'
+import type { DriverPeriod } from '../lib/types'
 import StatementView, { formatDay } from '../components/StatementView'
+import PeriodSignal from '../components/PeriodSignal'
 import MoneyInput from '../components/MoneyInput'
 import { formatBRL } from '../lib/money'
-import { parseDecimal } from './helpers'
 import { localDate } from '../lib/periods'
-import { toCSV } from '../lib/csv'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
 const MSG_NOT_ENDED = 'A quinzena ainda não terminou. Fechar mesmo assim?'
+const MSG_MISSING_PRICE =
+  'Não há nota de abastecimento aprovada para calcular a gasolina desta quinzena. A gasolina será calculada como R$ 0,00. Tem certeza que deseja fechar?'
+const MSG_MISSING_CONSUMPTION =
+  'Falta o consumo do carro para calcular a gasolina. A gasolina será calculada como R$ 0,00. Tem certeza que deseja fechar?'
+const MSG_DOC_TYPE = 'Envie JPG, PNG ou PDF de até 10 MB'
+const MARK_TITLE = 'Fechada sem nota de abastecimento'
 const CLOSE_ERRORS: Record<string, string> = {
+  PREVIOUS_OPEN: 'Feche a quinzena anterior primeiro',
   OPEN_SHIFTS: 'Há turnos abertos',
   ASSIGNED_TRANSFERS: 'Há transfers não concluídos',
   PENDING_REVIEW: 'Há itens aguardando conferência',
   SHIFTS_NOT_APPROVED: 'Há turnos não aprovados',
-  PERIOD_NOT_ENDED: 'A quinzena ainda não terminou',
-  MISSING_REFERENCE_PRICE: 'Defina o preço de referência do litro',
+  ALREADY_CLOSED: 'Esta quinzena já está fechada',
 }
 const KIND_LABEL: Record<api.AdjustmentKind, string> = {
   advance: 'Vale',
@@ -29,257 +34,437 @@ const KIND_LABEL: Record<api.AdjustmentKind, string> = {
 const METHODS = ['Pix', 'Dinheiro', 'Transferência', 'Outro']
 
 const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
-const rangeShort = (p: Pick<Period, 'start_date' | 'end_date'>) => `${dm(p.start_date)} – ${dm(p.end_date)}`
-const rangeLong = (p: Pick<Period, 'start_date' | 'end_date'>) =>
-  `${dm(p.start_date)} – ${formatDay(p.end_date)}`
-
-function statusOf(open: boolean, r: api.PeriodDriverStatement): string {
-  if (open) return 'Estimado'
-  return r.paid_at ? `Pago em ${dm(r.paid_at)}` : 'A pagar'
-}
+const rangeShort = (p: { start_date: string; end_date: string }) => `${dm(p.start_date)} – ${dm(p.end_date)}`
+const rangeLong = (p: { start_date: string; end_date: string }) => `${dm(p.start_date)} – ${formatDay(p.end_date)}`
 
 export default function PeriodsPage() {
-  const [periods, setPeriods] = useState<Period[] | null>(null)
-  const [periodId, setPeriodId] = useState('')
-  const [rows, setRows] = useState<api.PeriodDriverStatement[]>([])
-  const [adjustments, setAdjustments] = useState<api.Adjustment[]>([])
+  const [rows, setRows] = useState<api.PeriodOverviewRow[] | null>(null)
   const [failed, setFailed] = useState(false)
-  const [expanded, setExpanded] = useState<string | null>(null)
-  const [closeError, setCloseError] = useState('')
+  const [selected, setSelected] = useState<api.PeriodOverviewRow | null>(null)
 
-  const loadPeriods = useCallback(async () => {
+  const load = useCallback(async () => {
     setFailed(false)
     try {
-      const list = await api.listPeriods()
-      setPeriods(list)
-      setPeriodId((cur) => (cur && list.some((p) => p.id === cur) ? cur : (list[0]?.id ?? '')))
-    } catch {
-      setFailed(true)
-    }
-  }, [])
-
-  const loadDetail = useCallback(async (id: string) => {
-    if (!id) return
-    setFailed(false)
-    try {
-      const [r, a] = await Promise.all([api.periodDriverStatements(id), api.listAdjustments(id)])
-      setRows(r)
-      setAdjustments(a)
+      setRows(await api.listPeriodOverview())
     } catch {
       setFailed(true)
     }
   }, [])
 
   useEffect(() => {
-    void loadPeriods()
-  }, [loadPeriods])
-
-  useEffect(() => {
-    setRows([])
-    setExpanded(null)
-    setCloseError('')
-    void loadDetail(periodId)
-  }, [periodId, loadDetail])
-
-  const period = periods?.find((p) => p.id === periodId)
+    void load()
+  }, [load])
 
   if (failed) {
     return (
       <section>
         <h2>Quinzenas</h2>
         <p className="error">{MSG_LOAD}</p>
-        <button
-          type="button"
-          onClick={() => {
-            void loadPeriods()
-            void loadDetail(periodId)
-          }}
-        >
+        <button type="button" onClick={() => void load()}>
           Tentar novamente
         </button>
       </section>
     )
   }
-  if (!periods || !period) return <p className="loading">Carregando…</p>
+  if (!rows) return <p className="loading">Carregando…</p>
 
-  const open = period.status === 'open'
-
-  async function close() {
-    if (!period) return
-    if (!window.confirm(`Fechar a quinzena ${rangeShort(period)}? Os valores serão congelados.`)) return
-    setCloseError('')
-    // quinzena em andamento: pede a segunda confirmação antes (evita a ida e volta com erro)
-    const notEnded = localDate() <= period.end_date
-    if (notEnded && !window.confirm(MSG_NOT_ENDED)) return
-    try {
-      try {
-        await api.closePeriod(period.id, notEnded)
-      } catch (err) {
-        // relógio do aparelho atrasado: o servidor é quem decide
-        if ((err as Error).message !== 'PERIOD_NOT_ENDED') throw err
-        if (!window.confirm(MSG_NOT_ENDED)) return
-        await api.closePeriod(period.id, true)
-      }
-      await loadPeriods()
-      await loadDetail(period.id)
-    } catch (err) {
-      setCloseError(CLOSE_ERRORS[(err as Error).message] ?? 'Não foi possível fechar a quinzena')
-    }
-  }
-
-  function exportCsv() {
-    if (!period) return
-    const csv = toCSV(
-      rows.map((r) => ({
-        motorista: r.driver_name,
-        codigo: r.driver_code,
-        parte_uber: r.lines.uber_share,
-        parte_transfer: r.lines.transfer_share,
-        reembolsos:
-          r.lines.fuel_reimbursement + r.lines.transfer_fuel_reimbursement + r.lines.expense_reimbursement,
-        desconto_gasolina: r.lines.off_duty_fuel_discount,
-        ajustes: r.lines.adjustments,
-        total: r.total,
-        pago_em: r.paid_at ? formatDay(r.paid_at) : '',
-      })),
+  if (selected) {
+    return (
+      <DriverPeriods
+        driver={selected}
+        onBack={() => {
+          setSelected(null)
+          void load()
+        }}
+      />
     )
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `passos-quinzena-${period.start_date}.csv`
-    a.click()
-    URL.revokeObjectURL?.(url)
   }
 
   return (
     <section>
       <h2>Quinzenas</h2>
-      <label className="field">
-        Quinzena
-        <select value={periodId} onChange={(e) => setPeriodId(e.target.value)}>
-          {periods.map((p) => (
-            <option key={p.id} value={p.id}>
-              {`${rangeLong(p)} · ${p.status === 'open' ? 'Aberta' : 'Fechada'}`}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <PriceForm key={period.id} period={period} onSaved={() => void loadDetail(period.id)} />
-
-      {open && (
-        <>
-          <button type="button" onClick={() => void close()}>
-            Fechar quinzena
-          </button>
-          {closeError && (
-            <p className="error" role="alert">
-              {closeError}
-            </p>
-          )}
-        </>
-      )}
-      <button type="button" onClick={exportCsv} disabled={rows.length === 0}>
-        Exportar CSV
-      </button>
-
       <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
               <th>Motorista</th>
+              <th>Quinzena atual</th>
               <th>Total</th>
-              <th>Status</th>
               <th>Ações</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
-              const isOpen = expanded === r.driver_id
-              return (
-                <Fragment key={r.driver_id}>
-                  <tr>
-                    <td>{r.driver_name}</td>
-                    <td>{formatBRL(r.total)}</td>
-                    <td>{statusOf(open, r)}</td>
-                    <td className="actions">
-                      <button type="button" onClick={() => setExpanded(isOpen ? null : r.driver_id)}>
-                        {isOpen ? 'Ocultar extrato' : 'Ver extrato'}
-                      </button>
-                      {r.statement_id && (
-                        <Link to={`/admin/extrato/${r.statement_id}`}>Imprimir / PDF</Link>
-                      )}
-                    </td>
-                  </tr>
-                  {isOpen && (
-                    <tr>
-                      <td colSpan={4}>
-                        <StatementView
-                          lines={r.lines}
-                          status={open ? 'estimated' : r.paid_at ? 'paid' : 'closed'}
-                          paidAt={r.paid_at}
-                          method={r.payment_method}
-                          driverType={r.driver_type}
-                        />
-                        {!open && !r.paid_at && r.statement_id && (
-                          <PayForm statementId={r.statement_id} onPaid={() => void loadDetail(period.id)} />
-                        )}
-                        <Adjustments
-                          open={open}
-                          driverId={r.driver_id}
-                          periodId={period.id}
-                          items={adjustments.filter((a) => a.driver_id === r.driver_id)}
-                          onChanged={() => void loadDetail(period.id)}
-                        />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              )
-            })}
+            {rows.map((r) => (
+              <tr key={r.driver_id}>
+                <td>
+                  {r.driver_name} <PeriodSignal signal={r.signal} paused={r.paused} />
+                </td>
+                <td>{r.start_date && r.end_date ? rangeShort({ start_date: r.start_date, end_date: r.end_date }) : '—'}</td>
+                <td>{r.total === null ? '—' : formatBRL(r.total)}</td>
+                <td className="actions">
+                  <button type="button" onClick={() => setSelected(r)}>
+                    Abrir
+                  </button>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
-      {rows.length === 0 && <p className="hint">Nenhum motorista com movimento nesta quinzena.</p>}
+      {rows.length === 0 && <p className="hint">Nenhum motorista ativo.</p>}
     </section>
   )
 }
 
-function PriceForm({ period, onSaved }: { period: Period; onSaved: () => void }) {
-  const [text, setText] = useState(
-    period.reference_fuel_price == null ? '' : String(period.reference_fuel_price).replace('.', ','),
-  )
-  const [error, setError] = useState('')
-  const [saved, setSaved] = useState(false)
-  const open = period.status === 'open'
+function DriverPeriods({ driver, onBack }: { driver: api.PeriodOverviewRow; onBack: () => void }) {
+  const [periods, setPeriods] = useState<DriverPeriod[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [expanded, setExpanded] = useState<string | null>(null)
 
-  async function save() {
-    setSaved(false)
-    const n = parseDecimal(text)
-    if (n === null || n <= 0 || !/^\d+([.,]\d{1,3})?$/.test(text.trim())) {
-      return setError('Informe um preço válido')
+  const load = useCallback(async () => {
+    setFailed(false)
+    try {
+      setPeriods(await api.listDriverPeriods(driver.driver_id))
+    } catch {
+      setFailed(true)
     }
+  }, [driver.driver_id])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  return (
+    <section>
+      <h2>
+        {`Quinzenas — ${driver.driver_name} `}
+        <PeriodSignal signal={driver.signal} paused={driver.paused} />
+      </h2>
+      <button type="button" className="link" onClick={onBack}>
+        Voltar
+      </button>
+      {failed && (
+        <>
+          <p className="error">{MSG_LOAD}</p>
+          <button type="button" onClick={() => void load()}>
+            Tentar novamente
+          </button>
+        </>
+      )}
+      {!failed && !periods && <p className="loading">Carregando…</p>}
+      {periods && periods.length === 0 && <p className="hint">Nenhuma quinzena.</p>}
+      <ul className="list">
+        {periods?.map((p) => (
+          <li key={p.id}>
+            <PeriodItem
+              period={p}
+              driverId={driver.driver_id}
+              open={expanded === p.id}
+              onToggle={() => setExpanded(expanded === p.id ? null : p.id)}
+              onChanged={() => void load()}
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function PeriodItem({
+  period,
+  driverId,
+  open,
+  onToggle,
+  onChanged,
+}: {
+  period: DriverPeriod
+  driverId: string
+  open: boolean
+  onToggle: () => void
+  onChanged: () => void
+}) {
+  const [stmt, setStmt] = useState<api.PeriodStatement | null>(null)
+  const [adjustments, setAdjustments] = useState<api.Adjustment[]>([])
+  const [failed, setFailed] = useState(false)
+  const [closeError, setCloseError] = useState('')
+  const isOpen = period.status === 'open'
+
+  const loadDetail = useCallback(async () => {
+    setFailed(false)
+    try {
+      const [s, a] = await Promise.all([api.driverPeriodStatement(period.id), api.listAdjustments(period.id)])
+      setStmt(s)
+      setAdjustments(a)
+    } catch {
+      setFailed(true)
+    }
+  }, [period.id])
+
+  useEffect(() => {
+    if (open) void loadDetail()
+  }, [open, loadDetail])
+
+  async function close() {
+    if (!window.confirm(`Fechar a quinzena ${rangeShort(period)}? Os valores serão congelados.`)) return
+    setCloseError('')
+    // quinzena em andamento: pede a segunda confirmação antes (evita a ida e volta com erro)
+    let force = localDate() <= period.end_date
+    if (force && !window.confirm(MSG_NOT_ENDED)) return
+    let allowMissingFuelPrice = false
+    for (;;) {
+      try {
+        await api.closeDriverPeriod(period.id, { force, allowMissingFuelPrice })
+        break
+      } catch (err) {
+        const code = (err as Error).message
+        if (code === 'PERIOD_NOT_ENDED' && !force) {
+          // relógio do aparelho atrasado: o servidor é quem decide
+          if (!window.confirm(MSG_NOT_ENDED)) return
+          force = true
+        } else if (code === 'MISSING_FUEL_PRICE' && !allowMissingFuelPrice) {
+          let noConsumption = stmt?.lines.missing_consumption
+          if (noConsumption === undefined) {
+            try {
+              noConsumption = (await api.driverPeriodStatement(period.id)).lines.missing_consumption
+            } catch {
+              noConsumption = false
+            }
+          }
+          if (!window.confirm(noConsumption ? MSG_MISSING_CONSUMPTION : MSG_MISSING_PRICE)) return
+          allowMissingFuelPrice = true
+        } else {
+          setCloseError(CLOSE_ERRORS[code] ?? 'Não foi possível fechar a quinzena')
+          return
+        }
+      }
+    }
+    onChanged()
+    await loadDetail()
+  }
+
+  const reload = () => {
+    onChanged()
+    void loadDetail()
+  }
+
+  return (
+    <div>
+      <strong>{`${rangeLong(period)} · ${isOpen ? 'Aberta' : 'Fechada'}`}</strong>
+      {!isOpen && period.missing_fuel_price && (
+        <span role="img" aria-label={MARK_TITLE} title={MARK_TITLE} style={{ color: '#dc2626' }}>
+          ❗
+        </span>
+      )}{' '}
+      <button type="button" onClick={onToggle}>
+        {open ? 'Ocultar extrato' : 'Ver extrato'}
+      </button>{' '}
+      {isOpen && (
+        <button type="button" onClick={() => void close()}>
+          Fechar quinzena
+        </button>
+      )}
+      {closeError && (
+        <p className="error" role="alert">
+          {closeError}
+        </p>
+      )}
+      {open && failed && (
+        <>
+          <p className="error">{MSG_LOAD}</p>
+          <button type="button" onClick={() => void loadDetail()}>
+            Tentar novamente
+          </button>
+        </>
+      )}
+      {open && !failed && !stmt && <p className="loading">Carregando…</p>}
+      {open && stmt && (
+        <div>
+          <p>{`Total: ${formatBRL(stmt.total)}`}</p>
+          <StatementView
+            lines={stmt.lines}
+            status={isOpen ? 'estimated' : stmt.paid_at ? 'paid' : 'closed'}
+            paidAt={stmt.paid_at}
+            method={stmt.payment_method}
+            driverType={stmt.driver.driver_type}
+          />
+          {stmt.statement_id && (
+            <p>
+              <Link to={`/admin/extrato/${stmt.statement_id}`}>Imprimir / PDF</Link>
+              {stmt.paid_at && (
+                <>
+                  {' '}
+                  <Link to={`/admin/recibo/${stmt.statement_id}`}>Recibo</Link>
+                </>
+              )}
+            </p>
+          )}
+          {!isOpen && !stmt.paid_at && stmt.statement_id && (
+            <PayForm statementId={stmt.statement_id} onPaid={reload} />
+          )}
+          {stmt.paid_at && stmt.statement_id && (
+            <PaymentDocuments driverId={driverId} statementId={stmt.statement_id} />
+          )}
+          <Adjustments
+            open={isOpen}
+            driverId={driverId}
+            periodId={period.id}
+            items={adjustments}
+            onChanged={reload}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+const OK_DOC_TYPES = ['image/jpeg', 'image/png', 'application/pdf']
+const MAX_DOC_BYTES = 10 * 1024 * 1024
+
+function PaymentDocuments({ driverId, statementId }: { driverId: string; statementId: string }) {
+  const [docs, setDocs] = useState<api.AdminDocument[] | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  const load = useCallback(async () => {
+    setFailed(false)
+    try {
+      setDocs(await api.listAdminDocuments({ statementId }))
+    } catch {
+      setFailed(true)
+    }
+  }, [statementId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  if (failed) {
+    return (
+      <div>
+        <p className="error">Não foi possível carregar os anexos.</p>
+        <button type="button" onClick={() => void load()}>
+          Tentar novamente
+        </button>
+      </div>
+    )
+  }
+  if (!docs) return <p className="loading">Carregando…</p>
+  return (
+    <>
+      <DocSection
+        title="Comprovante de pagamento"
+        uploadLabel="Anexar comprovante de pagamento"
+        kind="payment_proof"
+        driverId={driverId}
+        statementId={statementId}
+        docs={docs.filter((d) => d.kind === 'payment_proof')}
+        onChanged={() => void load()}
+      />
+      <DocSection
+        title="Recibo assinado"
+        uploadLabel="Anexar recibo assinado"
+        kind="signed_receipt"
+        driverId={driverId}
+        statementId={statementId}
+        docs={docs.filter((d) => d.kind === 'signed_receipt')}
+        onChanged={() => void load()}
+      />
+    </>
+  )
+}
+
+function DocSection({
+  title,
+  uploadLabel,
+  kind,
+  driverId,
+  statementId,
+  docs,
+  onChanged,
+}: {
+  title: string
+  uploadLabel: string
+  kind: 'payment_proof' | 'signed_receipt'
+  driverId: string
+  statementId: string
+  docs: api.AdminDocument[]
+  onChanged: () => void
+}) {
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  async function upload(files: File[]) {
+    setError('')
+    if (files.length === 0) return
+    if (files.some((f) => !OK_DOC_TYPES.includes(f.type) || f.size > MAX_DOC_BYTES)) return setError(MSG_DOC_TYPE)
+    setBusy(true)
+    try {
+      for (const file of files) {
+        await api.uploadAdminDocument({ driverId, statementId, kind, file })
+      }
+    } catch (err) {
+      setError((err as { code?: string }).code === 'INVALID_FILE' ? MSG_DOC_TYPE : 'Não foi possível enviar o arquivo')
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+      onChanged()
+    }
+  }
+
+  async function open(d: api.AdminDocument) {
     setError('')
     try {
-      await api.setReferencePrice(period.id, n)
-      setSaved(true)
-      onSaved()
+      window.open(await api.adminDocumentUrl(d.file_path), '_blank', 'noopener')
     } catch {
-      setError('Não foi possível salvar o preço')
+      setError('Não foi possível abrir o documento')
+    }
+  }
+
+  async function remove(d: api.AdminDocument) {
+    if (!window.confirm('Excluir este documento?')) return
+    setError('')
+    try {
+      await api.deleteAdminDocument(d)
+      onChanged()
+    } catch {
+      setError('Não foi possível excluir o documento')
     }
   }
 
   return (
-    <div className="panel">
+    <section className="panel" aria-label={title}>
+      <strong>{title}</strong>{' '}
+      {docs.length > 0 ? (
+        <span role="img" aria-label="Anexado">
+          ✅
+        </span>
+      ) : (
+        <span role="img" aria-label="Sem anexo">
+          ⚪
+        </span>
+      )}
+      <ul className="list">
+        {docs.map((d) => (
+          <li key={d.id}>
+            <span>{d.file_path.split('/').pop()}</span>{' '}
+            <button type="button" onClick={() => void open(d)}>
+              Abrir
+            </button>{' '}
+            <button type="button" onClick={() => void remove(d)}>
+              Excluir
+            </button>
+          </li>
+        ))}
+      </ul>
       <label className="field">
-        Preço de referência do litro
+        {uploadLabel}
         <input
-          type="text"
-          inputMode="decimal"
-          placeholder="0,000"
-          value={text}
-          disabled={!open}
-          onChange={(e) => setText(e.target.value)}
+          ref={fileRef}
+          type="file"
+          multiple
+          disabled={busy}
+          accept="image/jpeg,image/png,application/pdf"
+          onChange={(e) => void upload(Array.from(e.target.files ?? []))}
         />
       </label>
       {error && (
@@ -287,13 +472,7 @@ function PriceForm({ period, onSaved }: { period: Period; onSaved: () => void })
           {error}
         </p>
       )}
-      {saved && <p className="ok">Preço salvo</p>}
-      {open && (
-        <button type="button" onClick={() => void save()}>
-          Salvar
-        </button>
-      )}
-    </div>
+    </section>
   )
 }
 

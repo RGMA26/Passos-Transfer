@@ -4,23 +4,25 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import PeriodsPage from './PeriodsPage'
 import PrintStatementPage from './PrintStatementPage'
-import DashboardPage from './DashboardPage'
+import PrintReceiptPage from './PrintReceiptPage'
 import * as api from '../lib/api'
 import { formatBRL as rawBRL } from '../lib/money'
-import type { Period, StatementLines } from '../lib/types'
+import type { DriverPeriod, StatementLines } from '../lib/types'
 
 vi.mock('../lib/api', () => ({
-  listPeriods: vi.fn(),
-  setReferencePrice: vi.fn(),
+  listPeriodOverview: vi.fn(),
+  listDriverPeriods: vi.fn(),
+  driverPeriodStatement: vi.fn(),
+  closeDriverPeriod: vi.fn(),
+  markStatementPaid: vi.fn(),
   listAdjustments: vi.fn(),
   createAdjustment: vi.fn(),
   deleteAdjustment: vi.fn(),
-  periodDriverStatements: vi.fn(),
-  closePeriod: vi.fn(),
-  markStatementPaid: vi.fn(),
-  periodSummary: vi.fn(),
+  listAdminDocuments: vi.fn(),
+  uploadAdminDocument: vi.fn(),
+  deleteAdminDocument: vi.fn(),
+  adminDocumentUrl: vi.fn(),
   getStatement: vi.fn(),
-  getCurrentPeriod: vi.fn(),
 }))
 const m = vi.mocked(api)
 // o texto do DOM tem o espaço normalizado (R$ + nbsp vira espaço comum)
@@ -42,22 +44,20 @@ const lines = (over: Partial<StatementLines> = {}): StatementLines => ({
   pending: { fuelings: 0, expenses: 0 },
   ...over,
 })
-const period = (over: Partial<Period> = {}): Period =>
-  ({
-    id: 'p1',
-    start_date: '2026-10-16',
-    end_date: '2026-10-31',
-    status: 'open',
-    reference_fuel_price: 5.5,
-    closed_at: null,
-    created_at: '',
-    ...over,
-  }) as Period
-const stmt = (over: Partial<api.PeriodDriverStatement> = {}): api.PeriodDriverStatement => ({
+const period = (over: Partial<DriverPeriod> = {}): DriverPeriod => ({
+  id: 'p1',
   driver_id: 'd1',
-  driver_name: 'Maria Souza',
-  driver_code: 'M001',
-  driver_type: 'company_car',
+  start_date: '2026-10-16',
+  end_date: '2026-10-30',
+  status: 'open',
+  closed_at: null,
+  created_at: '',
+  missing_fuel_price: false,
+  ...over,
+})
+const stmt = (over: Partial<api.PeriodStatement> = {}): api.PeriodStatement => ({
+  period: period(),
+  driver: { id: 'd1', name: 'Maria Souza', login_code: 'M001', driver_type: 'company_car' },
   lines: lines(),
   total: 213,
   statement_id: null,
@@ -65,16 +65,33 @@ const stmt = (over: Partial<api.PeriodDriverStatement> = {}): api.PeriodDriverSt
   payment_method: null,
   ...over,
 })
+const overview = (over: Partial<api.PeriodOverviewRow> = {}): api.PeriodOverviewRow => ({
+  driver_id: 'd1',
+  driver_name: 'Maria Souza',
+  paused: false,
+  signal: null,
+  period_id: 'p1',
+  start_date: '2026-10-16',
+  end_date: '2026-10-30',
+  total: 213,
+  ...over,
+})
 
 let confirmSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   vi.clearAllMocks()
-  m.listPeriods.mockResolvedValue([
+  m.listPeriodOverview.mockResolvedValue([
+    overview(),
+    overview({ driver_id: 'd2', driver_name: 'João Lima', signal: 'red', period_id: 'q1', total: 0 }),
+    overview({ driver_id: 'd3', driver_name: 'Ana Dias', signal: 'yellow', period_id: 'r1' }),
+  ])
+  m.listDriverPeriods.mockResolvedValue([
     period(),
     period({ id: 'p0', start_date: '2026-10-01', end_date: '2026-10-15', status: 'closed' }),
   ])
-  m.periodDriverStatements.mockResolvedValue([stmt()])
+  m.driverPeriodStatement.mockResolvedValue(stmt())
   m.listAdjustments.mockResolvedValue([])
+  m.listAdminDocuments.mockResolvedValue([])
   confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
 })
 afterEach(() => confirmSpy.mockRestore())
@@ -86,104 +103,151 @@ const renderPage = () =>
     </MemoryRouter>,
   )
 
-async function openExpanded() {
+async function openDriver(name = 'Maria Souza') {
   const user = userEvent.setup()
   renderPage()
-  await screen.findByText('Maria Souza')
-  await user.click(screen.getByRole('button', { name: 'Ver extrato' }))
+  const row = (await screen.findByText(name)).closest('tr')!
+  await user.click(within(row).getByRole('button', { name: 'Abrir' }))
+  await screen.findByRole('heading', { name: new RegExp(name) })
   return user
 }
 
-describe('quinzenas', () => {
-  it('lista motoristas com total e status Estimado, e seletor com status', async () => {
+async function expandFirst(user: ReturnType<typeof userEvent.setup>) {
+  await user.click((await screen.findAllByRole('button', { name: 'Ver extrato' }))[0])
+}
+
+describe('lista por motorista', () => {
+  it('mostra quinzena atual, sinal e total de cada motorista', async () => {
     renderPage()
+    const maria = (await screen.findByText('Maria Souza')).closest('tr')!
+    expect(within(maria).getByText('16/10 – 30/10')).toBeInTheDocument()
+    expect(within(maria).getByText(formatBRL(213))).toBeInTheDocument()
+    const joao = screen.getByText('João Lima').closest('tr')!
+    expect(within(joao).getByLabelText('Quinzena terminada sem fechamento')).toBeInTheDocument()
+    const ana = screen.getByText('Ana Dias').closest('tr')!
+    expect(within(ana).getByLabelText('Quinzena termina em até 5 dias')).toBeInTheDocument()
+  })
+
+  it('não tem campo de preço de referência', async () => {
+    await openDriver()
+    expect(screen.queryByLabelText(/preço de referência/i)).toBeNull()
+    expect(screen.queryByText(/preço de referência/i)).toBeNull()
+  })
+
+  it('erro de carregamento mostra mensagem e tenta de novo', async () => {
+    m.listPeriodOverview.mockRejectedValueOnce(new Error('x'))
+    renderPage()
+    expect(await screen.findByText('Não foi possível carregar. Tente novamente.')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Tentar novamente' }))
     expect(await screen.findByText('Maria Souza')).toBeInTheDocument()
-    expect(screen.getByText(formatBRL(213))).toBeInTheDocument()
-    expect(screen.getByText('Estimado')).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '16/10 – 31/10/2026 · Aberta' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '01/10 – 15/10/2026 · Fechada' })).toBeInTheDocument()
+  })
+})
+
+describe('quinzenas do motorista', () => {
+  it('lista atual e anteriores; ❗ com title só nas fechadas sem nota', async () => {
+    m.listDriverPeriods.mockResolvedValue([
+      period(),
+      period({ id: 'p0', start_date: '2026-10-01', end_date: '2026-10-15', status: 'closed', missing_fuel_price: true }),
+      period({ id: 'pz', start_date: '2026-09-16', end_date: '2026-09-30', status: 'closed' }),
+    ])
+    await openDriver()
+    expect(m.listDriverPeriods).toHaveBeenCalledWith('d1')
+    expect(await screen.findByText('16/10 – 30/10/2026 · Aberta')).toBeInTheDocument()
+    const closedMissing = screen.getByText('01/10 – 15/10/2026 · Fechada').closest('li')!
+    const mark = within(closedMissing).getByTitle('Fechada sem nota de abastecimento')
+    expect(mark).toHaveTextContent('❗')
+    const closedOk = screen.getByText('16/09 – 30/09/2026 · Fechada').closest('li')!
+    expect(within(closedOk).queryByTitle('Fechada sem nota de abastecimento')).toBeNull()
   })
 
-  it('expande o extrato do motorista', async () => {
-    await openExpanded()
-    expect(screen.getByText('A receber (estimado)', { selector: '.badge' })).toBeInTheDocument()
+  it('expande o extrato estimado da quinzena aberta', async () => {
+    const user = await openDriver()
+    await expandFirst(user)
+    expect(m.driverPeriodStatement).toHaveBeenCalledWith('p1')
+    expect(await screen.findByText('A receber (estimado)', { selector: '.badge' })).toBeInTheDocument()
+  })
+})
+
+describe('fechar quinzena', () => {
+  async function startClose(over: Partial<DriverPeriod> = {}) {
+    if (Object.keys(over).length) m.listDriverPeriods.mockResolvedValue([period(over)])
+    const user = await openDriver()
+    await user.click(await screen.findByRole('button', { name: 'Fechar quinzena' }))
+    return user
+  }
+  const ended = { end_date: '2026-10-30' }
+
+  it('quinzena terminada: confirma e fecha sem force', async () => {
+    m.closeDriverPeriod.mockResolvedValue('s1')
+    await startClose(ended)
+    expect(confirmSpy).toHaveBeenCalledWith('Fechar a quinzena 16/10 – 30/10? Os valores serão congelados.')
+    await waitFor(() => expect(m.closeDriverPeriod).toHaveBeenCalledWith('p1', { force: false, allowMissingFuelPrice: false }))
   })
 
-  it('salva o preço de referência (vírgula decimal)', async () => {
-    const user = userEvent.setup()
-    renderPage()
-    await screen.findByText('Maria Souza')
-    const input = screen.getByLabelText('Preço de referência do litro')
-    await user.clear(input)
-    await user.type(input, '5,899')
-    await user.click(screen.getByRole('button', { name: 'Salvar' }))
-    await waitFor(() => expect(m.setReferencePrice).toHaveBeenCalledWith('p1', 5.899))
-  })
-
-  it('rejeita preço inválido', async () => {
-    const user = userEvent.setup()
-    renderPage()
-    await screen.findByText('Maria Souza')
-    const input = screen.getByLabelText('Preço de referência do litro')
-    await user.clear(input)
-    await user.type(input, '0')
-    await user.click(screen.getByRole('button', { name: 'Salvar' }))
-    expect(screen.getByText('Informe um preço válido')).toBeInTheDocument()
-    expect(m.setReferencePrice).not.toHaveBeenCalled()
-  })
-
-  it('Fechar quinzena pede confirmação e fecha', async () => {
-    const user = userEvent.setup()
-    m.closePeriod.mockResolvedValue('s1')
-    renderPage()
-    await screen.findByText('Maria Souza')
-    await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
-    expect(confirmSpy).toHaveBeenCalledWith('Fechar a quinzena 16/10 – 31/10? Os valores serão congelados.')
-    await waitFor(() => expect(m.closePeriod).toHaveBeenCalledWith('p1', false))
-  })
-
-  it('quinzena atual (ainda não terminou) pergunta antes e fecha com force', async () => {
-    const user = userEvent.setup()
-    m.listPeriods.mockResolvedValue([period({ end_date: '2099-12-31' })])
-    m.closePeriod.mockResolvedValue('s1')
-    renderPage()
-    await screen.findByText('Maria Souza')
-    await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
-    await waitFor(() => expect(m.closePeriod).toHaveBeenCalledWith('p1', true))
+  it('ainda não terminou: pergunta antes e fecha com force', async () => {
+    m.closeDriverPeriod.mockResolvedValue('s1')
+    await startClose({ end_date: '2099-12-31' })
+    await waitFor(() => expect(m.closeDriverPeriod).toHaveBeenCalledWith('p1', { force: true, allowMissingFuelPrice: false }))
     expect(confirmSpy).toHaveBeenLastCalledWith('A quinzena ainda não terminou. Fechar mesmo assim?')
-    expect(m.closePeriod).toHaveBeenCalledTimes(1)
+    expect(m.closeDriverPeriod).toHaveBeenCalledTimes(1)
   })
 
-  it('PERIOD_NOT_ENDED do servidor pede segunda confirmação e fecha com force', async () => {
-    const user = userEvent.setup()
-    m.closePeriod.mockRejectedValueOnce(new Error('PERIOD_NOT_ENDED')).mockResolvedValueOnce('s1')
-    renderPage()
-    await screen.findByText('Maria Souza')
-    await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
-    await waitFor(() => expect(m.closePeriod).toHaveBeenCalledWith('p1', true))
+  it('PERIOD_NOT_ENDED do servidor pede confirmação e reenvia com force', async () => {
+    m.closeDriverPeriod.mockRejectedValueOnce(new Error('PERIOD_NOT_ENDED')).mockResolvedValueOnce('s1')
+    await startClose(ended)
+    await waitFor(() => expect(m.closeDriverPeriod).toHaveBeenCalledTimes(2))
+    expect(m.closeDriverPeriod).toHaveBeenNthCalledWith(1, 'p1', { force: false, allowMissingFuelPrice: false })
+    expect(m.closeDriverPeriod).toHaveBeenNthCalledWith(2, 'p1', { force: true, allowMissingFuelPrice: false })
     expect(confirmSpy).toHaveBeenLastCalledWith('A quinzena ainda não terminou. Fechar mesmo assim?')
-    expect(m.closePeriod).toHaveBeenNthCalledWith(1, 'p1', false)
   })
 
-  it('cancelar a segunda confirmação não fecha', async () => {
-    const user = userEvent.setup()
-    m.closePeriod.mockRejectedValueOnce(new Error('PERIOD_NOT_ENDED'))
+  it('cancelar a segunda confirmação não reenvia', async () => {
+    m.closeDriverPeriod.mockRejectedValueOnce(new Error('PERIOD_NOT_ENDED'))
     confirmSpy.mockReturnValueOnce(true).mockReturnValueOnce(false)
-    renderPage()
-    await screen.findByText('Maria Souza')
-    await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
+    await startClose(ended)
     await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(2))
-    expect(m.closePeriod).toHaveBeenCalledTimes(1)
-    expect(screen.queryByText('A quinzena ainda não terminou')).toBeNull()
+    expect(m.closeDriverPeriod).toHaveBeenCalledTimes(1)
+  })
+
+  it('PREVIOUS_OPEN: "Feche a quinzena anterior primeiro"', async () => {
+    m.closeDriverPeriod.mockRejectedValue(new Error('PREVIOUS_OPEN'))
+    await startClose(ended)
+    expect(await screen.findByText('Feche a quinzena anterior primeiro')).toBeInTheDocument()
+  })
+
+  it('MISSING_FUEL_PRICE sem consumo faltando: confirma com o texto da nota e reenvia com allow', async () => {
+    m.closeDriverPeriod.mockRejectedValueOnce(new Error('MISSING_FUEL_PRICE')).mockResolvedValueOnce('s1')
+    await startClose(ended)
+    await waitFor(() => expect(m.closeDriverPeriod).toHaveBeenCalledTimes(2))
+    expect(confirmSpy).toHaveBeenLastCalledWith(
+      'Não há nota de abastecimento aprovada para calcular a gasolina desta quinzena. A gasolina será calculada como R$ 0,00. Tem certeza que deseja fechar?',
+    )
+    expect(m.closeDriverPeriod).toHaveBeenNthCalledWith(2, 'p1', { force: false, allowMissingFuelPrice: true })
+  })
+
+  it('MISSING_FUEL_PRICE com consumo do carro faltando usa o texto do consumo', async () => {
+    m.driverPeriodStatement.mockResolvedValue(stmt({ lines: lines({ missing_consumption: true }) }))
+    m.closeDriverPeriod.mockRejectedValueOnce(new Error('MISSING_FUEL_PRICE')).mockResolvedValueOnce('s1')
+    await startClose(ended)
+    await waitFor(() => expect(m.closeDriverPeriod).toHaveBeenCalledTimes(2))
+    expect(confirmSpy).toHaveBeenLastCalledWith(
+      'Falta o consumo do carro para calcular a gasolina. A gasolina será calculada como R$ 0,00. Tem certeza que deseja fechar?',
+    )
+    expect(m.closeDriverPeriod).toHaveBeenNthCalledWith(2, 'p1', { force: false, allowMissingFuelPrice: true })
+  })
+
+  it('cancelar o MISSING_FUEL_PRICE não fecha', async () => {
+    m.closeDriverPeriod.mockRejectedValueOnce(new Error('MISSING_FUEL_PRICE'))
+    confirmSpy.mockReturnValueOnce(true).mockReturnValueOnce(false)
+    await startClose(ended)
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(2))
+    expect(m.closeDriverPeriod).toHaveBeenCalledTimes(1)
   })
 
   it('não fecha se o usuário cancelar', async () => {
-    const user = userEvent.setup()
     confirmSpy.mockReturnValue(false)
-    renderPage()
-    await screen.findByText('Maria Souza')
-    await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
-    expect(m.closePeriod).not.toHaveBeenCalled()
+    await startClose(ended)
+    expect(m.closeDriverPeriod).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -191,16 +255,21 @@ describe('quinzenas', () => {
     ['ASSIGNED_TRANSFERS', 'Há transfers não concluídos'],
     ['PENDING_REVIEW', 'Há itens aguardando conferência'],
     ['SHIFTS_NOT_APPROVED', 'Há turnos não aprovados'],
-    ['MISSING_REFERENCE_PRICE', 'Defina o preço de referência do litro'],
     ['OTHER', 'Não foi possível fechar a quinzena'],
   ])('erro %s -> %s', async (code, msg) => {
-    const user = userEvent.setup()
-    m.closePeriod.mockRejectedValue(new Error(code))
-    renderPage()
-    await screen.findByText('Maria Souza')
-    await user.click(screen.getByRole('button', { name: 'Fechar quinzena' }))
+    m.closeDriverPeriod.mockRejectedValue(new Error(code))
+    await startClose(ended)
     expect(await screen.findByText(msg)).toBeInTheDocument()
   })
+})
+
+describe('ajustes', () => {
+  async function openExpanded() {
+    const user = await openDriver()
+    await expandFirst(user)
+    await screen.findByRole('button', { name: 'Adicionar ajuste' })
+    return user
+  }
 
   it('Multa digitada positiva é salva negativa', async () => {
     const user = await openExpanded()
@@ -260,45 +329,33 @@ describe('quinzenas', () => {
   })
 })
 
-describe('quinzena fechada', () => {
-  beforeEach(() => {
-    m.periodDriverStatements.mockResolvedValue([
-      stmt({ statement_id: 's1' }),
-      stmt({
-        driver_id: 'd2',
-        driver_name: 'João Lima',
-        driver_code: 'J002',
-        statement_id: 's2',
-        paid_at: '2026-10-20',
-        payment_method: 'Pix',
-        total: 100,
-      }),
-    ])
-  })
-  async function openClosed() {
-    const user = userEvent.setup()
-    renderPage()
-    await screen.findByText('Maria Souza')
-    await user.selectOptions(screen.getByLabelText('Quinzena'), 'p0')
-    await waitFor(() => expect(m.periodDriverStatements).toHaveBeenLastCalledWith('p0'))
-    return user
-  }
+describe('pagamento e anexos', () => {
+  const closed = (over: Partial<api.PeriodStatement> = {}) =>
+    stmt({ period: period({ id: 'p0', status: 'closed' }), statement_id: 's1', ...over })
+  const doc = (over: Partial<api.AdminDocument> = {}): api.AdminDocument =>
+    ({
+      id: 'x1',
+      driver_id: 'd1',
+      statement_id: 's1',
+      kind: 'payment_proof',
+      description: null,
+      file_path: 'd1/a.pdf',
+      mime_type: 'application/pdf',
+      size_bytes: 10,
+      created_at: '2026-10-20T12:00:00Z',
+      created_by: null,
+      ...over,
+    }) as api.AdminDocument
 
-  it('mostra A pagar / Pago em dd/mm, sem Fechar quinzena nem Salvar preço', async () => {
-    await openClosed()
-    expect(await screen.findByText('A pagar')).toBeInTheDocument()
-    expect(screen.getByText('Pago em 20/10')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Fechar quinzena' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Salvar' })).toBeNull()
-    const links = screen.getAllByRole('link', { name: 'Imprimir / PDF' })
-    expect(links[0]).toHaveAttribute('href', '/admin/extrato/s1')
+  beforeEach(() => {
+    m.listDriverPeriods.mockResolvedValue([period({ id: 'p0', status: 'closed' })])
   })
 
   it('Marcar como pago exige data e forma', async () => {
-    const user = await openClosed()
-    await screen.findByText('A pagar')
-    await user.click(screen.getAllByRole('button', { name: 'Ver extrato' })[0])
-    await user.click(screen.getByRole('button', { name: 'Marcar como pago' }))
+    m.driverPeriodStatement.mockResolvedValue(closed())
+    const user = await openDriver()
+    await expandFirst(user)
+    await user.click(await screen.findByRole('button', { name: 'Marcar como pago' }))
     await user.click(screen.getByRole('button', { name: 'Confirmar pagamento' }))
     expect(screen.getByText('Informe data e forma de pagamento')).toBeInTheDocument()
     expect(m.markStatementPaid).not.toHaveBeenCalled()
@@ -309,57 +366,109 @@ describe('quinzena fechada', () => {
     )
   })
 
-  it('Exportar CSV baixa passos-quinzena-<início>.csv', async () => {
-    const user = await openClosed()
-    await screen.findByText('A pagar')
-    const create = vi.fn(() => 'blob:x')
-    Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() })
-    const downloads: string[] = []
-    const spy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
-      downloads.push(this.download)
+  it('fechada e não paga: Imprimir / PDF, sem anexos nem Recibo', async () => {
+    m.driverPeriodStatement.mockResolvedValue(closed())
+    const user = await openDriver()
+    await expandFirst(user)
+    expect(await screen.findByRole('link', { name: 'Imprimir / PDF' })).toHaveAttribute('href', '/admin/extrato/s1')
+    expect(screen.queryByText('Comprovante de pagamento')).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Recibo' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Fechar quinzena' })).toBeNull()
+  })
+
+  it('paga: seções de anexos com ⚪ e link Recibo', async () => {
+    m.driverPeriodStatement.mockResolvedValue(closed({ paid_at: '2026-10-20', payment_method: 'Pix' }))
+    const user = await openDriver()
+    await expandFirst(user)
+    expect(await screen.findByRole('link', { name: 'Recibo' })).toHaveAttribute('href', '/admin/recibo/s1')
+    const proof = screen.getByRole('region', { name: 'Comprovante de pagamento' })
+    const signed = screen.getByRole('region', { name: 'Recibo assinado' })
+    expect(await within(proof).findByLabelText('Sem anexo')).toHaveTextContent('⚪')
+    expect(within(signed).getByLabelText('Sem anexo')).toBeInTheDocument()
+    expect(m.listAdminDocuments).toHaveBeenCalledWith({ statementId: 's1' })
+  })
+
+  it('✅ quando há anexo; lista, abre e exclui com confirmação', async () => {
+    m.driverPeriodStatement.mockResolvedValue(closed({ paid_at: '2026-10-20', payment_method: 'Pix' }))
+    m.listAdminDocuments.mockResolvedValue([doc(), doc({ id: 'x2', kind: 'signed_receipt', file_path: 'd1/b.png' })])
+    m.adminDocumentUrl.mockResolvedValue('https://signed/doc')
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const user = await openDriver()
+    await expandFirst(user)
+    const proof = await screen.findByRole('region', { name: 'Comprovante de pagamento' })
+    expect(await within(proof).findByLabelText('Anexado')).toHaveTextContent('✅')
+    expect(within(screen.getByRole('region', { name: 'Recibo assinado' })).getByLabelText('Anexado')).toBeInTheDocument()
+    await user.click(within(proof).getByRole('button', { name: 'Abrir' }))
+    await waitFor(() => expect(openSpy).toHaveBeenCalledWith('https://signed/doc', '_blank', 'noopener'))
+    await user.click(within(proof).getByRole('button', { name: 'Excluir' }))
+    expect(confirmSpy).toHaveBeenCalledWith('Excluir este documento?')
+    await waitFor(() => expect(m.deleteAdminDocument).toHaveBeenCalledWith(expect.objectContaining({ id: 'x1' })))
+    openSpy.mockRestore()
+  })
+
+  it('envia vários arquivos de cada tipo', async () => {
+    m.driverPeriodStatement.mockResolvedValue(closed({ paid_at: '2026-10-20', payment_method: 'Pix' }))
+    const user = await openDriver()
+    await expandFirst(user)
+    const proof = await screen.findByRole('region', { name: 'Comprovante de pagamento' })
+    const f1 = new File(['a'], 'a.pdf', { type: 'application/pdf' })
+    const f2 = new File(['b'], 'b.png', { type: 'image/png' })
+    await user.upload(within(proof).getByLabelText('Anexar comprovante de pagamento'), [f1, f2])
+    await waitFor(() => expect(m.uploadAdminDocument).toHaveBeenCalledTimes(2))
+    expect(m.uploadAdminDocument).toHaveBeenCalledWith({
+      driverId: 'd1',
+      statementId: 's1',
+      kind: 'payment_proof',
+      file: f1,
     })
-    await user.click(screen.getByRole('button', { name: 'Exportar CSV' }))
-    expect(create).toHaveBeenCalledTimes(1)
-    const blob = (create.mock.calls[0] as unknown as [Blob])[0]
-    const text = await new Promise<string>((res) => {
-      const r = new FileReader()
-      r.onload = () => res(String(r.result))
-      r.readAsText(blob)
+    const signed = screen.getByRole('region', { name: 'Recibo assinado' })
+    await user.upload(within(signed).getByLabelText('Anexar recibo assinado'), f2)
+    await waitFor(() => expect(m.uploadAdminDocument).toHaveBeenCalledTimes(3))
+    expect(m.uploadAdminDocument).toHaveBeenLastCalledWith({
+      driverId: 'd1',
+      statementId: 's1',
+      kind: 'signed_receipt',
+      file: f2,
     })
-    expect(text).toContain('motorista;codigo;parte_uber;parte_transfer;reembolsos;desconto_gasolina;ajustes;total;pago_em')
-    expect(text).toContain('João Lima;J002')
-    expect(downloads).toEqual(['passos-quinzena-2026-10-01.csv'])
-    spy.mockRestore()
+  })
+
+  it('arquivo inválido mostra a mensagem e não envia', async () => {
+    m.driverPeriodStatement.mockResolvedValue(closed({ paid_at: '2026-10-20', payment_method: 'Pix' }))
+    const user = await openDriver()
+    await expandFirst(user)
+    const proof = await screen.findByRole('region', { name: 'Comprovante de pagamento' })
+    const bad = new File(['x'], 'a.gif', { type: 'image/gif' })
+    await userEvent.setup({ applyAccept: false }).upload(within(proof).getByLabelText('Anexar comprovante de pagamento'), bad)
+    expect(await within(proof).findByText('Envie JPG, PNG ou PDF de até 10 MB')).toBeInTheDocument()
+    expect(m.uploadAdminDocument).not.toHaveBeenCalled()
   })
 })
 
-describe('erro de carregamento', () => {
-  it('mostra mensagem', async () => {
-    m.listPeriods.mockRejectedValue(new Error('x'))
-    renderPage()
-    expect(await screen.findByText('Não foi possível carregar. Tente novamente.')).toBeInTheDocument()
-  })
+const lines0 = lines()
+const fullStatement = (over: Partial<api.FullStatement> = {}): api.FullStatement => ({
+  id: 's1',
+  lines: lines0,
+  total: 213,
+  paid_at: '2026-10-20',
+  payment_method: 'Pix',
+  driver: { name: 'Maria Souza', cpf: '52998224725', login_code: 'M001', driver_type: 'company_car' },
+  period: { start_date: '2026-10-01', end_date: '2026-10-15' },
+  ...over,
 })
+const renderAt = (path: string, route: string, el: React.ReactElement) =>
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path={route} element={el} />
+      </Routes>
+    </MemoryRouter>,
+  )
 
 describe('PrintStatementPage', () => {
   it('chama window.print() uma vez após carregar', async () => {
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
-    m.getStatement.mockResolvedValue({
-      id: 's1',
-      lines: lines(),
-      total: 213,
-      paid_at: null,
-      payment_method: null,
-      driver: { name: 'Maria Souza', login_code: 'M001', driver_type: 'company_car' },
-      period: { start_date: '2026-10-01', end_date: '2026-10-15' },
-    })
-    render(
-      <MemoryRouter initialEntries={['/admin/extrato/s1']}>
-        <Routes>
-          <Route path="/admin/extrato/:statementId" element={<PrintStatementPage />} />
-        </Routes>
-      </MemoryRouter>,
-    )
+    m.getStatement.mockResolvedValue(fullStatement({ paid_at: null, payment_method: null }))
+    renderAt('/admin/extrato/s1', '/admin/extrato/:statementId', <PrintStatementPage />)
     expect(await screen.findByText('Passos Transfer — Extrato')).toBeInTheDocument()
     expect(screen.getByText(/Maria Souza/)).toBeInTheDocument()
     expect(screen.getByText('Voltar')).toBeInTheDocument()
@@ -369,37 +478,39 @@ describe('PrintStatementPage', () => {
   })
 })
 
-describe('DashboardPage', () => {
-  it('mostra os números do período atual e o ranking de km por fora', async () => {
-    m.periodSummary.mockResolvedValue({
-      revenue: { uber: 1000, transfer: 500, blablacar: 200 },
-      drivers_share: 900,
-      company_share: 800,
-      fuel_reimbursed: 150,
-      fuel_discounted: 40,
-      off_km_ranking: [{ driver_id: 'd1', name: 'Maria Souza', km_off: 77 }],
-    })
-    render(<DashboardPage />)
-    expect(await screen.findByText('Faturamento')).toBeInTheDocument()
-    expect(screen.getByText(formatBRL(1700))).toBeInTheDocument()
-    expect(screen.getByText(`Uber: ${formatBRL(1000)}`)).toBeInTheDocument()
-    expect(screen.getByText(`Transfer: ${formatBRL(500)}`)).toBeInTheDocument()
-    expect(screen.getByText(`BlaBlaCar: ${formatBRL(200)}`)).toBeInTheDocument()
-    const part = screen.getByText('Parte dos motoristas').parentElement!
-    expect(within(part).getByText(formatBRL(900))).toBeInTheDocument()
-    const comp = screen.getByText('Parte da empresa').parentElement!
-    expect(within(comp).getByText(formatBRL(800))).toBeInTheDocument()
-    const gr = screen.getByText('Gasolina reembolsada').parentElement!
-    expect(within(gr).getByText(formatBRL(150))).toBeInTheDocument()
-    const gd = screen.getByText('Gasolina descontada').parentElement!
-    expect(within(gd).getByText(formatBRL(40))).toBeInTheDocument()
-    expect(screen.getByText('Km por fora — ranking')).toBeInTheDocument()
-    expect(screen.getByText('Maria Souza — 77 km')).toBeInTheDocument()
+describe('PrintReceiptPage', () => {
+  it('mostra os dados do recibo e chama window.print() uma vez', async () => {
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
+    m.getStatement.mockResolvedValue(fullStatement())
+    renderAt('/admin/recibo/s1', '/admin/recibo/:statementId', <PrintReceiptPage />)
+    expect(await screen.findByText('Passos Transfer — Recibo de pagamento')).toBeInTheDocument()
+    expect(screen.getByText('Maria Souza')).toBeInTheDocument()
+    expect(screen.getByText('CPF: 529.982.247-25')).toBeInTheDocument()
+    expect(screen.getByText('Código: M001')).toBeInTheDocument()
+    expect(screen.getByText('Período: 01/10/2026 a 15/10/2026')).toBeInTheDocument()
+    expect(screen.getByText('Parte Uber')).toBeInTheDocument()
+    expect(screen.getByText(/duzentos e treze reais/)).toBeInTheDocument()
+    expect(screen.getByText(formatBRL(213), { selector: '.receipt-amount' })).toBeInTheDocument()
+    expect(screen.getByText('Data do pagamento: 20/10/2026')).toBeInTheDocument()
+    expect(screen.getByText('Forma de pagamento: Pix')).toBeInTheDocument()
+    expect(screen.getByText('Assinatura do motorista')).toBeInTheDocument()
+    await waitFor(() => expect(printSpy).toHaveBeenCalledTimes(1))
+    expect(m.getStatement).toHaveBeenCalledWith('s1')
+    printSpy.mockRestore()
+  })
+
+  it('não imprime quando o pagamento não foi registrado', async () => {
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
+    m.getStatement.mockResolvedValue(fullStatement({ paid_at: null, payment_method: null }))
+    renderAt('/admin/recibo/s1', '/admin/recibo/:statementId', <PrintReceiptPage />)
+    expect(await screen.findByText('O pagamento ainda não foi registrado')).toBeInTheDocument()
+    expect(printSpy).not.toHaveBeenCalled()
+    printSpy.mockRestore()
   })
 
   it('erro de carregamento', async () => {
-    m.periodSummary.mockRejectedValue(new Error('x'))
-    render(<DashboardPage />)
+    m.getStatement.mockRejectedValue(new Error('x'))
+    renderAt('/admin/recibo/s1', '/admin/recibo/:statementId', <PrintReceiptPage />)
     expect(await screen.findByText('Não foi possível carregar. Tente novamente.')).toBeInTheDocument()
   })
 })

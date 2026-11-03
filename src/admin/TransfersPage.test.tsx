@@ -11,6 +11,7 @@ vi.mock('../lib/api', () => ({
   createTransfer: vi.fn(),
   reassignTransfer: vi.fn(),
   deleteTransfer: vi.fn(),
+  estimateRoute: vi.fn(),
 }))
 const m = vi.mocked(api)
 
@@ -24,6 +25,7 @@ const t = (over: Partial<api.TransferRow> = {}): api.TransferRow =>
     scheduled_at: '2026-10-30T15:30:00Z',
     amount: 250,
     km: null,
+    estimated_km: null,
     transfer_status: 'assigned',
     ...over,
   }) as api.TransferRow
@@ -34,10 +36,12 @@ beforeEach(() => {
   vi.clearAllMocks()
   m.listTransfers.mockResolvedValue([
     t(),
-    t({ id: 't2', client_name: 'Ana', transfer_status: 'completed', km: 42 }),
+    t({ id: 't2', client_name: 'Ana', transfer_status: 'completed', km: 42, estimated_km: 38.5 }),
+    t({ id: 't4', client_name: 'Caio', transfer_status: 'in_progress' }),
     t({ id: 't3', client_name: 'Beto', transfer_status: 'checked' }),
   ])
   m.listDrivers.mockResolvedValue([drv('d1', 'Maria Souza'), drv('d2', 'João Lima'), drv('d3', 'Inativo', false)])
+  m.estimateRoute.mockResolvedValue(12.3)
   confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
 })
 afterEach(() => confirmSpy.mockRestore())
@@ -51,14 +55,26 @@ async function openForm() {
 }
 
 describe('lista', () => {
-  it('mostra os status Atribuída / Concluída / Conferida', async () => {
+  it('mostra os status Atribuída / Concluída / Em andamento / Conferida, km estimado e km real', async () => {
     render(<TransfersPage />)
     await screen.findByText('Hotel Central')
     const rows = screen.getAllByRole('row')
     expect(within(rows[1]).getByText('Atribuída')).toBeInTheDocument()
     expect(within(rows[2]).getByText('Concluída')).toBeInTheDocument()
-    expect(within(rows[3]).getByText('Conferida')).toBeInTheDocument()
+    expect(within(rows[3]).getByText('Em andamento')).toBeInTheDocument()
+    expect(within(rows[4]).getByText('Conferida')).toBeInTheDocument()
+    expect(within(rows[2]).getByText('38,5')).toBeInTheDocument()
     expect(within(rows[2]).getByText('42')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Km estimado' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Km real' })).toBeInTheDocument()
+  })
+
+  it('filtra por Em andamento', async () => {
+    const user = userEvent.setup()
+    render(<TransfersPage />)
+    await screen.findByText('Hotel Central')
+    await user.click(screen.getByRole('button', { name: 'Em andamento' }))
+    await waitFor(() => expect(m.listTransfers).toHaveBeenLastCalledWith({ status: 'in_progress' }))
   })
 
   it('filtra por status', async () => {
@@ -141,14 +157,65 @@ describe('lista', () => {
   })
 })
 
+const ADDR_ORIGIN = {
+  street: 'Rua das Flores, 10',
+  district: 'Centro',
+  city: 'Palmas',
+  state: 'TO',
+  zip: null,
+  ref: null,
+}
+const ADDR_DEST = { street: 'Av. JK, 200', district: 'Plano Diretor', city: 'Palmas', state: 'TO', zip: null, ref: null }
+
+async function fillAddress(user: ReturnType<typeof userEvent.setup>, group: string, a: typeof ADDR_ORIGIN) {
+  const g = within(screen.getByRole('group', { name: group }))
+  await user.type(g.getByLabelText('Rua e número'), a.street)
+  await user.type(g.getByLabelText('Bairro'), a.district)
+  await user.type(g.getByLabelText('Cidade'), a.city)
+  await user.type(g.getByLabelText('UF'), a.state)
+}
+
+async function fillBase(user: ReturnType<typeof userEvent.setup>, time = '14:30') {
+  await user.type(screen.getByLabelText('Cliente'), ' Hotel Mar ')
+  await user.type(screen.getByLabelText('Data'), '2026-11-02')
+  await user.type(screen.getByLabelText('Horário'), time)
+  await user.type(screen.getByLabelText('Valor contratado'), '300,50')
+  await user.selectOptions(screen.getByLabelText('Motorista'), 'd2')
+}
+
 describe('novo transfer', () => {
-  it('exige cliente, data/hora, valor e motorista', async () => {
+  it('exige cliente, data/hora, valor, motorista e os endereços', async () => {
     const user = await openForm()
     await user.click(screen.getByRole('button', { name: 'Criar transfer' }))
     expect(screen.getByText('Informe o cliente')).toBeInTheDocument()
     expect(screen.getByText('Informe data e horário')).toBeInTheDocument()
     expect(screen.getByText('Informe um valor válido')).toBeInTheDocument()
     expect(screen.getByText('Escolha o motorista')).toBeInTheDocument()
+    expect(screen.getByText('Preencha o endereço de origem')).toBeInTheDocument()
+    expect(screen.getByText('Preencha o endereço de destino')).toBeInTheDocument()
+    expect(m.createTransfer).not.toHaveBeenCalled()
+  })
+
+  it('mostra os campos de endereço de origem e destino; CEP e referência opcionais', async () => {
+    await openForm()
+    for (const name of ['Origem', 'Destino']) {
+      const g = within(screen.getByRole('group', { name }))
+      for (const l of ['Rua e número', 'Bairro', 'Cidade', 'UF', 'CEP (opcional)', 'Referência (opcional)']) {
+        expect(g.getByLabelText(l)).toBeInTheDocument()
+      }
+    }
+  })
+
+  it('endereço sem cidade ainda é inválido (CEP e referência não contam)', async () => {
+    const user = await openForm()
+    await fillBase(user)
+    await fillAddress(user, 'Destino', ADDR_DEST)
+    const g = within(screen.getByRole('group', { name: 'Origem' }))
+    await user.type(g.getByLabelText('Rua e número'), 'Rua X')
+    await user.type(g.getByLabelText('CEP (opcional)'), '77000-000')
+    await user.click(screen.getByRole('button', { name: 'Criar transfer' }))
+    expect(screen.getByText('Preencha o endereço de origem')).toBeInTheDocument()
+    expect(screen.queryByText('Preencha o endereço de destino')).toBeNull()
     expect(m.createTransfer).not.toHaveBeenCalled()
   })
 
@@ -159,34 +226,44 @@ describe('novo transfer', () => {
     expect(within(sel).getByText('João Lima')).toBeInTheDocument()
   })
 
-  it('cria com todos os campos', async () => {
+  it('calcula o km estimado e cria com os endereços', async () => {
     const user = await openForm()
-    await user.type(screen.getByLabelText('Cliente'), ' Hotel Mar ')
-    await user.type(screen.getByLabelText('Data'), '2026-11-02')
-    await user.type(screen.getByLabelText('Horário'), '14:30')
-    await user.type(screen.getByLabelText('Destino (opcional)'), 'Aeroporto')
-    await user.type(screen.getByLabelText('Valor contratado'), '300,50')
-    await user.selectOptions(screen.getByLabelText('Motorista'), 'd2')
+    await fillBase(user)
+    await fillAddress(user, 'Origem', ADDR_ORIGIN)
+    await fillAddress(user, 'Destino', ADDR_DEST)
     await user.click(screen.getByRole('button', { name: 'Criar transfer' }))
     await waitFor(() => expect(m.createTransfer).toHaveBeenCalledTimes(1))
+    expect(m.estimateRoute).toHaveBeenCalledWith(ADDR_ORIGIN, ADDR_DEST)
     expect(m.createTransfer).toHaveBeenCalledWith({
       driver_id: 'd2',
       client_name: 'Hotel Mar',
       scheduled_at: '2026-11-02T17:30:00.000Z',
       ride_date: '2026-11-02',
-      origin: null,
-      destination: 'Aeroporto',
+      origin: ADDR_ORIGIN,
+      destination: ADDR_DEST,
       amount: 300.5,
+      estimated_km: 12.3,
     })
+    expect(screen.queryByText('Não foi possível calcular o km estimado')).toBeNull()
+  })
+
+  it('falha no cálculo: avisa e salva sem km estimado', async () => {
+    m.estimateRoute.mockResolvedValue(null)
+    const user = await openForm()
+    await fillBase(user)
+    await fillAddress(user, 'Origem', ADDR_ORIGIN)
+    await fillAddress(user, 'Destino', ADDR_DEST)
+    await user.click(screen.getByRole('button', { name: 'Criar transfer' }))
+    await waitFor(() => expect(m.createTransfer).toHaveBeenCalledTimes(1))
+    expect(m.createTransfer.mock.calls[0][0].estimated_km).toBeNull()
+    expect(await screen.findByText('Não foi possível calcular o km estimado')).toBeInTheDocument()
   })
 
   it('23:30 mantém a data digitada', async () => {
     const user = await openForm()
-    await user.type(screen.getByLabelText('Cliente'), 'Noturno')
-    await user.type(screen.getByLabelText('Data'), '2026-11-02')
-    await user.type(screen.getByLabelText('Horário'), '23:30')
-    await user.type(screen.getByLabelText('Valor contratado'), '100')
-    await user.selectOptions(screen.getByLabelText('Motorista'), 'd1')
+    await fillBase(user, '23:30')
+    await fillAddress(user, 'Origem', ADDR_ORIGIN)
+    await fillAddress(user, 'Destino', ADDR_DEST)
     await user.click(screen.getByRole('button', { name: 'Criar transfer' }))
     await waitFor(() => expect(m.createTransfer).toHaveBeenCalledTimes(1))
     const arg = m.createTransfer.mock.calls[0][0]

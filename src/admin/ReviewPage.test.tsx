@@ -13,11 +13,30 @@ vi.mock('../lib/api', () => ({
 }))
 const m = vi.mocked(api)
 
+const transfer = (over: Partial<api.PendingTransfer> = {}): api.PendingTransfer => ({
+  id: 't1',
+  driver_name: 'Ana',
+  client_name: 'Hotel Central',
+  amount: 250,
+  km: 40,
+  estimated_km: 38,
+  scheduled_at: '2026-10-29T15:00:00Z',
+  origin: 'Rua A, 10 – Centro, Palmas/TO',
+  destination: 'Av B, 20 – Plano, Palmas/TO',
+  odometer_start: 1000,
+  odometer_end: 1040,
+  odometer_start_photo: 't1a.jpg',
+  odometer_end_photo: 't1b.jpg',
+  expenses: [{ id: 'e1', kind: 'toll', amount: 12.5, review_status: 'pending', photo_path: 'e1.jpg' }],
+  ...over,
+})
 const full = (): api.PendingReview => ({
   fuelings: [
-    { id: 'f1', driver_id: 'd1', driver_name: 'Maria', fueled_on: '2026-10-28', amount: 200, liters: 35, photo_path: 'f1.jpg' },
+    {
+      id: 'f1', driver_id: 'd1', driver_name: 'Maria', fueled_on: '2026-10-28', amount: 200,
+      fuel: 'gasolina', quantity: 35, unit_price: 5.714, values_conflict: false, photo_path: 'f1.jpg',
+    },
   ],
-  expenses: [{ id: 'e1', ride_id: 'r1', driver_name: 'João', client_name: 'Hotel Sol', ride_date: '2026-10-27', kind: 'toll', amount: 12.5, photo_path: 'e1.jpg' }],
   shifts: [
     {
       id: 's1', driver_id: 'd1', driver_name: 'Maria', start_date: '2026-10-28',
@@ -27,11 +46,9 @@ const full = (): api.PendingReview => ({
       totals: { uber: { amount: 150, km: 40 }, blablacar: { amount: 80, km: 70 }, transfer_km: 20 },
     },
   ],
-  transfers: [
-    { id: 't1', driver_name: 'Ana', client_name: 'Hotel Central', amount: 250, km: 40, scheduled_at: '2026-10-29T15:00:00Z' },
-  ],
+  transfers: [transfer()],
 })
-const empty = (): api.PendingReview => ({ fuelings: [], expenses: [], shifts: [], transfers: [] })
+const empty = (): api.PendingReview => ({ fuelings: [], shifts: [], transfers: [] })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -44,7 +61,7 @@ beforeEach(() => {
 const section = (name: string) => screen.getByRole('region', { name })
 
 describe('fila', () => {
-  it('lista abastecimentos, despesas, turnos e transfers com foto', async () => {
+  it('lista abastecimentos, turnos e transfers com foto; não há seção de despesas avulsas', async () => {
     render(<ReviewPage />)
     const f = within(await waitFor(() => section('Abastecimentos')))
     expect(f.getByText(/Maria/)).toBeInTheDocument()
@@ -52,10 +69,42 @@ describe('fila', () => {
     expect(img).toHaveAttribute('src', 'https://signed/f1.jpg')
     expect(img.closest('a')).toHaveAttribute('href', 'https://signed/f1.jpg')
     expect(img.closest('a')).toHaveAttribute('target', '_blank')
-    expect(within(section('Pedágios e estacionamentos')).getByText(/João/)).toBeInTheDocument()
-    expect(within(section('Pedágios e estacionamentos')).getByText('Transfer: Hotel Sol (27/10)')).toBeInTheDocument()
     expect(within(section('Turnos')).getByText(/1000/)).toBeInTheDocument()
     expect(within(section('Transfers concluídos')).getByText(/Hotel Central/)).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Pedágios e estacionamentos' })).toBeNull()
+  })
+
+  it('unidade do abastecimento por combustível (L, m³, kWh)', async () => {
+    const q = full()
+    q.fuelings = [
+      { ...q.fuelings[0], id: 'f1', fuel: 'gasolina', quantity: 35, amount: 200, unit_price: 5.714 },
+      { ...q.fuelings[0], id: 'f2', fuel: 'gnv', quantity: 20, amount: 100, unit_price: 5 },
+      { ...q.fuelings[0], id: 'f3', fuel: 'eletrico', quantity: 50, amount: 40, unit_price: 0.8 },
+    ]
+    m.listPendingReview.mockResolvedValue(q)
+    render(<ReviewPage />)
+    const f = within(await waitFor(() => section('Abastecimentos')))
+    expect(f.getByText(/35 L/)).toBeInTheDocument()
+    expect(f.getByText(/20 m³/)).toBeInTheDocument()
+    expect(f.getByText(/50 kWh/)).toBeInTheDocument()
+    expect(f.queryByText(/20 L/)).toBeNull()
+  })
+
+  it('abastecimento com valores conflitantes fica em laranja com a conta', async () => {
+    const q = full()
+    q.fuelings = [{ ...q.fuelings[0], quantity: 40, unit_price: 6.19, amount: 274.6, values_conflict: true }]
+    m.listPendingReview.mockResolvedValue(q)
+    render(<ReviewPage />)
+    const f = within(await waitFor(() => section('Abastecimentos')))
+    const label = f.getByText('🟠 Valores conflitantes')
+    expect(label.closest('.review-item')).toHaveClass('conflict')
+    expect(f.getByText(/40 L × R\$\s6,19 = R\$\s247,60 ≠ R\$\s274,60/)).toBeInTheDocument()
+  })
+
+  it('abastecimento sem conflito não mostra o aviso', async () => {
+    render(<ReviewPage />)
+    const f = within(await waitFor(() => section('Abastecimentos')))
+    expect(f.queryByText('🟠 Valores conflitantes')).toBeNull()
   })
 
   it('estado vazio', async () => {
@@ -101,6 +150,63 @@ describe('fila', () => {
     const f = within(await waitFor(() => section('Abastecimentos')))
     await user.click(f.getByRole('button', { name: 'Aprovar' }))
     expect(await screen.findByText('Quinzena fechada: não é possível alterar')).toBeInTheDocument()
+  })
+})
+
+describe('conferência única do transfer', () => {
+  it('mostra odômetros, fotos, km real × estimado e as despesas com comprovante', async () => {
+    render(<ReviewPage />)
+    const t = within(await waitFor(() => section('Transfers concluídos')))
+    expect(t.getByText(/1000 → 1040/)).toBeInTheDocument()
+    expect(t.getByText(/Km real: 40 · Km estimado: 38/)).toBeInTheDocument()
+    expect(t.getByText(/Rua A, 10 – Centro, Palmas\/TO/)).toBeInTheDocument()
+    expect(await t.findByRole('img', { name: 'Foto do odômetro inicial' })).toHaveAttribute('src', 'https://signed/t1a.jpg')
+    expect(await t.findByRole('img', { name: 'Foto do odômetro final' })).toHaveAttribute('src', 'https://signed/t1b.jpg')
+    expect(t.getByText(/Pedágio · R\$\s12,50/)).toBeInTheDocument()
+    expect(await t.findByRole('img', { name: 'Comprovante do pedágio' })).toHaveAttribute('src', 'https://signed/e1.jpg')
+    expect(t.queryByText('Km acima do estimado')).toBeNull()
+  })
+
+  it('real acima de 20% do estimado mostra "Km acima do estimado" em laranja', async () => {
+    const q = full()
+    q.transfers = [transfer({ km: 46, estimated_km: 38 })]
+    m.listPendingReview.mockResolvedValue(q)
+    render(<ReviewPage />)
+    const t = within(await waitFor(() => section('Transfers concluídos')))
+    const warn = t.getByText('Km acima do estimado')
+    expect(warn).toHaveClass('warn')
+  })
+
+  it('exatamente 20% acima não alerta; sem estimado não alerta', async () => {
+    const q = full()
+    q.transfers = [transfer({ id: 'ta', km: 45.6, estimated_km: 38 }), transfer({ id: 'tb', km: 90, estimated_km: null })]
+    m.listPendingReview.mockResolvedValue(q)
+    render(<ReviewPage />)
+    await waitFor(() => section('Transfers concluídos'))
+    expect(screen.queryByText('Km acima do estimado')).toBeNull()
+  })
+
+  it('PDF de comprovante vira link', async () => {
+    const q = full()
+    q.transfers = [
+      transfer({ expenses: [{ id: 'e2', kind: 'parking', amount: 8, review_status: 'pending', photo_path: 'u/e2.pdf' }] }),
+    ]
+    m.listPendingReview.mockResolvedValue(q)
+    render(<ReviewPage />)
+    const t = within(await waitFor(() => section('Transfers concluídos')))
+    const link = await t.findByRole('link', { name: /Comprovante do estacionamento \(PDF\)/ })
+    expect(link).toHaveAttribute('href', 'https://signed/u/e2.pdf')
+  })
+
+  it('Aprovar é único: aprova o transfer (e as despesas) numa chamada', async () => {
+    const user = userEvent.setup()
+    render(<ReviewPage />)
+    const t = within(await waitFor(() => section('Transfers concluídos')))
+    expect(t.getAllByRole('button', { name: 'Aprovar' })).toHaveLength(1)
+    expect(t.getAllByRole('button', { name: 'Recusar' })).toHaveLength(1)
+    await user.click(t.getByRole('button', { name: 'Aprovar' }))
+    await waitFor(() => expect(m.reviewItem).toHaveBeenCalledTimes(1))
+    expect(m.reviewItem).toHaveBeenCalledWith('transfer', 't1', true, null)
   })
 })
 

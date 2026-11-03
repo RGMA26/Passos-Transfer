@@ -16,6 +16,7 @@ import TransfersPage from './admin/TransfersPage'
 import ReviewPage from './admin/ReviewPage'
 import PeriodsPage from './admin/PeriodsPage'
 import PrintStatementPage from './admin/PrintStatementPage'
+import PrintReceiptPage from './admin/PrintReceiptPage'
 import DashboardPage from './admin/DashboardPage'
 
 const homeFor = (role: string) => (role === 'admin' ? '/admin' : '/m/hoje')
@@ -92,6 +93,7 @@ export function AppRoutes() {
         <Route path="conferencia" element={<ReviewPage />} />
         <Route path="quinzenas" element={<PeriodsPage />} />
         <Route path="extrato/:statementId" element={<PrintStatementPage />} />
+        <Route path="recibo/:statementId" element={<PrintReceiptPage />} />
       </Route>
       <Route path="*" element={<Entry />} />
     </Routes>

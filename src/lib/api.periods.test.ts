@@ -20,7 +20,7 @@ vi.mock('./supabase', () => ({
     },
   },
 }))
-import { closePeriod, getCurrentPeriod, periodDriverStatements } from './api'
+import { getCurrentPeriod } from './api'
 
 const per = { id: 'p1', start_date: '2026-11-10', end_date: '2026-11-24', status: 'open' }
 
@@ -48,29 +48,5 @@ describe('getCurrentPeriod', () => {
   it('outro erro propaga', async () => {
     rpc.mockResolvedValue({ data: null, error: { message: 'FORBIDDEN', code: 'P0001' } })
     await expect(getCurrentPeriod('d1', '2026-11-20')).rejects.toMatchObject({ message: 'FORBIDDEN' })
-  })
-})
-
-describe('quinzenas globais (removidas)', () => {
-  it('periodDriverStatements não está mais disponível', async () => {
-    await expect(periodDriverStatements('p1')).rejects.toMatchObject({ code: 'NOT_AVAILABLE' })
-  })
-})
-
-describe('closePeriod', () => {
-  it('chama close_driver_period sempre com todos os parâmetros', async () => {
-    rpc.mockResolvedValue({ data: 's1', error: null })
-    await closePeriod('p1')
-    expect(rpc).toHaveBeenLastCalledWith('close_driver_period', {
-      p_period: 'p1',
-      p_force: false,
-      p_allow_missing_fuel_price: false,
-    })
-    await closePeriod('p1', true, true)
-    expect(rpc).toHaveBeenLastCalledWith('close_driver_period', {
-      p_period: 'p1',
-      p_force: true,
-      p_allow_missing_fuel_price: true,
-    })
   })
 })

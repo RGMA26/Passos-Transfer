@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Car, DriverPeriod, Profile, Ride, Period, RideExpense, Shift, StatementLines } from './types'
+import type { Car, DriverPeriod, Profile, Ride, RideExpense, Shift, StatementLines } from './types'
 import type { Database } from './database.types'
 import { localDate } from './periods'
 
@@ -778,22 +778,76 @@ export async function listTransfers(opts: { status?: string } = {}): Promise<Tra
   return (must(rides) ?? []).map((r) => ({ ...r, driver_name: names.get(r.driver_id) ?? '—' }))
 }
 
+export interface AddressInput {
+  street: string
+  district: string
+  city: string
+  state: string
+  zip?: string | null
+  ref?: string | null
+}
+
 export interface NewTransferInput {
   driver_id: string
   client_name: string
   scheduled_at: string
   ride_date: string
-  origin?: string | null
-  destination?: string | null
+  origin: AddressInput
+  destination: AddressInput
   amount: number
+  /** Km estimado pela rota (null = não calculado). */
+  estimated_km?: number | null
+}
+
+/** "Rua X, 10 – Centro, Cidade/UF" para exibição. */
+export function formatAddress(a: AddressInput): string {
+  const place = [a.district, a.city && a.state ? `${a.city}/${a.state}` : a.city || a.state].filter(Boolean).join(', ')
+  return [a.street, place].filter(Boolean).join(' – ')
+}
+
+/** Km estimado entre origem e destino (Edge Function estimate-route); null se não conseguir. */
+export async function estimateRoute(origin: AddressInput, destination: AddressInput): Promise<number | null> {
+  try {
+    const pick = (a: AddressInput) => ({
+      street: a.street,
+      district: a.district,
+      city: a.city,
+      state: a.state,
+      zip: a.zip ?? '',
+    })
+    const { data, error } = await supabase.functions.invoke('estimate-route', {
+      body: { origin: pick(origin), destination: pick(destination) },
+    })
+    if (error) return null
+    const km = (data as { km?: unknown } | null)?.km
+    return typeof km === 'number' && Number.isFinite(km) ? km : null
+  } catch {
+    return null
+  }
 }
 
 export async function createTransfer(input: NewTransferInput): Promise<void> {
+  const { origin, destination, estimated_km, ...rest } = input
   const { error } = await supabase.from('rides').insert({
     id: crypto.randomUUID(),
     platform: 'transfer',
     transfer_status: 'assigned',
-    ...input,
+    ...rest,
+    origin: formatAddress(origin),
+    origin_street: origin.street,
+    origin_district: origin.district,
+    origin_city: origin.city,
+    origin_state: origin.state,
+    origin_zip: origin.zip?.trim() || null,
+    origin_ref: origin.ref?.trim() || null,
+    destination: formatAddress(destination),
+    dest_street: destination.street,
+    dest_district: destination.district,
+    dest_city: destination.city,
+    dest_state: destination.state,
+    dest_zip: destination.zip?.trim() || null,
+    dest_ref: destination.ref?.trim() || null,
+    estimated_km: estimated_km ?? null,
   })
   if (error) throw Object.assign(new Error(error.message), { code: error.code })
 }
@@ -830,17 +884,17 @@ export interface PendingFueling {
   driver_name: string
   fueled_on: string
   amount: number
-  liters: number
+  fuel: Fuel
+  quantity: number
+  unit_price: number
+  values_conflict: boolean
   photo_path: string
 }
 export interface PendingExpense {
   id: string
-  ride_id: string
-  driver_name: string
-  client_name: string | null
-  ride_date: string
   kind: string
   amount: number
+  review_status: string
   photo_path: string
 }
 export interface PendingShift {
@@ -868,12 +922,21 @@ export interface PendingTransfer {
   driver_name: string
   client_name: string | null
   amount: number
+  /** Km real (odômetro final − inicial). */
   km: number | null
+  estimated_km: number | null
   scheduled_at: string | null
+  origin: string | null
+  destination: string | null
+  odometer_start: number | null
+  odometer_end: number | null
+  odometer_start_photo: string | null
+  odometer_end_photo: string | null
+  /** Pedágios e estacionamentos do Transfer (aprovados junto com ele). */
+  expenses: PendingExpense[]
 }
 export interface PendingReview {
   fuelings: PendingFueling[]
-  expenses: PendingExpense[]
   shifts: PendingShift[]
   transfers: PendingTransfer[]
 }
@@ -911,13 +974,8 @@ async function shiftTotals(shiftIds: string[]): Promise<Map<string, ShiftTotals>
 }
 
 export async function listPendingReview(): Promise<PendingReview> {
-  const [f, e, s, t, names] = await Promise.all([
+  const [f, s, t, names] = await Promise.all([
     supabase.from('fuelings').select('*').eq('review_status', 'pending').order('fueled_on'),
-    supabase
-      .from('ride_expenses')
-      .select('*, rides!inner(driver_id, client_name, ride_date)')
-      .eq('review_status', 'pending')
-      .order('created_at'),
     supabase
       .from('shifts')
       .select('*')
@@ -926,18 +984,17 @@ export async function listPendingReview(): Promise<PendingReview> {
       .order('started_at'),
     supabase
       .from('rides')
-      .select('*')
+      .select('*, ride_expenses(*)')
       .eq('platform', 'transfer')
       .eq('transfer_status', 'completed')
       .order('scheduled_at'),
     driverNames(),
   ])
   const n = (id: string) => names.get(id) ?? '—'
+  const num = (v: number | null) => (v === null || v === undefined ? null : Number(v))
   const shiftRows = must(s) ?? []
   const totals = await shiftTotals(shiftRows.map((x) => x.id))
-  type ExpJoined = RideExpense & {
-    rides: { driver_id: string; client_name: string | null; ride_date: string }
-  }
+  type TransferJoined = Ride & { ride_expenses: RideExpense[] | null }
   return {
     fuelings: (must(f) ?? []).map((x) => ({
       id: x.id,
@@ -945,17 +1002,10 @@ export async function listPendingReview(): Promise<PendingReview> {
       driver_name: n(x.driver_id),
       fueled_on: x.fueled_on,
       amount: Number(x.amount),
-      liters: Number(x.quantity),
-      photo_path: x.photo_path,
-    })),
-    expenses: ((must(e) ?? []) as unknown as ExpJoined[]).map((x) => ({
-      id: x.id,
-      ride_id: x.ride_id,
-      driver_name: n(x.rides.driver_id),
-      client_name: x.rides.client_name,
-      ride_date: x.rides.ride_date,
-      kind: x.kind,
-      amount: Number(x.amount),
+      fuel: x.fuel as Fuel,
+      quantity: Number(x.quantity),
+      unit_price: Number(x.unit_price),
+      values_conflict: x.values_conflict,
       photo_path: x.photo_path,
     })),
     shifts: shiftRows.map((x) => ({
@@ -972,19 +1022,33 @@ export async function listPendingReview(): Promise<PendingReview> {
       reject_reason: x.reject_reason,
       totals: totals.get(x.id) ?? emptyTotals(),
     })),
-    transfers: (must(t) ?? []).map((x) => ({
+    transfers: ((must(t) ?? []) as unknown as TransferJoined[]).map((x) => ({
       id: x.id,
       driver_name: n(x.driver_id),
       client_name: x.client_name,
       amount: Number(x.amount),
-      km: x.km === null ? null : Number(x.km),
+      km: num(x.km),
+      estimated_km: num(x.estimated_km),
       scheduled_at: x.scheduled_at,
+      origin: x.origin,
+      destination: x.destination,
+      odometer_start: num(x.odometer_start),
+      odometer_end: num(x.odometer_end),
+      odometer_start_photo: x.odometer_start_photo,
+      odometer_end_photo: x.odometer_end_photo,
+      expenses: (x.ride_expenses ?? []).map((e) => ({
+        id: e.id,
+        kind: e.kind,
+        amount: Number(e.amount),
+        review_status: e.review_status,
+        photo_path: e.photo_path,
+      })),
     })),
   }
 }
 
 export async function reviewItem(
-  kind: 'fueling' | 'expense' | 'shift' | 'transfer',
+  kind: 'fueling' | 'shift' | 'transfer',
   id: string,
   approved: boolean,
   reason: string | null,
@@ -1029,19 +1093,6 @@ export async function updateShiftOdometers(id: string, start: number, end: numbe
 
 // ---------- Admin: quinzenas, extratos e painel ----------
 
-/** Quinzenas globais deixaram de existir (0010); a tela é refeita por motorista (Task 9). */
-function notAvailable(): never {
-  throw Object.assign(new Error('NOT_AVAILABLE'), { code: 'NOT_AVAILABLE' })
-}
-
-export async function listPeriods(): Promise<Period[]> {
-  return notAvailable()
-}
-
-export async function setReferencePrice(_periodId: string, _value: number): Promise<void> {
-  return notAvailable()
-}
-
 export type AdjustmentKind = 'advance' | 'fine' | 'bonus' | 'correction'
 export type Adjustment = Database['public']['Tables']['adjustments']['Row']
 
@@ -1075,11 +1126,62 @@ export async function deleteAdjustment(id: string): Promise<void> {
   must(await supabase.from('adjustments').delete().eq('id', id))
 }
 
-export interface PeriodDriverStatement {
+export type { DriverPeriod }
+
+/** Quinzenas do motorista, da mais recente para a mais antiga. */
+export async function listDriverPeriods(driverId: string): Promise<DriverPeriod[]> {
+  const res = await supabase
+    .from('driver_periods')
+    .select('*')
+    .eq('driver_id', driverId)
+    .order('start_date', { ascending: false })
+  return must(res) ?? []
+}
+
+export interface PeriodOverviewRow {
   driver_id: string
   driver_name: string
-  driver_code: string
-  driver_type: string | null
+  paused: boolean
+  signal: 'red' | 'yellow' | null
+  period_id: string | null
+  start_date: string | null
+  end_date: string | null
+  /** Total estimado da quinzena atual (null se não houver). */
+  total: number | null
+}
+
+/** Motoristas ativos com a quinzena atual, o sinal e o total estimado. */
+export async function listPeriodOverview(): Promise<PeriodOverviewRow[]> {
+  const [signals, drivers] = await Promise.all([listDriverSignals(), listDrivers()])
+  const active = new Map(drivers.filter((d) => d.active).map((d) => [d.id, d]))
+  const rows = signals.filter((s) => active.has(s.driver_id))
+  return Promise.all(
+    rows.map(async (s) => {
+      let total: number | null = null
+      if (s.current_period_id) {
+        try {
+          total = Number((await computeStatement(s.driver_id, s.current_period_id)).total)
+        } catch {
+          total = null
+        }
+      }
+      return {
+        driver_id: s.driver_id,
+        driver_name: s.name ?? active.get(s.driver_id)?.name ?? '—',
+        paused: s.paused,
+        signal: (s.signal === 'red' || s.signal === 'yellow' ? s.signal : null) as 'red' | 'yellow' | null,
+        period_id: s.current_period_id,
+        start_date: s.start_date,
+        end_date: s.end_date,
+        total,
+      }
+    }),
+  )
+}
+
+export interface PeriodStatement {
+  period: DriverPeriod
+  driver: { id: string; name: string; login_code: string; driver_type: string | null }
   lines: StatementLines
   total: number
   /** null enquanto a quinzena está aberta (valor estimado). */
@@ -1088,20 +1190,53 @@ export interface PeriodDriverStatement {
   payment_method: string | null
 }
 
-export async function periodDriverStatements(_periodId: string): Promise<PeriodDriverStatement[]> {
-  return notAvailable()
+/** Extrato da quinzena: o congelado se fechada, senão o estimado (compute_statement). */
+export async function driverPeriodStatement(periodId: string): Promise<PeriodStatement> {
+  const period = mustRow(await supabase.from('driver_periods').select('*').eq('id', periodId).maybeSingle())
+  const drv = mustRow(
+    await supabase
+      .from('profiles')
+      .select('id, name, login_code, driver_type')
+      .eq('id', period.driver_id)
+      .maybeSingle(),
+  )
+  const driver = { id: drv.id, name: drv.name ?? '—', login_code: drv.login_code ?? '', driver_type: drv.driver_type }
+  if (period.status === 'closed') {
+    const s = mustRow(
+      await supabase.from('statements').select('*').eq('driver_period_id', periodId).maybeSingle(),
+    )
+    const lines = s.lines as unknown as StatementLines
+    return {
+      period,
+      driver,
+      lines,
+      total: Number(s.total ?? lines.total),
+      statement_id: s.id,
+      paid_at: s.paid_at,
+      payment_method: s.payment_method,
+    }
+  }
+  const lines = await computeStatement(period.driver_id, periodId)
+  return {
+    period,
+    driver,
+    lines,
+    total: Number(lines.total),
+    statement_id: null,
+    paid_at: null,
+    payment_method: null,
+  }
 }
 
-/** `force` fecha antes do fim da quinzena (senão o servidor responde PERIOD_NOT_ENDED). */
-export async function closePeriod(
+/** `force` fecha antes do fim da quinzena; `allowMissingFuelPrice` aceita gasolina a R$ 0,00. */
+export async function closeDriverPeriod(
   periodId: string,
-  force = false,
-  allowMissingFuelPrice = false,
+  opts: { force?: boolean; allowMissingFuelPrice?: boolean } = {},
 ): Promise<string> {
   const { data, error } = await supabase.rpc('close_driver_period', {
     p_period: periodId,
-    p_force: force,
-    p_allow_missing_fuel_price: allowMissingFuelPrice,
+    p_force: opts.force ?? false,
+    p_allow_missing_fuel_price: opts.allowMissingFuelPrice ?? false,
   })
   if (error) throw Object.assign(new Error(error.message), { code: error.code })
   return data
@@ -1125,8 +1260,9 @@ export interface PeriodSummary {
   off_km_ranking: { driver_id: string; name: string; km_off: number }[]
 }
 
+/** Quinzena global não existe mais; o Início é refeito na Task 10. */
 export async function periodSummary(_periodId: string): Promise<PeriodSummary> {
-  return notAvailable()
+  throw Object.assign(new Error('NOT_AVAILABLE'), { code: 'NOT_AVAILABLE' })
 }
 
 export interface FullStatement {
@@ -1135,14 +1271,14 @@ export interface FullStatement {
   total: number
   paid_at: string | null
   payment_method: string | null
-  driver: { name: string; login_code: string; driver_type: string | null }
+  driver: { name: string; cpf: string | null; login_code: string; driver_type: string | null }
   period: { start_date: string; end_date: string }
 }
 
 export async function getStatement(id: string): Promise<FullStatement> {
   const s = mustRow(await supabase.from('statements').select('*').eq('id', id).maybeSingle())
   const [d, p] = await Promise.all([
-    supabase.from('profiles').select('name, login_code, driver_type').eq('id', s.driver_id).single(),
+    supabase.from('profiles').select('name, cpf, login_code, driver_type').eq('id', s.driver_id).single(),
     supabase.from('driver_periods').select('start_date, end_date').eq('id', s.driver_period_id).single(),
   ])
   const drv = mustRow(d)
@@ -1154,7 +1290,7 @@ export async function getStatement(id: string): Promise<FullStatement> {
     total: Number(s.total ?? lines.total),
     paid_at: s.paid_at,
     payment_method: s.payment_method,
-    driver: { name: drv.name ?? '—', login_code: drv.login_code ?? '', driver_type: drv.driver_type },
+    driver: { name: drv.name ?? '—', cpf: drv.cpf, login_code: drv.login_code ?? '', driver_type: drv.driver_type },
     period: per,
   }
 }
