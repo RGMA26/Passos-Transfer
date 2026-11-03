@@ -275,6 +275,8 @@ function TransferItem({ transfer: t, onDone }: { transfer: api.PendingTransfer; 
   )
 }
 
+const RIDE_LABEL: Record<string, string> = { uber: 'Uber', blablacar: 'BlaBlaCar', transfer: 'Transfer' }
+
 function ShiftItem({ shift, onDone }: { shift: api.PendingShift; onDone: () => void }) {
   const [editing, setEditing] = useState(false)
   const [start, setStart] = useState(String(shift.odometer_start))
@@ -341,6 +343,23 @@ function ShiftItem({ shift, onDone }: { shift: api.PendingShift; onDone: () => v
       </span>
       <span>{`BlaBlaCar: ${formatBRL(shift.totals.blablacar.amount)} (${shift.totals.blablacar.km} km)`}</span>
       <span>{`Transfers: ${shift.totals.transfer_km} km`}</span>
+      {shift.rides.length > 0 && (
+        <ul className="shift-rides" aria-label="Corridas do turno" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+          {shift.rides.map((r, i) => {
+            const label = RIDE_LABEL[r.platform] ?? r.platform
+            return (
+              <li key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span>{`${label} · ${formatBRL(r.amount)} · ${r.km === null ? '— km' : `${r.km} km`}`}</span>
+                {r.receipt_path ? (
+                  <Thumb path={r.receipt_path} alt={`Comprovante da corrida ${i + 1} (${label})`} />
+                ) : (
+                  r.platform !== 'transfer' && <span className="hint">Sem comprovante</span>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
       {shift.review_status === 'rejected' && (
         <span className="error">{`Recusado: ${shift.reject_reason ?? '—'}`}</span>
       )}

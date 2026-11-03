@@ -51,6 +51,10 @@ const full = (): api.PendingReview => ({
       odometer_start_photo: 's1a.jpg', odometer_end_photo: 's1b.jpg', uber_earnings_photo: null,
       review_status: 'pending', reject_reason: null,
       totals: { uber: { amount: 150, km: 40 }, blablacar: { amount: 80, km: 70 }, transfer_km: 20 },
+      rides: [
+        { id: 'r1', platform: 'uber', ride_date: '2026-10-28', amount: 150, km: 40, receipt_path: 'd1/r1.jpg' },
+        { id: 'r2', platform: 'blablacar', ride_date: '2026-10-28', amount: 80, km: 70, receipt_path: 'd1/r2.pdf' },
+      ],
     },
   ],
   transfers: [transfer()],
@@ -79,6 +83,19 @@ describe('fila', () => {
     expect(within(section('Turnos')).getByText(/1000/)).toBeInTheDocument()
     expect(within(section('Transfers concluídos')).getByText(/Hotel Central/)).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Pedágios e estacionamentos' })).toBeNull()
+  })
+
+  it('turno lista as corridas com o comprovante (foto ou link do PDF)', async () => {
+    renderPage()
+    const list = within(await waitFor(() => within(section('Turnos')).getByRole('list', { name: 'Corridas do turno' })))
+    const items = list.getAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveTextContent(/Uber · R\$\s150,00 · 40 km/)
+    const img = await within(items[0]).findByRole('img', { name: 'Comprovante da corrida 1 (Uber)' })
+    expect(img).toHaveAttribute('src', 'https://signed/d1/r1.jpg')
+    expect(items[1]).toHaveTextContent(/BlaBlaCar · R\$\s80,00 · 70 km/)
+    const pdf = await within(items[1]).findByRole('link', { name: 'Comprovante da corrida 2 (BlaBlaCar) (PDF)' })
+    expect(pdf).toHaveAttribute('href', 'https://signed/d1/r2.pdf')
   })
 
   it('unidade do abastecimento por combustível (L, m³, kWh)', async () => {

@@ -911,6 +911,16 @@ export interface PendingShift {
   reject_reason: string | null
   /** O que o motorista lançou no turno (para conferir com o print da Uber). */
   totals: ShiftTotals
+  /** Corridas do turno, cada uma com o comprovante (foto ou PDF), na ordem de lançamento. */
+  rides: PendingShiftRide[]
+}
+export interface PendingShiftRide {
+  id: string
+  platform: 'uber' | 'blablacar' | 'transfer'
+  ride_date: string
+  amount: number
+  km: number | null
+  receipt_path: string | null
 }
 export interface ShiftTotals {
   uber: { amount: number; km: number }
@@ -948,18 +958,34 @@ const emptyTotals = (): ShiftTotals => ({
 })
 
 /** Soma por turno do que foi lançado: Uber/BlaBlaCar (valor e km) e km de transfers concluídos. */
-async function shiftTotals(shiftIds: string[]): Promise<Map<string, ShiftTotals>> {
+async function shiftTotals(
+  shiftIds: string[],
+): Promise<{ totals: Map<string, ShiftTotals>; rides: Map<string, PendingShiftRide[]> }> {
   const out = new Map<string, ShiftTotals>()
-  if (shiftIds.length === 0) return out
+  const rides = new Map<string, PendingShiftRide[]>()
+  if (shiftIds.length === 0) return { totals: out, rides }
   const rows =
     must(
       await supabase
         .from('rides')
-        .select('shift_id, platform, amount, km, transfer_status')
-        .in('shift_id', shiftIds),
+        .select('id, shift_id, platform, amount, km, transfer_status, ride_date, receipt_path, created_at')
+        .in('shift_id', shiftIds)
+        .order('created_at'),
     ) ?? []
   for (const r of rows) {
     if (!r.shift_id) continue
+    if (r.platform !== 'transfer' || r.transfer_status === 'completed' || r.transfer_status === 'checked') {
+      const list = rides.get(r.shift_id) ?? []
+      list.push({
+        id: r.id,
+        platform: r.platform as PendingShiftRide['platform'],
+        ride_date: r.ride_date,
+        amount: Number(r.amount),
+        km: r.km === null || r.km === undefined ? null : Number(r.km),
+        receipt_path: r.receipt_path ?? null,
+      })
+      rides.set(r.shift_id, list)
+    }
     const t = out.get(r.shift_id) ?? emptyTotals()
     const km = Number(r.km ?? 0)
     if (r.platform === 'uber' || r.platform === 'blablacar') {
@@ -970,7 +996,7 @@ async function shiftTotals(shiftIds: string[]): Promise<Map<string, ShiftTotals>
     }
     out.set(r.shift_id, t)
   }
-  return out
+  return { totals: out, rides }
 }
 
 export async function listPendingReview(): Promise<PendingReview> {
@@ -993,7 +1019,7 @@ export async function listPendingReview(): Promise<PendingReview> {
   const n = (id: string) => names.get(id) ?? '—'
   const num = (v: number | null) => (v === null || v === undefined ? null : Number(v))
   const shiftRows = must(s) ?? []
-  const totals = await shiftTotals(shiftRows.map((x) => x.id))
+  const { totals, rides: shiftRides } = await shiftTotals(shiftRows.map((x) => x.id))
   type TransferJoined = Ride & { ride_expenses: RideExpense[] | null }
   return {
     fuelings: (must(f) ?? []).map((x) => ({
@@ -1021,6 +1047,7 @@ export async function listPendingReview(): Promise<PendingReview> {
       review_status: x.review_status === 'rejected' ? 'rejected' : 'pending',
       reject_reason: x.reject_reason,
       totals: totals.get(x.id) ?? emptyTotals(),
+      rides: shiftRides.get(x.id) ?? [],
     })),
     transfers: ((must(t) ?? []) as unknown as TransferJoined[]).map((x) => ({
       id: x.id,
