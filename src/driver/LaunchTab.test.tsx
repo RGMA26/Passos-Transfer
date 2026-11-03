@@ -204,6 +204,19 @@ describe('LaunchTab', () => {
       expect(mEnqueue.mock.calls[0][0].payload).toMatchObject({ amount: 274.6, quantity: 40, unit_price: 6.19 })
     })
 
+    it('preço com 4 casas é arredondado a 3 antes de conferir e enviar', async () => {
+      const u = await openFueling()
+      await screen.findByLabelText('Combustível')
+      await u.type(screen.getByLabelText('Valor total'), '10,10')
+      await u.type(screen.getByLabelText('Quantidade (L)'), '2')
+      await u.type(screen.getByLabelText('Preço por L'), '4,9996')
+      await u.upload(screen.getByLabelText('Comprovante'), photoFile())
+      await u.click(screen.getByRole('button', { name: 'Salvar' }))
+      expect(screen.queryByText('Valores conflitantes, confira a nota')).toBeNull()
+      await waitFor(() => expect(mEnqueue).toHaveBeenCalledTimes(1))
+      expect(mEnqueue.mock.calls[0][0].payload).toMatchObject({ amount: 10.1, quantity: 2, unit_price: 5 })
+    })
+
     it('carro GNV usa m³', async () => {
       mApi.getCar.mockResolvedValue(car('gnv'))
       const u = await openFueling()

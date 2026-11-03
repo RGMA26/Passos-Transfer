@@ -36,9 +36,12 @@ export function fuelUnit(fuel: Fuel): string {
   return 'L'
 }
 
-/** Conflito: |quantidade × preço − total| > max(R$ 0,10; 0,5% do total). */
+/** Quantidade e preço por unidade são gravados com 3 casas (numeric(8,3)/(7,3)). */
+export const round3 = (n: number) => Math.round(n * 1000) / 1000
+
+/** Conflito (com os valores já em 3 casas, como o banco): |quantidade × preço − total| > max(R$ 0,10; 0,5% do total). */
 export function valuesConflict(quantity: number, unitPrice: number, total: number): boolean {
-  return Math.abs(quantity * unitPrice - total) > Math.max(0.1, 0.005 * total) + 1e-9
+  return Math.abs(round3(quantity) * round3(unitPrice) - total) > Math.max(0.1, 0.005 * total) + 1e-9
 }
 
 const qtyFmt = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 })

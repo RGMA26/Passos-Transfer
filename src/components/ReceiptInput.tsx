@@ -36,21 +36,28 @@ export default function ReceiptInput({ label, onChange, initialFile }: Props) {
       emit(null)
       return
     }
-    const pdf = file.type === 'application/pdf'
-    if ((!pdf && !file.type.startsWith('image/')) || file.size > MAX_RECEIPT_BYTES) {
+    const reject = () => {
       setPicked(null)
       emit(null)
       setError(MSG_RECEIPT_TYPE)
-      return
     }
+    // alguns celulares entregam PDF sem tipo: vale pelo nome
+    const pdf =
+      file.type === 'application/pdf' || (file.type === '' && file.name.toLowerCase().endsWith('.pdf'))
+    if (!pdf && !file.type.startsWith('image/')) return reject()
     if (pdf) {
+      // PDF vai como está: o limite vale para o arquivo original
+      if (file.size > MAX_RECEIPT_BYTES) return reject()
+      const typed = file.type ? file : new File([file], file.name, { type: 'application/pdf' })
       setPicked({ kind: 'pdf', name: file.name })
-      emit(file)
+      emit(typed)
       return
     }
     setBusy(true)
     try {
+      // imagem: o limite vale depois da compressão
       const blob = await compressImage(file)
+      if (blob.size > MAX_RECEIPT_BYTES) return reject()
       setPicked({ kind: 'image', url: URL.createObjectURL(blob) })
       emit(blob)
     } catch {

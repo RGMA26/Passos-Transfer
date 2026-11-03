@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { conflictText, fuelOptions, fuelUnit, valuesConflict } from './fuel'
+import { conflictText, fuelOptions, fuelUnit, round3, valuesConflict } from './fuel'
 
 const norm = (s: string) => s.replace(/[  ]/g, ' ')
 
@@ -28,6 +28,14 @@ describe('combustível', () => {
     // R$ 0,10 mínimo em valores pequenos
     expect(valuesConflict(1, 5, 5.1)).toBe(false)
     expect(valuesConflict(1, 5, 5.11)).toBe(true)
+  })
+
+  it('arredonda quantidade e preço a 3 casas antes de conferir (como o banco)', () => {
+    expect(round3(4.9996)).toBe(5)
+    expect(round3(40.12345)).toBe(40.123)
+    // 2 × 4,9996 = 9,9992 (diferença 0,1008 > 0,10); arredondado: 2 × 5,000 = 10,00 (diferença 0,10)
+    expect(valuesConflict(2, 4.9996, 10.1)).toBe(false)
+    expect(valuesConflict(2, 4.9994, 10.1)).toBe(true)
   })
 
   it('texto da conta', () => {

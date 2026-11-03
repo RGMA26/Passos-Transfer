@@ -86,14 +86,19 @@ const MESSAGES: Record<string, string> = {
   FUEL_CAR_NOT_ALLOWED: 'Não enviado: abastecimento de outro carro',
   FUEL_NOT_ALLOWED: 'Não enviado: combustível não aceito por este carro',
   TRANSFER_IN_PROGRESS: 'Não enviado: conclua o Transfer em andamento antes de encerrar o turno',
+  NOT_STARTED: 'Não enviado: o Transfer ainda não foi iniciado',
+  ALREADY_STARTED: 'Não enviado: o Transfer já foi iniciado',
+  ALREADY_COMPLETED: 'Não enviado: o Transfer já foi concluído',
+  INVALID_ODOMETER: 'Não enviado: leitura do odômetro inválida',
 }
 
 /** Repetição de iniciar/concluir já aplicado (o Transfer andou): conta como enviado. */
 function alreadyApplied(kind: QueuedOp['kind'], e: unknown): boolean {
   if (kind !== 'start_transfer' && kind !== 'complete_transfer') return false
+  // o código da regra vem no message (code é o SQLSTATE P0001), como em errorMessage
   const { code, message } = (e ?? {}) as Err
-  const c = code || message
-  return c === 'INVALID_STATUS' || c === 'ALREADY_CHECKED'
+  const applied = ['INVALID_STATUS', 'ALREADY_CHECKED']
+  return applied.includes(message ?? '') || applied.includes(code ?? '')
 }
 
 type Err = { code?: string; message?: string; status?: number }

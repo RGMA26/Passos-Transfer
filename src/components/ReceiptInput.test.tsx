@@ -63,6 +63,41 @@ describe('ReceiptInput', () => {
     expect(onChange).toHaveBeenLastCalledWith(null)
   })
 
+  it('imagem grande vale se ficar até 10 MB depois de comprimida', async () => {
+    const small = new Blob(['y'], { type: 'image/jpeg' })
+    vi.mocked(compressImage).mockResolvedValue(small)
+    const onChange = vi.fn()
+    render(<ReceiptInput label="Comprovante" onChange={onChange} />)
+    const big = new File(['x'], 'foto.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(big, 'size', { value: 25 * 1024 * 1024 })
+    await user().upload(screen.getByLabelText('Comprovante'), big)
+    expect(await screen.findByAltText('Pré-visualização')).toBeInTheDocument()
+    expect(onChange).toHaveBeenLastCalledWith(small)
+  })
+
+  it('imagem que continua acima de 10 MB depois de comprimida é recusada', async () => {
+    const still = new Blob(['y'], { type: 'image/jpeg' })
+    Object.defineProperty(still, 'size', { value: 10 * 1024 * 1024 + 1 })
+    vi.mocked(compressImage).mockResolvedValue(still)
+    const onChange = vi.fn()
+    render(<ReceiptInput label="Comprovante" onChange={onChange} />)
+    await user().upload(screen.getByLabelText('Comprovante'), new File(['x'], 'f.jpg', { type: 'image/jpeg' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(MSG_TYPE)
+    expect(onChange).toHaveBeenLastCalledWith(null)
+  })
+
+  it('PDF sem tipo (só pelo nome .pdf) é aceito como PDF', async () => {
+    const onChange = vi.fn()
+    render(<ReceiptInput label="Comprovante" onChange={onChange} />)
+    const pdf = new File(['%PDF'], 'NOTA.PDF', { type: '' })
+    await user().upload(screen.getByLabelText('Comprovante'), pdf)
+    expect(await screen.findByText('NOTA.PDF')).toBeInTheDocument()
+    const sent = onChange.mock.lastCall?.[0] as File
+    expect(sent.type).toBe('application/pdf')
+    expect(sent.name).toBe('NOTA.PDF')
+    expect(compressImage).not.toHaveBeenCalled()
+  })
+
   it('arquivo inicial (compartilhado) já vem anexado', async () => {
     const onChange = vi.fn()
     const pdf = new File(['%PDF'], 'compartilhado.pdf', { type: 'application/pdf' })

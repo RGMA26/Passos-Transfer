@@ -7,7 +7,7 @@ import { useAuth } from '../lib/auth'
 import { enqueue } from '../lib/offline/queue'
 import { localDate } from '../lib/periods'
 import { parseBRL, parseDecimal } from '../lib/money'
-import { FUEL_LABEL, conflictText, fuelOptions, fuelUnit, valuesConflict } from '../lib/fuel'
+import { FUEL_LABEL, conflictText, fuelOptions, fuelUnit, round3, valuesConflict } from '../lib/fuel'
 import { clearSharedFile, peekSharedFile } from '../lib/share'
 import type { Car, Ride } from '../lib/types'
 import MoneyInput from '../components/MoneyInput'
@@ -37,9 +37,12 @@ function parsePositive(text: string): number | null {
   return n !== null && n > 0 ? n : null
 }
 
+/** Decimal > 0 arredondado a 3 casas (como o banco grava quantidade e preço), ou null. */
 function positiveDecimal(text: string): number | null {
   const n = parseDecimal(text)
-  return n !== null && n > 0 ? n : null
+  if (n === null) return null
+  const r = round3(n)
+  return r > 0 ? r : null
 }
 
 // Último carro visto, por id: o formulário de abastecimento funciona sem rede.

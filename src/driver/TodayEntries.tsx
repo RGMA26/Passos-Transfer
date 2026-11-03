@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as api from '../lib/api'
 import type { Fuel, TodayEntry } from '../lib/api'
-import { FUEL_LABEL, formatQty, formatUnitPrice, fuelUnit } from '../lib/fuel'
+import { FUEL_LABEL, formatQty, formatUnitPrice, fuelUnit, round3 } from '../lib/fuel'
 import { formatBRL } from '../lib/money'
 import { enqueue } from '../lib/offline/queue'
 import type { QueuedOp } from '../lib/offline/queue'
@@ -133,7 +133,7 @@ function EntryItem({ uid, row }: { uid: string; row: Row }) {
     setBusy(true)
     try {
       if (ride) await queue('update_ride', { id: row.id, amount, km: n })
-      else await queue('update_fueling', { id: row.id, amount, quantity: n, unit_price: p })
+      else await queue('update_fueling', { id: row.id, amount, quantity: round3(n!), unit_price: round3(p!) })
       setEditing(false)
     } catch {
       setError(MSG_SAVE)

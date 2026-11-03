@@ -28,7 +28,8 @@ import type { QueuedOp } from './queue'
 function op(id: string, over: Partial<QueuedOp> = {}): Omit<QueuedOp, 'status' | 'createdAt'> {
   return { id, kind: 'insert_ride', ownerId: 'u1', payload: { id, amount: 10 }, photos: [], ...over }
 }
-const codeErr = (code: string) => Object.assign(new Error(code), { code })
+// como os erros reais do servidor: código da regra no message, SQLSTATE P0001 no code
+const codeErr = (code: string) => Object.assign(new Error(code), { code: 'P0001', status: 400 })
 
 describe('fila offline', () => {
   beforeEach(async () => {
@@ -80,7 +81,9 @@ describe('fila offline', () => {
 
   it('SHIFT_ALREADY_OPEN em start_shift é permanente; código desconhecido mostra o código', async () => {
     api.startShift.mockRejectedValueOnce(codeErr('SHIFT_ALREADY_OPEN'))
-    api.insertFueling.mockRejectedValueOnce(codeErr('23514'))
+    api.insertFueling.mockRejectedValueOnce(
+      Object.assign(new Error('new row violates check constraint'), { code: '23514', status: 400 }),
+    )
     await enqueue(op('s', { kind: 'start_shift', payload: { id: 's' } }))
     await enqueue(op('f', { kind: 'insert_fueling', payload: { id: 'f' } }))
     await flush()
@@ -214,6 +217,10 @@ describe('fila offline', () => {
     ['RECEIPT_REQUIRED', 'Não enviado: falta o comprovante'],
     ['FUEL_CAR_NOT_ALLOWED', 'Não enviado: abastecimento de outro carro'],
     ['TRANSFER_IN_PROGRESS', 'Não enviado: conclua o Transfer em andamento antes de encerrar o turno'],
+    ['NOT_STARTED', 'Não enviado: o Transfer ainda não foi iniciado'],
+    ['ALREADY_STARTED', 'Não enviado: o Transfer já foi iniciado'],
+    ['ALREADY_COMPLETED', 'Não enviado: o Transfer já foi concluído'],
+    ['INVALID_ODOMETER', 'Não enviado: leitura do odômetro inválida'],
   ])('%s vira mensagem', async (code, msg) => {
     api.insertRide.mockRejectedValueOnce(codeErr(code))
     await enqueue(op('a'))
