@@ -1,23 +1,45 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import * as api from '../lib/api'
+import type { DriverPause } from '../lib/api'
 import type { Car, Profile } from '../lib/types'
+import { formatCpf, isValidCpf } from '../lib/cpf'
+import { localDate } from '../lib/periods'
+import PeriodSignal from '../components/PeriodSignal'
+import type { Signal } from '../components/PeriodSignal'
+import DriverDocuments from './DriverDocuments'
 import { onlyDigits, parsePct } from './helpers'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
 const MSG_PCT = 'Informe uma porcentagem entre 0 e 100'
+const MSG_CPF = 'CPF inválido'
 const TYPE_LABEL: Record<string, string> = {
   company_car: 'Carro da empresa',
   own_car: 'Carro próprio',
 }
-const CREATE_ERRORS: Record<string, string> = {
+const SAVE_ERRORS: Record<string, string> = {
   INVALID_NAME: 'Informe o nome',
   INVALID_PHONE: 'Telefone inválido (DDD + número)',
   INVALID_PCT: 'Porcentagem inválida',
   INVALID_CAR: 'Carro indisponível para este motorista',
+  INVALID_CPF: MSG_CPF,
+  CPF_TAKEN: 'CPF já cadastrado',
 }
 const MSG_CREATE_FAILED = 'Não foi possível criar o motorista'
+const MSG_UPDATE_FAILED = 'Não foi possível salvar o motorista'
 const wantedOwnership = (t: string) => (t === 'company_car' ? 'company' : 'own')
+
+const PAUSE_ERRORS: Record<string, string> = {
+  OPEN_SHIFTS: 'Encerre o turno aberto antes de pausar',
+  INVALID_DATE: 'A data da pausa não pode ser no futuro',
+  ENTRIES_AFTER_PAUSE:
+    'Há lançamentos ou Transfers depois da data da pausa. Reatribua ou exclua antes de pausar.',
+}
+const MSG_REFRESH = 'A situação do motorista mudou. Atualize a página.'
+const RESUME_ERRORS: Record<string, string> = {
+  INVALID_DATE: 'A data de retorno deve ser depois da pausa',
+}
+const errCode = (err: unknown) => (err as { code?: string }).code ?? ''
 
 interface Access {
   name: string
@@ -26,12 +48,19 @@ interface Access {
   pin: string
 }
 
+type Panel =
+  | { kind: 'edit'; id: string }
+  | { kind: 'pause'; id: string }
+  | { kind: 'resume'; id: string }
+  | { kind: 'ficha'; id: string }
+
 export default function DriversPage() {
   const [drivers, setDrivers] = useState<Profile[] | null>(null)
   const [cars, setCars] = useState<Car[]>([])
+  const [signals, setSignals] = useState<Map<string, Signal>>(new Map())
   const [failed, setFailed] = useState(false)
   const [showForm, setShowForm] = useState(false)
-  const [editId, setEditId] = useState<string | null>(null)
+  const [panel, setPanel] = useState<Panel | null>(null)
   const [access, setAccess] = useState<Access | null>(null)
   const [actionError, setActionError] = useState('')
 
@@ -43,6 +72,13 @@ export default function DriversPage() {
       setCars(c)
     } catch {
       setFailed(true)
+      return
+    }
+    try {
+      const rows = await api.listDriverSignals()
+      setSignals(new Map(rows.map((r) => [r.driver_id, (r.signal as Signal) ?? null])))
+    } catch {
+      setSignals(new Map()) // os sinais são um extra: a lista continua útil sem eles
     }
   }, [])
 
@@ -88,6 +124,11 @@ export default function DriversPage() {
   if (!drivers) return <p className="loading">Carregando…</p>
 
   const carById = new Map(cars.map((c) => [c.id, c]))
+  const panelDriver = panel ? drivers.find((d) => d.id === panel.id) : undefined
+  const closePanel = (changed: boolean) => {
+    setPanel(null)
+    if (changed) void load()
+  }
 
   return (
     <section>
@@ -100,15 +141,29 @@ export default function DriversPage() {
         </button>
       )}
       {showForm && (
-        <NewDriverForm
+        <DriverForm
           cars={cars}
           onCancel={() => setShowForm(false)}
-          onCreated={(a) => {
-            setAccess(a)
+          onSaved={(a) => {
+            if (a) setAccess(a)
             setShowForm(false)
             void load()
           }}
         />
+      )}
+      {panel && panelDriver && panel.kind === 'edit' && (
+        <DriverForm
+          key={panelDriver.id}
+          driver={panelDriver}
+          cars={cars}
+          onCancel={() => closePanel(false)}
+          onSaved={() => closePanel(true)}
+        />
+      )}
+      {panel && panelDriver && panel.kind === 'pause' && <PauseForm driver={panelDriver} onDone={closePanel} />}
+      {panel && panelDriver && panel.kind === 'resume' && <ResumeForm driver={panelDriver} onDone={closePanel} />}
+      {panel && panelDriver && panel.kind === 'ficha' && (
+        <Ficha driver={panelDriver} onClose={() => closePanel(false)} />
       )}
       <div className="table-wrap">
         <table className="table">
@@ -131,7 +186,9 @@ export default function DriversPage() {
               return (
                 <tr key={d.id}>
                   <td>{d.login_code}</td>
-                  <td>{d.name}</td>
+                  <td>
+                    {d.name} <PeriodSignal signal={signals.get(d.id)} paused={d.paused} />
+                  </td>
                   <td>{d.phone}</td>
                   <td>{TYPE_LABEL[d.driver_type ?? ''] ?? '—'}</td>
                   <td>{d.uber_pct ?? '—'}</td>
@@ -139,27 +196,29 @@ export default function DriversPage() {
                   <td>{c ? `${c.model} ${c.plate}` : '—'}</td>
                   <td>{d.active ? 'Ativo' : 'Inativo'}</td>
                   <td className="actions">
-                    {editId === d.id ? (
-                      <EditPcts
-                        driver={d}
-                        onDone={(changed) => {
-                          setEditId(null)
-                          if (changed) void load()
-                        }}
-                      />
+                    <button type="button" onClick={() => setPanel({ kind: 'edit', id: d.id })}>
+                      Editar
+                    </button>
+                    <button type="button" onClick={() => setPanel({ kind: 'ficha', id: d.id })}>
+                      Ficha
+                    </button>
+                    {d.paused ? (
+                      <button type="button" onClick={() => setPanel({ kind: 'resume', id: d.id })}>
+                        Retomar
+                      </button>
                     ) : (
-                      <>
-                        <button type="button" onClick={() => setEditId(d.id)}>
-                          Editar %
+                      d.active && (
+                        <button type="button" onClick={() => setPanel({ kind: 'pause', id: d.id })}>
+                          Pausar
                         </button>
-                        <button type="button" onClick={() => void resetPassword(d)}>
-                          Resetar senha
-                        </button>
-                        <button type="button" onClick={() => void toggleActive(d)}>
-                          {d.active ? 'Desativar' : 'Reativar'}
-                        </button>
-                      </>
+                      )
                     )}
+                    <button type="button" onClick={() => void resetPassword(d)}>
+                      Resetar senha
+                    </button>
+                    <button type="button" onClick={() => void toggleActive(d)}>
+                      {d.active ? 'Desativar' : 'Reativar'}
+                    </button>
                   </td>
                 </tr>
               )
@@ -209,58 +268,91 @@ function AccessPanel({ access, onClose }: { access: Access; onClose: () => void 
   )
 }
 
-function NewDriverForm({
+const fmtPct = (n: number | null) => (n === null ? '' : String(n).replace('.', ','))
+
+/** Cadastro (sem `driver`) e edição completa (com `driver`) do motorista. */
+function DriverForm({
+  driver,
   cars,
   onCancel,
-  onCreated,
+  onSaved,
 }: {
+  driver?: Profile
   cars: Car[]
   onCancel: () => void
-  onCreated: (a: Access) => void
+  onSaved: (a?: Access) => void
 }) {
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [type, setType] = useState<'company_car' | 'own_car'>('company_car')
-  const [uber, setUber] = useState('')
-  const [transfer, setTransfer] = useState('')
-  const [carId, setCarId] = useState('')
-  const [errors, setErrors] = useState<{ uber?: string; transfer?: string }>({})
+  const [name, setName] = useState(driver?.name ?? '')
+  const [phone, setPhone] = useState(driver?.phone ?? '')
+  const [cpf, setCpf] = useState(driver?.cpf ? formatCpf(driver.cpf) : '')
+  const [type, setType] = useState<'company_car' | 'own_car'>(
+    (driver?.driver_type as 'company_car' | 'own_car' | null) ?? 'company_car',
+  )
+  const [uber, setUber] = useState(fmtPct(driver?.uber_pct ?? null))
+  const [transfer, setTransfer] = useState(fmtPct(driver?.transfer_pct ?? null))
+  const [carId, setCarId] = useState(driver?.current_car_id ?? '')
+  const [errors, setErrors] = useState<{ uber?: string; transfer?: string; cpf?: string }>({})
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const freeCars = cars.filter((c) => !c.current_driver_id && c.ownership === wantedOwnership(type))
+  const freeCars = cars.filter(
+    (c) =>
+      (!c.current_driver_id || c.current_driver_id === driver?.id) && c.ownership === wantedOwnership(type),
+  )
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     const uberPct = type === 'company_car' ? parsePct(uber) : null
     const transferPct = parsePct(transfer)
     const errs: typeof errors = {}
+    if (!isValidCpf(cpf.trim())) errs.cpf = MSG_CPF
     if (type === 'company_car' && uberPct === null) errs.uber = MSG_PCT
     if (transferPct === null) errs.transfer = MSG_PCT
     setErrors(errs)
     setError('')
-    if (errs.uber || errs.transfer || transferPct === null) return
+    if (errs.cpf || errs.uber || errs.transfer || transferPct === null) return
+    const cpfDigits = onlyDigits(cpf)
+    if (
+      driver &&
+      (uberPct !== driver.uber_pct || transferPct !== driver.transfer_pct) &&
+      !window.confirm('Vale a partir de hoje para novas corridas. Confirmar?')
+    ) {
+      return
+    }
     setBusy(true)
     try {
-      const r = await api.createDriver({
-        name: name.trim(),
-        phone,
-        driver_type: type,
-        ...(uberPct !== null ? { uber_pct: uberPct } : {}),
-        transfer_pct: transferPct,
-        ...(carId ? { car_id: carId } : {}),
-      })
-      onCreated({ name: name.trim(), phone, code: r.login_code, pin: r.temp_pin })
+      if (driver) {
+        await api.updateDriver(driver.id, {
+          name: name.trim(),
+          phone,
+          cpf: cpfDigits,
+          driver_type: type,
+          uber_pct: uberPct,
+          transfer_pct: transferPct,
+          car_id: carId || null,
+        })
+        onSaved()
+      } else {
+        const r = await api.createDriver({
+          name: name.trim(),
+          phone,
+          cpf: cpfDigits,
+          driver_type: type,
+          ...(uberPct !== null ? { uber_pct: uberPct } : {}),
+          transfer_pct: transferPct,
+          ...(carId ? { car_id: carId } : {}),
+        })
+        onSaved({ name: name.trim(), phone, code: r.login_code, pin: r.temp_pin })
+      }
     } catch (err) {
-      const code = (err as { code?: string }).code ?? ''
-      setError(CREATE_ERRORS[code] ?? MSG_CREATE_FAILED)
+      setError(SAVE_ERRORS[errCode(err)] ?? (driver ? MSG_UPDATE_FAILED : MSG_CREATE_FAILED))
       setBusy(false)
     }
   }
 
   return (
     <form className="panel" onSubmit={(e) => void submit(e)} noValidate>
-      <strong>Novo motorista</strong>
+      <strong>{driver ? `Editar ${driver.name}` : 'Novo motorista'}</strong>
       <label className="field">
         Nome
         <input value={name} onChange={(e) => setName(e.target.value)} />
@@ -269,6 +361,11 @@ function NewDriverForm({
         Telefone
         <input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
       </label>
+      <label className="field">
+        CPF
+        <input inputMode="numeric" value={cpf} onChange={(e) => setCpf(e.target.value)} />
+      </label>
+      {errors.cpf && <p className="error">{errors.cpf}</p>}
       <label className="field">
         Tipo
         <select
@@ -307,7 +404,7 @@ function NewDriverForm({
       </label>
       {error && <p className="error" role="alert">{error}</p>}
       <button type="submit" disabled={busy}>
-        Criar motorista
+        {driver ? 'Salvar' : 'Criar motorista'}
       </button>
       <button type="button" className="link" onClick={onCancel}>
         Cancelar
@@ -316,46 +413,135 @@ function NewDriverForm({
   )
 }
 
-function EditPcts({ driver, onDone }: { driver: Profile; onDone: (changed: boolean) => void }) {
-  const company = driver.driver_type === 'company_car'
-  const fmt = (n: number | null) => (n === null ? '' : String(n).replace('.', ','))
-  const [uber, setUber] = useState(fmt(driver.uber_pct))
-  const [transfer, setTransfer] = useState(fmt(driver.transfer_pct))
+function PauseForm({ driver, onDone }: { driver: Profile; onDone: (changed: boolean) => void }) {
+  const [date, setDate] = useState(localDate())
+  const [reason, setReason] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  async function save() {
-    const u = company ? parsePct(uber) : null
-    const t = parsePct(transfer)
-    if ((company && u === null) || t === null) return setError(MSG_PCT)
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    if (!date) return setError('Informe a data da pausa')
     setError('')
-    if (!window.confirm('Vale a partir de hoje para novas corridas. Confirmar?')) return
+    setBusy(true)
     try {
-      await api.updateDriverPcts(driver.id, u, t)
+      await api.pauseDriver(driver.id, date, reason.trim())
       onDone(true)
-    } catch {
-      setError('Não foi possível salvar')
+    } catch (err) {
+      setError(PAUSE_ERRORS[errCode(err)] ?? MSG_REFRESH)
+      setBusy(false)
     }
   }
 
   return (
-    <div className="inline-edit">
-      {company && (
-        <label className="field">
-          Novo % Uber
-          <input inputMode="decimal" value={uber} onChange={(e) => setUber(e.target.value)} />
-        </label>
-      )}
+    <form className="panel" onSubmit={(e) => void submit(e)} noValidate>
+      <strong>{`Pausar ${driver.name}`}</strong>
       <label className="field">
-        Novo % Transfer
-        <input inputMode="decimal" value={transfer} onChange={(e) => setTransfer(e.target.value)} />
+        Data da pausa
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      </label>
+      <label className="field">
+        Motivo (opcional)
+        <input value={reason} onChange={(e) => setReason(e.target.value)} />
       </label>
       {error && <p className="error" role="alert">{error}</p>}
-      <button type="button" onClick={() => void save()}>
-        Salvar %
+      <button type="submit" disabled={busy}>
+        Confirmar pausa
       </button>
       <button type="button" className="link" onClick={() => onDone(false)}>
         Cancelar
       </button>
+    </form>
+  )
+}
+
+function ResumeForm({ driver, onDone }: { driver: Profile; onDone: (changed: boolean) => void }) {
+  const [date, setDate] = useState(localDate())
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    if (!date) return setError('Informe a data de retorno')
+    setError('')
+    setBusy(true)
+    try {
+      await api.resumeDriver(driver.id, date)
+      onDone(true)
+    } catch (err) {
+      setError(RESUME_ERRORS[errCode(err)] ?? MSG_REFRESH)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="panel" onSubmit={(e) => void submit(e)} noValidate>
+      <strong>{`Retomar ${driver.name}`}</strong>
+      <label className="field">
+        Data de retorno
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      </label>
+      {error && <p className="error" role="alert">{error}</p>}
+      <button type="submit" disabled={busy}>
+        Confirmar retorno
+      </button>
+      <button type="button" className="link" onClick={() => onDone(false)}>
+        Cancelar
+      </button>
+    </form>
+  )
+}
+
+const fmtDay = (iso: string) => iso.split('-').reverse().join('/')
+
+function Ficha({ driver, onClose }: { driver: Profile; onClose: () => void }) {
+  const [tab, setTab] = useState<'pauses' | 'docs'>('pauses')
+  return (
+    <div className="panel" role="region" aria-label={`Ficha de ${driver.name}`}>
+      <strong>{`Ficha de ${driver.name}`}</strong>
+      <div className="seg" role="tablist">
+        <button type="button" role="tab" aria-selected={tab === 'pauses'} onClick={() => setTab('pauses')}>
+          Pausas
+        </button>
+        <button type="button" role="tab" aria-selected={tab === 'docs'} onClick={() => setTab('docs')}>
+          Documentos
+        </button>
+      </div>
+      {tab === 'pauses' ? <PauseHistory driverId={driver.id} /> : <DriverDocuments driverId={driver.id} />}
+      <button type="button" className="link" onClick={onClose}>
+        Fechar ficha
+      </button>
     </div>
+  )
+}
+
+function PauseHistory({ driverId }: { driverId: string }) {
+  const [rows, setRows] = useState<DriverPause[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let live = true
+    api
+      .listDriverPauses(driverId)
+      .then((r) => {
+        if (live) setRows(r)
+      })
+      .catch(() => {
+        if (live) setFailed(true)
+      })
+    return () => {
+      live = false
+    }
+  }, [driverId])
+  if (failed) return <p className="error">Não foi possível carregar as pausas.</p>
+  if (!rows) return <p className="loading">Carregando…</p>
+  if (rows.length === 0) return <p className="hint">Nenhuma pausa registrada.</p>
+  return (
+    <ul className="list">
+      {rows.map((r) => (
+        <li key={r.id}>
+          {`${fmtDay(r.paused_on)} – ${r.resumed_on ? fmtDay(r.resumed_on) : 'em andamento'}${r.reason ? ` · ${r.reason}` : ''}`}
+        </li>
+      ))}
+    </ul>
   )
 }

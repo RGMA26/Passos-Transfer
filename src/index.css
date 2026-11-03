@@ -71,6 +71,7 @@ h3 { margin: 1rem 0 0.5rem; font-size: 1.05rem; }
 .badge { display: inline-block; align-self: flex-start; padding: 0.3rem 0.75rem; border-radius: 999px; font-size: 0.9rem; font-weight: 700; background: #dbeafe; color: var(--primary); }
 .badge.estimate { background: #fef3c7; color: #92400e; }
 .badge.ok { background: #d1fae5; color: #065f46; }
+.badge.badge-gray { background: #e5e7eb; color: #374151; }
 .statement { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
 .statement dl { margin: 0; }
 .stmt-row { display: flex; justify-content: space-between; gap: 1rem; padding: 0.5rem 0; border-bottom: 1px solid #e5e7eb; }

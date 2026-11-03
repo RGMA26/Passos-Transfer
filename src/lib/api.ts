@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import type { Car, DriverPeriod, Profile, Ride, Period, RideExpense, Shift, StatementLines } from './types'
 import type { Database } from './database.types'
+import { localDate } from './periods'
 
 export type Fuel = 'gasolina' | 'alcool' | 'diesel' | 'gnv' | 'eletrico'
 
@@ -473,6 +474,8 @@ export async function listDrivers(): Promise<Profile[]> {
 export interface NewDriverInput {
   name: string
   phone: string
+  /** Só dígitos (11). */
+  cpf: string
   driver_type: 'own_car' | 'company_car'
   uber_pct?: number
   transfer_pct: number
@@ -486,7 +489,7 @@ export interface DriverAccess {
 }
 
 /** Lê o código do corpo JSON de um erro HTTP da Edge Function. */
-async function functionErrorCode(error: unknown): Promise<string> {
+async function functionErrorCode(error: unknown, fallback = 'CREATE_FAILED'): Promise<string> {
   try {
     const ctx = (error as { context?: { json?: () => Promise<{ error?: string }> } }).context
     const body = await ctx?.json?.()
@@ -494,7 +497,7 @@ async function functionErrorCode(error: unknown): Promise<string> {
   } catch {
     /* corpo ilegível */
   }
-  return 'CREATE_FAILED'
+  return fallback
 }
 
 export async function createDriver(input: NewDriverInput): Promise<DriverAccess> {
@@ -520,12 +523,172 @@ export async function driverAccess(
   return (data ?? {}) as { temp_pin?: string }
 }
 
-export async function updateDriverPcts(
+export interface UpdateDriverInput {
+  name: string
+  phone: string
+  /** Só dígitos (11). */
+  cpf: string
+  driver_type: 'own_car' | 'company_car'
+  uber_pct: number | null
+  transfer_pct: number
+  car_id: string | null
+}
+
+/** Edição completa do motorista (Edge Function update-driver). */
+export async function updateDriver(driverId: string, input: UpdateDriverInput): Promise<void> {
+  const { error } = await supabase.functions.invoke('update-driver', {
+    body: { driver_id: driverId, ...input },
+  })
+  if (error) {
+    const code = await functionErrorCode(error, 'UPDATE_FAILED')
+    throw Object.assign(new Error(code), { code })
+  }
+}
+
+// ---------- Admin: sinais, pausa e documentos ----------
+
+export type DriverSignalRow = Database['public']['Functions']['driver_period_signals']['Returns'][number]
+export type DriverPause = Database['public']['Tables']['driver_pauses']['Row']
+export type AdminDocument = Database['public']['Tables']['admin_documents']['Row']
+export type AdminDocKind = 'payment_proof' | 'signed_receipt' | 'other'
+
+export async function listDriverSignals(): Promise<DriverSignalRow[]> {
+  return must(await supabase.rpc('driver_period_signals')) ?? []
+}
+
+/** Erro de RPC: a mensagem do Postgres e o codigo (OPEN_SHIFTS, INVALID_DATE, ...). */
+function rpcMust(res: { error: { message: string } | null }): void {
+  if (res.error) throw Object.assign(new Error(res.error.message), { code: res.error.message })
+}
+
+export async function pauseDriver(driverId: string, pausedOn: string, reason: string): Promise<void> {
+  rpcMust(
+    await supabase.rpc('pause_driver', {
+      p_driver: driverId,
+      p_paused_on: pausedOn,
+      p_reason: reason,
+    }),
+  )
+}
+
+export async function resumeDriver(driverId: string, resumeOn: string): Promise<void> {
+  rpcMust(await supabase.rpc('resume_driver', { p_driver: driverId, p_resume_on: resumeOn }))
+}
+
+export async function listDriverPauses(driverId: string): Promise<DriverPause[]> {
+  const res = await supabase
+    .from('driver_pauses')
+    .select('*')
+    .eq('driver_id', driverId)
+    .order('paused_on', { ascending: false })
+  return must(res) ?? []
+}
+
+export const MSG_ADMIN_DOC_TYPE = 'Envie JPG, PNG ou PDF de até 10 MB'
+const ADMIN_DOC_TYPES: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'application/pdf': 'pdf',
+}
+const MAX_ADMIN_DOC_BYTES = 10 * 1024 * 1024
+
+export async function listAdminDocuments(
+  filter: { driverId?: string; statementId?: string } = {},
+): Promise<AdminDocument[]> {
+  let q = supabase.from('admin_documents').select('*')
+  if (filter.driverId) q = q.eq('driver_id', filter.driverId)
+  if (filter.statementId) q = q.eq('statement_id', filter.statementId)
+  return must(await q.order('created_at', { ascending: false })) ?? []
+}
+
+export async function uploadAdminDocument(a: {
+  driverId: string
+  statementId?: string | null
+  kind: AdminDocKind
+  description?: string | null
+  file: File | Blob
+}): Promise<void> {
+  const ext = ADMIN_DOC_TYPES[a.file.type]
+  if (!ext || a.file.size <= 0 || a.file.size > MAX_ADMIN_DOC_BYTES) {
+    throw Object.assign(new Error('INVALID_FILE'), { code: 'INVALID_FILE' })
+  }
+  const path = `${a.driverId}/${crypto.randomUUID()}.${ext}`
+  const up = await supabase.storage.from('admin-docs').upload(path, a.file, { contentType: a.file.type })
+  if (up.error) throw Object.assign(new Error(up.error.message), { code: 'UPLOAD_FAILED' })
+  const res = await supabase.from('admin_documents').insert({
+    driver_id: a.driverId,
+    statement_id: a.statementId ?? null,
+    kind: a.kind,
+    description: a.description?.trim() || null,
+    file_path: path,
+    mime_type: a.file.type,
+    size_bytes: a.file.size,
+  })
+  if (res.error) {
+    await supabase.storage.from('admin-docs').remove([path])
+    throw Object.assign(new Error(res.error.message), { code: res.error.code })
+  }
+}
+
+export async function deleteAdminDocument(doc: Pick<AdminDocument, 'id' | 'file_path'>): Promise<void> {
+  must(await supabase.from('admin_documents').delete().eq('id', doc.id))
+  await supabase.storage.from('admin-docs').remove([doc.file_path])
+}
+
+export async function adminDocumentUrl(path: string): Promise<string> {
+  const { data, error } = await supabase.storage.from('admin-docs').createSignedUrl(path, 600)
+  if (error || !data) throw new Error('DOCUMENT_UNAVAILABLE')
+  return data.signedUrl
+}
+
+// ---------- Admin: gastos dos carros da empresa ----------
+
+export type CarExpense = Database['public']['Tables']['car_expenses']['Row']
+export type CarExpenseKind = 'maintenance' | 'insurance' | 'tax' | 'other'
+export type CarExpenseMode = 'single' | 'installments' | 'recurring'
+
+export interface NewCarExpenseInput {
+  car_id: string
+  kind: CarExpenseKind
+  description: string | null
+  mode: CarExpenseMode
+  amount: number
+  installments: number | null
+  start_date: string
+}
+
+export async function listCarExpenses(carId: string): Promise<CarExpense[]> {
+  const res = await supabase
+    .from('car_expenses')
+    .select('*')
+    .eq('car_id', carId)
+    .order('start_date', { ascending: false })
+  return must(res) ?? []
+}
+
+export async function createCarExpense(input: NewCarExpenseInput): Promise<void> {
+  must(await supabase.from('car_expenses').insert(input))
+}
+
+export async function updateCarExpense(
   id: string,
-  uber_pct: number | null,
-  transfer_pct: number,
+  patch: Partial<Omit<NewCarExpenseInput, 'car_id'>>,
 ): Promise<void> {
-  must(await supabase.from('profiles').update({ uber_pct, transfer_pct }).eq('id', id))
+  must(await supabase.from('car_expenses').update(patch).eq('id', id))
+}
+
+/** lastMonth: qualquer data do último mês que conta (grava o dia 1 do mês). */
+export async function finishCarExpense(id: string, lastMonth: string): Promise<void> {
+  must(
+    await supabase
+      .from('car_expenses')
+      .update({ end_date: `${lastMonth.slice(0, 7)}-01`, finished: true })
+      .eq('id', id),
+  )
+}
+
+export async function deleteCarExpense(id: string): Promise<void> {
+  must(await supabase.from('car_expenses').update({ deleted_on: localDate() }).eq('id', id))
 }
 
 export async function listCars(): Promise<Car[]> {
