@@ -73,11 +73,15 @@ export default function PrintReceiptPage() {
         method={data.payment_method}
         driverType={data.driver.driver_type}
       />
-      <p>
-        {'Recebi de Passos Transfer a importância de '}
-        <strong className="receipt-amount">{formatBRL(data.total)}</strong>
-        {` (${valorPorExtenso(data.total)}).`}
-      </p>
+      {data.total > 0 ? (
+        <p>
+          {'Recebi de Passos Transfer a importância de '}
+          <strong className="receipt-amount">{formatBRL(data.total)}</strong>
+          {` (${valorPorExtenso(data.total)}).`}
+        </p>
+      ) : (
+        <p>{`Sem valor a receber nesta quinzena (saldo ${formatBRL(data.total)}).`}</p>
+      )}
       <p>{`Data do pagamento: ${formatDay(data.paid_at)}`}</p>
       <p>{`Forma de pagamento: ${data.payment_method ?? '—'}`}</p>
       <div style={{ marginTop: '3rem', borderTop: '1px solid #000', width: '20rem', paddingTop: '0.25rem' }}>

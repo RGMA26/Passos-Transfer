@@ -510,6 +510,17 @@ describe('PrintReceiptPage', () => {
     printSpy.mockRestore()
   })
 
+  it.each([0, -35.5])('total %s: sem "Recebi … a importância" e sem valor por extenso', async (total) => {
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
+    m.getStatement.mockResolvedValue(fullStatement({ total }))
+    renderAt('/admin/recibo/s1', '/admin/recibo/:statementId', <PrintReceiptPage />)
+    expect(await screen.findByText(`Sem valor a receber nesta quinzena (saldo ${formatBRL(total)}).`)).toBeInTheDocument()
+    expect(screen.queryByText(/Recebi de Passos Transfer/)).toBeNull()
+    expect(screen.queryByText(/reais|centavos/)).toBeNull()
+    expect(document.querySelector('.receipt-amount')).toBeNull()
+    printSpy.mockRestore()
+  })
+
   it('não imprime quando o pagamento não foi registrado', async () => {
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
     m.getStatement.mockResolvedValue(fullStatement({ paid_at: null, payment_method: null }))

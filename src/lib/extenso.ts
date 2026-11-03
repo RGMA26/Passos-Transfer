@@ -54,7 +54,7 @@ export function valorPorExtenso(value: number): string {
   const parts: string[] = []
   if (reais > 0 || c === 0) {
     const unit = reais === 1 ? 'real' : reais !== 0 && reais % 1_000_000 === 0 ? 'de reais' : 'reais'
-    parts.push(reais === 0 ? 'zero real' : `${integer(reais)} ${unit}`)
+    parts.push(reais === 0 ? 'zero reais' : `${integer(reais)} ${unit}`)
   }
   if (c > 0) parts.push(`${integer(c)} ${c === 1 ? 'centavo' : 'centavos'}`)
   return parts.join(' e ')

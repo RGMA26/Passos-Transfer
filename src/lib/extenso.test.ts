@@ -14,7 +14,7 @@ describe('valorPorExtenso', () => {
     [2000, 'dois mil reais'],
     [1000000, 'um milhão de reais'],
     [2500000.5, 'dois milhões e quinhentos mil reais e cinquenta centavos'],
-    [0, 'zero real'],
+    [0, 'zero reais'],
   ])('%s -> %s', (n, txt) => {
     expect(valorPorExtenso(n)).toBe(txt)
   })
