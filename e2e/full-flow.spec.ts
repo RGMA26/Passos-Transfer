@@ -269,6 +269,21 @@ test('fluxo completo: cadastro → turno → Transfer → conferência → fecha
     await expect(estimateCell).toHaveText(/^\d+(,\d)?$/)
   }
 
+  // Editar (atribuído): formulário preenchido; muda a referência da origem (recalcula o km) e grava
+  await transferRow.getByRole('button', { name: 'Editar' }).click()
+  const edit = admin.getByRole('form', { name: 'Editar transfer' })
+  await expect(edit.getByLabel('Cliente')).toHaveValue('Cliente E2E')
+  await expect(edit.getByRole('group', { name: 'Origem' }).getByLabel('Rua e número')).toHaveValue('Avenida Paulista, 1578')
+  await edit.getByRole('group', { name: 'Origem' }).getByLabel('Referência (opcional)').fill('Portaria')
+  await edit.getByRole('button', { name: 'Salvar alterações' }).click()
+  await expect(edit).toBeHidden({ timeout: 40_000 })
+  await expect(transferRow).toContainText('Atribuída')
+  if ((await admin.getByText(MSG_NO_ESTIMATE).count()) > 0) {
+    await expect(estimateCell).toHaveText('—')
+  } else {
+    await expect(estimateCell).toHaveText(/^\d+(,\d)?$/)
+  }
+
   // ---------- 6. motorista: Iniciar, pedágio pelo Lançar, Concluir ----------
   await driver.getByRole('link', { name: 'Transfers' }).click()
   await driver.getByRole('button', { name: /Cliente E2E/ }).click()
