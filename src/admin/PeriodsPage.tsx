@@ -108,7 +108,8 @@ export default function PeriodsPage() {
             {rows.map((r) => (
               <tr key={r.driver_id}>
                 <td>
-                  {r.driver_name} <PeriodSignal signal={r.signal} paused={r.paused} />
+                  {r.driver_name}
+                  {r.active ? '' : ' (inativo)'} <PeriodSignal signal={r.signal} paused={r.paused} />
                 </td>
                 <td>{r.start_date && r.end_date ? rangeShort({ start_date: r.start_date, end_date: r.end_date }) : '—'}</td>
                 <td>{r.total === null ? '—' : formatBRL(r.total)}</td>
@@ -148,7 +149,7 @@ function DriverPeriods({ driver, onBack }: { driver: api.PeriodOverviewRow; onBa
   return (
     <section>
       <h2>
-        {`Quinzenas — ${driver.driver_name} `}
+        {`Quinzenas — ${driver.driver_name}${driver.active ? '' : ' (inativo)'} `}
         <PeriodSignal signal={driver.signal} paused={driver.paused} />
       </h2>
       <button type="button" className="link" onClick={onBack}>

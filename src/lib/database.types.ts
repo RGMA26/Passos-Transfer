@@ -407,7 +407,7 @@ isOneToOne: true
                            },
 "driver_period_signals":
 { Args: Record<PropertyKey, never>; Returns: {
-              "current_period_id": string,"days_left": number,"driver_id": string,"end_date": string,"name": string,"paused": boolean,"signal": string,"start_date": string
+              "active": boolean,"current_period_id": string,"days_left": number,"driver_id": string,"end_date": string,"name": string,"paused": boolean,"signal": string,"start_date": string
             }[]
                            },
 "end_shift":

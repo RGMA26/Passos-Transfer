@@ -1142,6 +1142,8 @@ export interface PeriodOverviewRow {
   driver_id: string
   driver_name: string
   paused: boolean
+  /** false = motorista inativo que ainda tem quinzena aberta ou extrato não pago. */
+  active: boolean
   signal: 'red' | 'yellow' | null
   period_id: string | null
   start_date: string | null
@@ -1150,13 +1152,15 @@ export interface PeriodOverviewRow {
   total: number | null
 }
 
-/** Motoristas ativos com a quinzena atual, o sinal e o total estimado. */
+/**
+ * Motoristas ativos, e inativos que ainda têm quinzena aberta ou extrato não pago, com a
+ * quinzena atual, o sinal e o total estimado.
+ */
 export async function listPeriodOverview(): Promise<PeriodOverviewRow[]> {
   const [signals, drivers] = await Promise.all([listDriverSignals(), listDrivers()])
-  const active = new Map(drivers.filter((d) => d.active).map((d) => [d.id, d]))
-  const rows = signals.filter((s) => active.has(s.driver_id))
+  const byId = new Map(drivers.map((d) => [d.id, d]))
   return Promise.all(
-    rows.map(async (s) => {
+    signals.map(async (s) => {
       let total: number | null = null
       if (s.current_period_id) {
         try {
@@ -1167,8 +1171,9 @@ export async function listPeriodOverview(): Promise<PeriodOverviewRow[]> {
       }
       return {
         driver_id: s.driver_id,
-        driver_name: s.name ?? active.get(s.driver_id)?.name ?? '—',
+        driver_name: s.name ?? byId.get(s.driver_id)?.name ?? '—',
         paused: s.paused,
+        active: s.active ?? byId.get(s.driver_id)?.active ?? true,
         signal: (s.signal === 'red' || s.signal === 'yellow' ? s.signal : null) as 'red' | 'yellow' | null,
         period_id: s.current_period_id,
         start_date: s.start_date,

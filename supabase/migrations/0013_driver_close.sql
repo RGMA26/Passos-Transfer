@@ -207,13 +207,14 @@ begin
 end $$;
 
 -- ===== Sinais de prazo =====
--- Motoristas ativos. Não pausado: a quinzena de hoje é resolvida (criada se preciso);
+-- Motoristas ativos e inativos que ainda têm quinzena aberta ou extrato não pago (active diz
+-- qual). Inativo é tratado como pausado (não cria quinzena). Ativo não pausado: a quinzena de hoje é resolvida (criada se preciso);
 -- 🔴 se há quinzena aberta com end_date < hoje; senão 🟡 se end_date − hoje ≤ 5.
 -- Pausado: quinzena de hoje só se existir; apenas 🔴.
 -- Resiliente: erro ao resolver um motorista (estado inconsistente) não derruba a lista;
 -- ele sai com quinzena e sinal nulos.
 create function driver_period_signals()
-returns table(driver_id uuid, name text, paused boolean, current_period_id uuid,
+returns table(driver_id uuid, name text, paused boolean, active boolean, current_period_id uuid,
               start_date date, end_date date, days_left int, signal text)
 language plpgsql volatile security definer set search_path = public, pg_temp as $$
 declare
@@ -228,16 +229,20 @@ begin
   end if;
 
   for drv in
-    select p.id, p.name, p.paused, p.cycle_start_date from profiles p
-     where p.role = 'driver' and p.active
+    select p.id, p.name, p.paused, p.active, p.cycle_start_date from profiles p
+     where p.role = 'driver'
+       and (p.active
+            or exists (select 1 from driver_periods dp where dp.driver_id = p.id and dp.status = 'open')
+            or exists (select 1 from statements st where st.driver_id = p.id and st.paid_at is null))
      order by p.name, p.id
   loop
     driver_id := drv.id;
     name := drv.name;
     paused := drv.paused;
+    active := drv.active;
     begin
       v_pid := null;
-      if not drv.paused and drv.cycle_start_date is not null and v_today >= drv.cycle_start_date then
+      if drv.active and not drv.paused and drv.cycle_start_date is not null and v_today >= drv.cycle_start_date then
         v_pid := resolve_driver_period(drv.id, v_today);
       else
         select dp.id into v_pid from driver_periods dp
@@ -256,7 +261,7 @@ begin
       days_left := per.end_date - v_today;
       signal := case
         when v_red then 'red'
-        when not drv.paused and per.status = 'open' and per.end_date - v_today <= 5 then 'yellow'
+        when drv.active and not drv.paused and per.status = 'open' and per.end_date - v_today <= 5 then 'yellow'
       end;
     exception when others then
       current_period_id := null;

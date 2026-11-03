@@ -69,6 +69,7 @@ const overview = (over: Partial<api.PeriodOverviewRow> = {}): api.PeriodOverview
   driver_id: 'd1',
   driver_name: 'Maria Souza',
   paused: false,
+  active: true,
   signal: null,
   period_id: 'p1',
   start_date: '2026-10-16',
@@ -126,6 +127,16 @@ describe('lista por motorista', () => {
     expect(within(joao).getByLabelText('Quinzena terminada sem fechamento')).toBeInTheDocument()
     const ana = screen.getByText('Ana Dias').closest('tr')!
     expect(within(ana).getByLabelText('Quinzena termina em até 5 dias')).toBeInTheDocument()
+  })
+
+  it('motorista inativo com pendência aparece marcado (inativo)', async () => {
+    m.listPeriodOverview.mockResolvedValue([
+      overview({ driver_id: 'd9', driver_name: 'Caio Inativo', active: false, signal: 'red', period_id: null, start_date: null, end_date: null, total: null }),
+    ])
+    renderPage()
+    const row = (await screen.findByText(/Caio Inativo/)).closest('tr')!
+    expect(row).toHaveTextContent('Caio Inativo (inativo)')
+    expect(within(row).getByLabelText('Quinzena terminada sem fechamento')).toBeInTheDocument()
   })
 
   it('não tem campo de preço de referência', async () => {

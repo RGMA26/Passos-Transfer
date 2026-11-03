@@ -20,7 +20,7 @@ vi.mock('./supabase', () => ({
     },
   },
 }))
-import { getCurrentPeriod } from './api'
+import { getCurrentPeriod, listPeriodOverview } from './api'
 
 const per = { id: 'p1', start_date: '2026-11-10', end_date: '2026-11-24', status: 'open' }
 
@@ -28,6 +28,26 @@ beforeEach(() => {
   rpc.mockReset()
   calls.length = 0
   tables.driver_periods = per
+})
+
+describe('listPeriodOverview', () => {
+  it('inclui motorista inativo que o banco devolve (quinzena aberta ou extrato não pago)', async () => {
+    tables.profiles = [
+      { id: 'd1', name: 'Ana', active: true },
+      { id: 'd2', name: 'Bia', active: false },
+    ]
+    const sig = (id: string, name: string, active: boolean) => ({
+      driver_id: id, name, paused: false, active, current_period_id: null,
+      start_date: null, end_date: null, days_left: null, signal: active ? null : 'red',
+    })
+    rpc.mockResolvedValue({ data: [sig('d1', 'Ana', true), sig('d2', 'Bia', false)], error: null })
+    const rows = await listPeriodOverview()
+    expect(rows.map((r) => [r.driver_id, r.active, r.signal])).toEqual([
+      ['d1', true, null],
+      ['d2', false, 'red'],
+    ])
+    expect(rpc).toHaveBeenCalledWith('driver_period_signals')
+  })
 })
 
 describe('getCurrentPeriod', () => {

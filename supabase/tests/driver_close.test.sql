@@ -1,5 +1,5 @@
 begin;
-select plan(96);
+select plan(101);
 -- Endereço padrão dos Transfers destas fixtures (check de origem/destino da 0012; revertido no rollback).
 alter table rides
   alter column origin_street set default 'Rua A, 1', alter column origin_district set default 'Centro',
@@ -255,6 +255,20 @@ select throws_ok($$update profiles set paused = false where id = '00000000-0000-
 select set_config('passos.pause_driver', 'on', true);
 update profiles set paused = false where id = '00000000-0000-0000-0000-000000004a27';
 select set_config('passos.pause_driver', '', true);
+-- inativos: S8 com quinzena terminada aberta, S9 com extrato não pago, S10 com tudo fechado e pago
+insert into auth.users (id) values
+  ('00000000-0000-0000-0000-000000004a28'), ('00000000-0000-0000-0000-000000004a29'), ('00000000-0000-0000-0000-000000004a30');
+insert into profiles (id, role, login_code, seq_number, name, driver_type, uber_pct, transfer_pct, current_car_id, active, cpf, cycle_start_date) values
+  ('00000000-0000-0000-0000-000000004a28','driver','dcl-28',9428,'S8','own_car',null,30,null,false,'62000000185',(select d from td) - 30),
+  ('00000000-0000-0000-0000-000000004a29','driver','dcl-29',9429,'S9','own_car',null,30,null,false,'62000000266',(select d from td) - 30),
+  ('00000000-0000-0000-0000-000000004a30','driver','dcl-30',9430,'S10','own_car',null,30,null,false,'62000000347',(select d from td) - 30);
+insert into driver_periods (id, driver_id, start_date, end_date, status) values
+  ('00000000-0000-0000-0000-000000004f28','00000000-0000-0000-0000-000000004a28',(select d from td) - 30,(select d from td) - 16,'open'),
+  ('00000000-0000-0000-0000-000000004f29','00000000-0000-0000-0000-000000004a29',(select d from td) - 30,(select d from td) - 16,'closed'),
+  ('00000000-0000-0000-0000-000000004f30','00000000-0000-0000-0000-000000004a30',(select d from td) - 30,(select d from td) - 16,'closed');
+insert into statements (driver_id, driver_period_id, lines, total, paid_at, payment_method) values
+  ('00000000-0000-0000-0000-000000004a29','00000000-0000-0000-0000-000000004f29','{}',10,null,null),
+  ('00000000-0000-0000-0000-000000004a30','00000000-0000-0000-0000-000000004f30','{}',10,(select d from td) - 10,'pix');
 set local role authenticated;
 create temp table sig as select * from driver_period_signals();
 reset role;
@@ -268,7 +282,14 @@ select is((select start_date from sig where driver_id = '00000000-0000-0000-0000
 select results_eq($$select paused, days_left, signal from sig where driver_id = '00000000-0000-0000-0000-000000004a24'$$,
   $$values (true, 0, null::text)$$, 'pausado com quinzena atual → sem sinal');
 select is((select signal from sig where driver_id = '00000000-0000-0000-0000-000000004a26'), 'red', 'pausado com quinzena terminada aberta → vermelho');
-select is((select count(*)::int from sig where driver_id = '00000000-0000-0000-0000-000000004a25'), 0, 'inativo não aparece');
+select is((select count(*)::int from sig where driver_id = '00000000-0000-0000-0000-000000004a25'), 0, 'inativo sem pendência não aparece');
+select results_eq($$select active, signal, current_period_id from sig where driver_id = '00000000-0000-0000-0000-000000004a28'$$,
+  $$values (false, 'red'::text, null::uuid)$$, 'inativo com quinzena terminada aberta aparece em vermelho');
+select results_eq($$select active, signal from sig where driver_id = '00000000-0000-0000-0000-000000004a29'$$,
+  $$values (false, null::text)$$, 'inativo com extrato não pago aparece');
+select is((select count(*)::int from sig where driver_id = '00000000-0000-0000-0000-000000004a30'), 0, 'inativo com tudo pago não aparece');
+select is((select count(*)::int from driver_periods where driver_id = '00000000-0000-0000-0000-000000004a28'), 1, 'inativo: nenhuma quinzena nova criada');
+select is((select bool_and(active) from sig where driver_id not in ('00000000-0000-0000-0000-000000004a28','00000000-0000-0000-0000-000000004a29')), true, 'demais saem como ativos');
 select is((select current_period_id from sig where driver_id = '00000000-0000-0000-0000-000000004a21'),
   (select id from driver_periods where driver_id = '00000000-0000-0000-0000-000000004a21' and (select d from td) between start_date and end_date),
   'current_period_id é a quinzena de hoje');
