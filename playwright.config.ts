@@ -5,7 +5,8 @@ import { defineConfig, devices } from '@playwright/test'
 
 // E2E contra o Supabase local (npx supabase start) + `npm run dev`.
 // globalSetup e globalTeardown rodam `npx supabase db reset --local`: o teste é repetível e
-// o banco volta ao seed (os testes pgTAP dependem dele).
+// o banco volta ao seed (os testes pgTAP dependem dele). O globalSetup também sobe
+// `npx supabase functions serve` quando as Edge Functions locais não estão no ar.
 
 /** PATH com o Docker Desktop (a CLI do Supabase precisa do `docker`). */
 export function envWithDocker(): NodeJS.ProcessEnv {
@@ -24,10 +25,15 @@ function localSupabase(): { url: string; anon: string } {
 
 const sb = localSupabase()
 
+/** URL da API do Supabase local (usada pelo globalSetup para esperar as Edge Functions). */
+export const localApiUrl = () => sb.url
+/** Chave anon do Supabase local (o E2E confere as regras de acesso direto na API). */
+export const localAnonKey = () => sb.anon
+
 export default defineConfig({
   testDir: './e2e',
   globalSetup: './e2e/global-setup.ts',
-  globalTeardown: './e2e/global-setup.ts',
+  globalTeardown: './e2e/global-teardown.ts',
   timeout: 240_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
