@@ -6,6 +6,8 @@ import MoneyInput from '../components/MoneyInput'
 import { formatBRL } from '../lib/money'
 import { localDate } from '../lib/periods'
 import { MSG_CONFIRM_UNDO } from './helpers'
+import { fmtInt } from '../lib/odometer'
+import OdometerFix from './OdometerFix'
 import AddressFields, { EMPTY_ADDRESS, hasStreetNumber, isAddressComplete } from './AddressFields'
 
 import type { AddressValue } from './AddressFields'
@@ -214,7 +216,14 @@ export default function TransfersPage() {
                 <td>{r.driver_name}</td>
                 <td>{formatBRL(Number(r.amount))}</td>
                 <td>{r.estimated_km === null ? '—' : fmtKm(r.estimated_km)}</td>
-                <td>{r.km === null ? '—' : fmtKm(r.km)}</td>
+                <td>
+                  {r.km === null ? '—' : fmtKm(r.km)}
+                  {r.odometer_start != null && (
+                    <div className="hint">{`${fmtInt(r.odometer_start)} → ${
+                      r.odometer_end == null ? '—' : fmtInt(r.odometer_end)
+                    }`}</div>
+                  )}
+                </td>
                 <td>{STATUS_LABEL[r.transfer_status ?? ''] ?? '—'}</td>
                 <td className="actions">
                   {EDITABLE.includes(r.transfer_status ?? '') && reassignId !== r.id && (
@@ -227,6 +236,16 @@ export default function TransfersPage() {
                     >
                       Editar
                     </button>
+                  )}
+                  {(r.transfer_status === 'in_progress' || r.transfer_status === 'completed') && (
+                    <OdometerFix
+                      key={`${r.id}-${r.odometer_start}-${r.odometer_end}`}
+                      id={r.id}
+                      start={r.odometer_start}
+                      end={r.odometer_end}
+                      withEnd={r.transfer_status === 'completed'}
+                      onDone={() => void load()}
+                    />
                   )}
                   {r.transfer_status === 'checked' && (
                     <button type="button" onClick={() => void unreview(r)}>

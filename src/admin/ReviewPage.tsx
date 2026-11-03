@@ -5,6 +5,8 @@ import * as api from '../lib/api'
 import { formatBRL } from '../lib/money'
 import { conflictText, formatQty, fuelUnit } from '../lib/fuel'
 import { MSG_CONFIRM_UNDO, parseDecimal } from './helpers'
+import { fmtInt } from '../lib/odometer'
+import OdometerFix from './OdometerFix'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
 const MSG_PERIOD_CLOSED = 'Quinzena fechada: não é possível alterar'
@@ -329,11 +331,14 @@ function TransferItem({ transfer: t, onDone }: { transfer: api.PendingTransfer; 
       onDone={onDone}
       photos={photos}
       expenseIds={t.expenses.filter((e) => e.review_status === 'pending').map((e) => e.id)}
+      extra={<OdometerFix id={t.id} start={t.odometer_start} end={t.odometer_end} withEnd onDone={onDone} />}
     >
       <strong>{t.driver_name}</strong>
       <span>{`${t.client_name ?? '—'} · ${fmtWhen(t.scheduled_at)} · ${formatBRL(t.amount)}`}</span>
       {(t.origin || t.destination) && <span>{`${t.origin ?? '—'} → ${t.destination ?? '—'}`}</span>}
-      <span>{`Odômetro ${t.odometer_start ?? '—'} → ${t.odometer_end ?? '—'}`}</span>
+      <span>{`Odômetro ${t.odometer_start == null ? '—' : fmtInt(t.odometer_start)} → ${
+        t.odometer_end == null ? '—' : fmtInt(t.odometer_end)
+      }`}</span>
       <span>{`Km real: ${t.km ?? '—'} · Km estimado: ${t.estimated_km ?? '—'}`}</span>
       {kmAboveEstimate(t.km, t.estimated_km) && <span className="warn">Km acima do estimado</span>}
       {t.odometer_start != null && !t.odometer_start_photo && (

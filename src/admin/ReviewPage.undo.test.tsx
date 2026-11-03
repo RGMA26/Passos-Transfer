@@ -76,3 +76,59 @@ describe('Conferidos recentemente', () => {
     expect(await within(item).findByRole('alert')).toHaveTextContent('Quinzena fechada: não é possível alterar')
   })
 })
+
+const pendingTransfer = (over: Partial<api.PendingTransfer> = {}): api.PendingTransfer => ({
+  id: 't1',
+  driver_name: 'Ana',
+  client_name: 'Hotel Central',
+  amount: 250,
+  km: 9092500,
+  estimated_km: 38,
+  scheduled_at: '2026-10-29T15:00:00Z',
+  origin: 'Rua A',
+  destination: 'Av B',
+  odometer_start: 1010000,
+  odometer_end: 10102500,
+  odometer_start_photo: 'a.jpg',
+  odometer_end_photo: 'b.jpg',
+  expenses: [],
+  ...over,
+})
+
+describe('Corrigir odômetro do Transfer na conferência', () => {
+  it('corrige as leituras e recarrega', async () => {
+    m.listPendingReview.mockResolvedValue({ fuelings: [], shifts: [], transfers: [pendingTransfer()] })
+    m.fixTransferOdometer.mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    renderPage()
+    const s = within(await screen.findByRole('region', { name: 'Transfers concluídos' }))
+    await user.click(s.getByRole('button', { name: 'Corrigir odômetro' }))
+    await user.clear(s.getByLabelText('Odômetro inicial'))
+    await user.type(s.getByLabelText('Odômetro inicial'), '57876')
+    await user.clear(s.getByLabelText('Odômetro final'))
+    await user.type(s.getByLabelText('Odômetro final'), '57925')
+    await user.click(s.getByRole('button', { name: 'Salvar odômetro' }))
+    await waitFor(() => expect(m.fixTransferOdometer).toHaveBeenCalledWith('t1', 57876, 57925))
+    await waitFor(() => expect(m.listPendingReview).toHaveBeenCalledTimes(2))
+  })
+
+  it('final menor que o inicial é bloqueado', async () => {
+    m.listPendingReview.mockResolvedValue({ fuelings: [], shifts: [], transfers: [pendingTransfer()] })
+    const user = userEvent.setup()
+    renderPage()
+    const s = within(await screen.findByRole('region', { name: 'Transfers concluídos' }))
+    await user.click(s.getByRole('button', { name: 'Corrigir odômetro' }))
+    await user.clear(s.getByLabelText('Odômetro final'))
+    await user.type(s.getByLabelText('Odômetro final'), '100')
+    await user.click(s.getByRole('button', { name: 'Salvar odômetro' }))
+    expect(s.getByText('O odômetro final não pode ser menor que o inicial')).toBeInTheDocument()
+    expect(m.fixTransferOdometer).not.toHaveBeenCalled()
+  })
+
+  it('mostra as leituras formatadas', async () => {
+    m.listPendingReview.mockResolvedValue({ fuelings: [], shifts: [], transfers: [pendingTransfer()] })
+    renderPage()
+    const s = within(await screen.findByRole('region', { name: 'Transfers concluídos' }))
+    expect(s.getByText('Odômetro 1.010.000 → 10.102.500')).toBeInTheDocument()
+  })
+})

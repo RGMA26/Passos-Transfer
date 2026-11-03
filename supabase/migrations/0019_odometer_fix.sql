@@ -76,3 +76,45 @@ end $$;
 
 revoke execute on function unreview_item(text, uuid) from public, anon;
 grant execute on function unreview_item(text, uuid) to authenticated;
+
+-- ===== Corrigir odômetro do Transfer (admin) =====
+-- in_progress: só a leitura inicial (p_end nulo); completed: as duas, km = final − inicial.
+-- checked → NOT_CHANGEABLE (desfazer a conferência antes); assigned → NOT_CHANGEABLE.
+-- Quinzena fechada → PERIOD_CLOSED (gatilho block_closed_period). Auditoria: gatilho audit_rides.
+create function admin_fix_transfer_odometer(p_id uuid, p_start int, p_end int)
+returns rides
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  r rides%rowtype;
+begin
+  if not is_admin() then
+    raise exception 'FORBIDDEN' using errcode = 'P0001';
+  end if;
+
+  select * into r from rides where id = p_id and platform = 'transfer' for update;
+  if not found then
+    raise exception 'NOT_FOUND' using errcode = 'P0001';
+  end if;
+  if r.transfer_status not in ('in_progress', 'completed') then
+    raise exception 'NOT_CHANGEABLE' using errcode = 'P0001';
+  end if;
+  if p_start is null or p_start < 0
+     or (r.transfer_status = 'completed' and p_end is null)
+     or (r.transfer_status = 'in_progress' and p_end is not null) then
+    raise exception 'INVALID_ODOMETER' using errcode = 'P0001';
+  end if;
+  if p_end is not null and p_end < p_start then
+    raise exception 'ODOMETER_BELOW_START' using errcode = 'P0001';
+  end if;
+
+  update rides
+     set odometer_start = p_start,
+         odometer_end = p_end,
+         km = case when p_end is null then null else p_end - p_start end
+   where id = r.id
+   returning * into r;
+  return r;
+end $$;
+
+revoke execute on function admin_fix_transfer_odometer(uuid, int, int) from public, anon;
+grant execute on function admin_fix_transfer_odometer(uuid, int, int) to authenticated;

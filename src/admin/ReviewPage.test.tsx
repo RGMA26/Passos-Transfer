@@ -181,7 +181,7 @@ describe('conferência única do transfer', () => {
   it('mostra odômetros, fotos, km real × estimado e as despesas com comprovante', async () => {
     renderPage()
     const t = within(await waitFor(() => section('Transfers concluídos')))
-    expect(t.getByText(/1000 → 1040/)).toBeInTheDocument()
+    expect(t.getByText(/1.000 → 1.040/)).toBeInTheDocument()
     expect(t.getByText(/Km real: 40 · Km estimado: 38/)).toBeInTheDocument()
     expect(t.getByText(/Rua A, 10 – Centro, Palmas\/TO/)).toBeInTheDocument()
     expect(await t.findByRole('img', { name: 'Foto do odômetro inicial' })).toHaveAttribute('src', 'https://signed/t1a.jpg')

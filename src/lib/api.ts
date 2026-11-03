@@ -3,6 +3,7 @@ import type { Car, DriverPeriod, Profile, Ride, RideExpense, Shift, StatementLin
 import type { Database } from './database.types'
 import { localDate } from './periods'
 import { formatBRL } from './money'
+import { fmtInt } from './odometer'
 
 export type Fuel = 'gasolina' | 'alcool' | 'diesel' | 'gnv' | 'eletrico'
 
@@ -1148,6 +1149,16 @@ export async function reviewItem(
   if (error) throw Object.assign(new Error(error.message), { code: error.code })
 }
 
+/** Admin corrige as leituras de um Transfer em andamento (só a inicial) ou concluído (km = final − inicial). */
+export async function fixTransferOdometer(id: string, start: number, end: number | null): Promise<void> {
+  const { error } = await supabase.rpc('admin_fix_transfer_odometer', {
+    p_id: id,
+    p_start: start,
+    p_end: end as number,
+  })
+  if (error) throw Object.assign(new Error(error.message), { code: error.code })
+}
+
 export type UnreviewKind = 'fueling' | 'shift' | 'transfer' | 'expense'
 
 /** Desfaz a conferência (o item volta para a fila). Erro: código do servidor (ex.: PERIOD_CLOSED). */
@@ -1166,9 +1177,6 @@ export interface ReviewedItem {
   status: string
 }
 
-const intFmt = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 })
-/** 10102500 → "10.102.500". */
-export const fmtInt = (n: number) => intFmt.format(Number(n))
 
 /** Conferidos dos últimos 45 dias (abastecimentos, turnos aprovados, Transfers conferidos). */
 export async function listReviewed(): Promise<ReviewedItem[]> {

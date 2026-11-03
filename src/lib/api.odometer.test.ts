@@ -11,7 +11,7 @@ vi.mock('./supabase', () => ({
     },
   },
 }))
-import { unreviewItem } from './api'
+import { fixTransferOdometer, unreviewItem } from './api'
 
 beforeEach(() => {
   result = { data: null, error: null }
@@ -26,5 +26,22 @@ describe('unreviewItem', () => {
   it('erro do servidor vira Error com o código na mensagem', async () => {
     result = { data: null, error: { message: 'PERIOD_CLOSED', code: 'P0001' } }
     await expect(unreviewItem('shift', 's1')).rejects.toThrow('PERIOD_CLOSED')
+  })
+})
+
+describe('fixTransferOdometer', () => {
+  it('chama admin_fix_transfer_odometer com as leituras', async () => {
+    await fixTransferOdometer('t1', 57876, 57925)
+    expect(rpcArgs).toEqual(['admin_fix_transfer_odometer', { p_id: 't1', p_start: 57876, p_end: 57925 }])
+  })
+
+  it('em andamento: leitura final nula', async () => {
+    await fixTransferOdometer('t1', 57876, null)
+    expect(rpcArgs).toEqual(['admin_fix_transfer_odometer', { p_id: 't1', p_start: 57876, p_end: null }])
+  })
+
+  it('erro do servidor vira Error com o código', async () => {
+    result = { data: null, error: { message: 'NOT_CHANGEABLE', code: 'P0001' } }
+    await expect(fixTransferOdometer('t1', 1, 2)).rejects.toThrow('NOT_CHANGEABLE')
   })
 })
