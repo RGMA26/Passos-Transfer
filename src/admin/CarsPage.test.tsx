@@ -27,6 +27,7 @@ const car = (over: Partial<Car> = {}): Car =>
     model: 'Corolla',
     plate: 'ABC1D23',
     fuel_type: 'flex',
+    fuels: ['gasolina', 'alcool'],
     km_per_l_gasolina: 12,
     ownership: 'company',
     current_driver_id: 'd1',
@@ -41,6 +42,8 @@ beforeEach(() => {
     driver({ id: 'd3', name: 'Zé Próprio', driver_type: 'own_car' }),
   ])
   m.listCars.mockResolvedValue([car()])
+  // flex com só a gasolina preenchida: o álcool sem consumo pede confirmação (aceita aqui)
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
 })
 
 async function ready() {
@@ -73,7 +76,7 @@ describe('CarsPage', () => {
     expect(m.createCar).toHaveBeenCalledWith({
       model: 'Onix',
       plate: 'ABC1D24',
-      fuel_type: 'flex',
+      fuels: ['gasolina', 'alcool'],
       km_per_l_gasolina: 11.5,
       km_per_l_alcool: null,
       ownership: 'own',
@@ -111,7 +114,7 @@ describe('CarsPage', () => {
     await user.type(c, '13,2')
     await user.click(screen.getByRole('button', { name: 'Salvar' }))
     await waitFor(() =>
-      expect(m.updateCar).toHaveBeenCalledWith('c1', { model: 'Corolla', fuel_type: 'flex', km_per_l_gasolina: 13.2, km_per_l_alcool: null }),
+      expect(m.updateCar).toHaveBeenCalledWith('c1', { model: 'Corolla', fuels: ['gasolina', 'alcool'], km_per_l_gasolina: 13.2, km_per_l_alcool: null }),
     )
   })
 

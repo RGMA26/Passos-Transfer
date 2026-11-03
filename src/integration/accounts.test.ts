@@ -129,7 +129,7 @@ describe.skipIf(!URL_)('edge functions de contas', () => {
     async function newCar(ownership: 'own' | 'company') {
       const plate = 'T' + Math.random().toString(36).slice(2, 8).toUpperCase()
       const { data, error } = await svc().from('cars')
-        .insert({ model: 'Teste', plate, fuel_type: 'flex', km_per_l_gasolina: 10, ownership }).select('id').single()
+        .insert({ model: 'Teste', plate, fuels: ['gasolina', 'alcool'], km_per_l_gasolina: 10, ownership }).select('id').single()
       if (error) throw error
       carIds.push(data.id)
       return data.id as string

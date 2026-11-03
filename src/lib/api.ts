@@ -707,6 +707,7 @@ export async function listCars(): Promise<Car[]> {
   return must(res) ?? []
 }
 
+/** Tipo antigo (cars.fuel_type, legado da 0011). Hoje o carro guarda o conjunto cars.fuels. */
 export type CarFuelType = 'gnv' | 'diesel' | 'gasolina' | 'alcool' | 'flex' | 'eletrico' | 'hibrido'
 
 /** Consumos por combustível (todos opcionais; null = não cadastrado). */
@@ -721,7 +722,7 @@ export interface CarConsumption {
 export interface NewCarInput extends CarConsumption {
   model: string
   plate: string
-  fuel_type: CarFuelType
+  fuels: Fuel[]
   ownership: 'own' | 'company'
 }
 
@@ -737,7 +738,7 @@ export async function createCar(input: NewCarInput): Promise<void> {
 
 export async function updateCar(
   id: string,
-  patch: { model?: string; fuel_type?: CarFuelType } & CarConsumption,
+  patch: { model?: string; fuels?: Fuel[] } & CarConsumption,
 ): Promise<void> {
   const { error } = await supabase.from('cars').update(patch).eq('id', id)
   if (error) carError(error)

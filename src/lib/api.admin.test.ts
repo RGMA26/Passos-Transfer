@@ -73,7 +73,7 @@ describe('createCar', () => {
   it('23505 vira PLATE_TAKEN', async () => {
     handler = () => ({ error: { message: 'dup', code: '23505' } })
     await expect(
-      createCar({ model: 'X', plate: 'AAA1A11', fuel_type: 'flex', km_per_l_gasolina: 10, ownership: 'own' }),
+      createCar({ model: 'X', plate: 'AAA1A11', fuels: ['gasolina', 'alcool'], km_per_l_gasolina: 10, ownership: 'own' }),
     ).rejects.toMatchObject({ code: 'PLATE_TAKEN' })
   })
 })

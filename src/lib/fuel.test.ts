@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { conflictText, fuelOptions, fuelUnit, round3, valuesConflict } from './fuel'
+import { carFuels, conflictText, fuelOptions, fuelsLabel, fuelUnit, normalizeFuels, round3, valuesConflict } from './fuel'
 
 const norm = (s: string) => s.replace(/[  ]/g, ' ')
 
@@ -11,6 +11,26 @@ describe('combustível', () => {
     expect(fuelOptions('gnv')).toEqual(['gnv'])
     expect(fuelOptions('eletrico')).toEqual(['eletrico'])
     expect(fuelOptions(null)).toHaveLength(5)
+  })
+
+  it('combustíveis do carro: cars.fuels; sem fuels (dado antigo) cai no fuel_type', () => {
+    expect(carFuels({ fuels: ['gasolina', 'alcool', 'gnv'], fuel_type: null })).toEqual(['gasolina', 'alcool', 'gnv'])
+    expect(carFuels({ fuels: ['gnv', 'gasolina', 'gnv'] })).toEqual(['gasolina', 'gnv'])
+    expect(carFuels({ fuel_type: 'flex' })).toEqual(['gasolina', 'alcool'])
+    expect(carFuels({ fuels: [], fuel_type: 'diesel' })).toEqual(['diesel'])
+    expect(carFuels(null)).toHaveLength(5)
+  })
+
+  it('normaliza na ordem fixa e ignora desconhecidos', () => {
+    expect(normalizeFuels(['eletrico', 'querosene', 'gasolina'])).toEqual(['gasolina', 'eletrico'])
+  })
+
+  it('rótulo do conjunto', () => {
+    expect(fuelsLabel(['gasolina', 'alcool'])).toBe('Flex')
+    expect(fuelsLabel(['gasolina', 'alcool', 'gnv'])).toBe('Flex + GNV')
+    expect(fuelsLabel(['gasolina', 'eletrico'])).toBe('Híbrido')
+    expect(fuelsLabel(['gnv'])).toBe('GNV')
+    expect(fuelsLabel(['diesel', 'gnv'])).toBe('Diesel + GNV')
   })
 
   it('unidades', () => {

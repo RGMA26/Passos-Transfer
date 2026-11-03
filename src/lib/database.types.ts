@@ -111,14 +111,14 @@ isOneToOne: false
                   ]
                 },"cars": {
                   Row: {
-                    "created_at": string,"current_driver_id": string | null,"fuel_type": string,"id": string,"km_per_kwh": number | null,"km_per_l_alcool": number | null,"km_per_l_diesel": number | null,"km_per_l_gasolina": number | null,"km_per_m3_gnv": number | null,"model": string,"ownership": string,"plate": string
+                    "created_at": string,"current_driver_id": string | null,"fuel_type": string | null,"fuels": (string)[],"id": string,"km_per_kwh": number | null,"km_per_l_alcool": number | null,"km_per_l_diesel": number | null,"km_per_l_gasolina": number | null,"km_per_m3_gnv": number | null,"model": string,"ownership": string,"plate": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"current_driver_id"?: string | null,"fuel_type": string,"id"?: string,"km_per_kwh"?: number | null,"km_per_l_alcool"?: number | null,"km_per_l_diesel"?: number | null,"km_per_l_gasolina"?: number | null,"km_per_m3_gnv"?: number | null,"model": string,"ownership": string,"plate": string
+                    "created_at"?: string,"current_driver_id"?: string | null,"fuel_type"?: string | null,"fuels": (string)[],"id"?: string,"km_per_kwh"?: number | null,"km_per_l_alcool"?: number | null,"km_per_l_diesel"?: number | null,"km_per_l_gasolina"?: number | null,"km_per_m3_gnv"?: number | null,"model": string,"ownership": string,"plate": string
                   }
                   Update: {
-                    "created_at"?: string,"current_driver_id"?: string | null,"fuel_type"?: string,"id"?: string,"km_per_kwh"?: number | null,"km_per_l_alcool"?: number | null,"km_per_l_diesel"?: number | null,"km_per_l_gasolina"?: number | null,"km_per_m3_gnv"?: number | null,"model"?: string,"ownership"?: string,"plate"?: string
+                    "created_at"?: string,"current_driver_id"?: string | null,"fuel_type"?: string | null,"fuels"?: (string)[],"id"?: string,"km_per_kwh"?: number | null,"km_per_l_alcool"?: number | null,"km_per_l_diesel"?: number | null,"km_per_l_gasolina"?: number | null,"km_per_m3_gnv"?: number | null,"model"?: string,"ownership"?: string,"plate"?: string
                   }
                   Relationships: [
                     {
@@ -419,6 +419,12 @@ isOneToOne: true
 "end_shift":
 { Args: { "p_odometer": number,"p_photo": string,"p_shift_id": string,"p_uber_photo": string }; Returns: Json
                            },
+"fuel_type_label":
+{ Args: { "p_fuels": (string)[] }; Returns: string
+                           },
+"fuels_for_type":
+{ Args: { "p_type": string }; Returns: (string)[]
+                           },
 "generate_login_code":
 { Args: { "p_name": string }; Returns: string
                            },
@@ -444,6 +450,9 @@ isOneToOne: true
 { Args: { "p_month": string }; Returns: {
               "cpf": string,"description": string,"driver_amount": number,"driver_name": string,"gross": number,"kind": string,"login_code": string,"occurred_on": string,"period_label": string,"status": string
             }[]
+                           },
+"normalize_fuels":
+{ Args: { "p_fuels": (string)[] }; Returns: (string)[]
                            },
 "pause_driver":
 { Args: { "p_driver": string,"p_paused_on": string,"p_reason": string }; Returns: undefined

@@ -231,6 +231,18 @@ describe('LaunchTab', () => {
       expect(mEnqueue.mock.calls[0][0].payload).toMatchObject({ fuel: 'gnv', quantity: 10, unit_price: 4.6 })
     })
 
+    it('flex com kit GNV (cars.fuels) oferece gasolina, álcool e GNV; GNV em m³', async () => {
+      mApi.getCar.mockResolvedValue({ id: 'c1', model: 'Polo', plate: 'GDN9J12', fuel_type: null, fuels: ['gasolina', 'alcool', 'gnv'] } as never)
+      const u = await openFueling()
+      const sel = await screen.findByLabelText('Combustível')
+      await waitFor(() =>
+        expect(within(sel).getAllByRole('option').map((o) => o.textContent)).toEqual(['Gasolina', 'Álcool', 'GNV']),
+      )
+      await u.selectOptions(sel, 'gnv')
+      expect(screen.getByLabelText('Quantidade (m³)')).toBeInTheDocument()
+      expect(screen.getByLabelText('Preço por m³')).toBeInTheDocument()
+    })
+
     it('híbrido oferece gasolina e elétrico (kWh)', async () => {
       mApi.getCar.mockResolvedValue(car('hibrido'))
       const u = await openFueling()

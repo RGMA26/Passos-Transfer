@@ -7,7 +7,7 @@ import { useAuth } from '../lib/auth'
 import { enqueue } from '../lib/offline/queue'
 import { localDate } from '../lib/periods'
 import { parseBRL, parseDecimal } from '../lib/money'
-import { FUEL_LABEL, conflictText, fuelOptions, fuelUnit, round3, valuesConflict } from '../lib/fuel'
+import { FUEL_LABEL, carFuels, conflictText, fuelUnit, round3, valuesConflict } from '../lib/fuel'
 import { clearSharedFile, peekSharedFile } from '../lib/share'
 import type { Car, Ride } from '../lib/types'
 import MoneyInput from '../components/MoneyInput'
@@ -231,7 +231,7 @@ function FuelingForm({
   onSaved,
 }: FormProps & { carId: string | null; ownCar: boolean }) {
   const car = useCar(carId)
-  const options = useMemo(() => fuelOptions(car?.fuel_type), [car?.fuel_type])
+  const options = useMemo(() => carFuels(car), [car])
   const [picked, setPicked] = useState<Fuel | null>(null)
   const fuel: Fuel = picked && options.includes(picked) ? picked : options[0]
   const unit = fuelUnit(fuel)

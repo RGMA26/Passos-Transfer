@@ -28,7 +28,7 @@ select col_type_is('public', 'fuelings', 'quantity', 'numeric(8,3)', 'quantity n
 select col_type_is('public', 'fuelings', 'unit_price', 'numeric(7,3)', 'unit_price numeric(7,3)');
 select col_not_null('public', 'fuelings', 'fuel', 'fuel obrigatório');
 select col_not_null('public', 'fuelings', 'photo_path', 'photo_path continua obrigatório');
-select col_not_null('public', 'cars', 'fuel_type', 'fuel_type obrigatório');
+select col_not_null('public', 'cars', 'fuels', 'fuels obrigatório');
 select col_type_is('public', 'cars', 'km_per_m3_gnv', 'numeric(6,2)', 'km_per_m3_gnv numeric(6,2)');
 select hasnt_function('public', 'fuel_price_for', array['uuid','uuid'], 'fuel_price_for removida');
 select ok(not has_function_privilege('authenticated', 'cost_per_km_for(uuid,uuid)', 'execute'), 'cost_per_km_for é interno');
@@ -37,7 +37,7 @@ select ok(not has_function_privilege('authenticated', 'car_consumption(uuid,text
 
 select throws_ok(
   $$insert into cars (model, plate, fuel_type, ownership) values ('X','FUE9Z99','querosene','company')$$,
-  '23514', null, 'fuel_type inválido rejeitado');
+  '23502', null, 'fuel_type inválido rejeitado (sem combustíveis derivados)');
 select throws_ok(
   $$insert into cars (model, plate, fuel_type, km_per_l_gasolina, ownership) values ('X','FUE9Z98','flex',0,'company')$$,
   '23514', null, 'consumo 0 rejeitado');

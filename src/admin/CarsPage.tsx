@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import * as api from '../lib/api'
 import type { Car, Profile } from '../lib/types'
-import type { CarConsumption, CarFuelType } from '../lib/api'
+import type { CarConsumption, Fuel } from '../lib/api'
+import { ALL_FUELS, FUEL_LABEL, carFuels, fuelsLabel, normalizeFuels } from '../lib/fuel'
 import { parseDecimal } from './helpers'
 import CarExpenses from './CarExpenses'
 
@@ -22,16 +23,6 @@ const fmtNum = (n: number) => String(n).replace('.', ',')
 const MSG_NO_CONSUMPTION =
   'Tem certeza que quer cadastrar sem o consumo? Sem ele, a gasolina por km não pode ser calculada.'
 
-const FUEL_LABEL: Record<CarFuelType, string> = {
-  gnv: 'GNV',
-  diesel: 'Diesel',
-  gasolina: 'Gasolina',
-  alcool: 'Álcool',
-  flex: 'Flex',
-  eletrico: 'Elétrico',
-  hibrido: 'Híbrido',
-}
-
 type ConsKey = keyof CarConsumption
 const CONS_FIELDS: Record<ConsKey, { label: string; unit: string }> = {
   km_per_l_gasolina: { label: 'Consumo gasolina', unit: 'km/l' },
@@ -40,15 +31,17 @@ const CONS_FIELDS: Record<ConsKey, { label: string; unit: string }> = {
   km_per_m3_gnv: { label: 'Consumo GNV', unit: 'km/m³' },
   km_per_kwh: { label: 'Consumo elétrico', unit: 'km/kWh' },
 }
-const CONS_BY_FUEL: Record<CarFuelType, ConsKey[]> = {
-  flex: ['km_per_l_gasolina', 'km_per_l_alcool'],
-  hibrido: ['km_per_l_gasolina', 'km_per_kwh'],
-  eletrico: ['km_per_kwh'],
-  gnv: ['km_per_m3_gnv'],
-  diesel: ['km_per_l_diesel'],
-  gasolina: ['km_per_l_gasolina'],
-  alcool: ['km_per_l_alcool'],
+/** Coluna de consumo de cada combustível (car_consumption no banco). */
+const CONS_OF: Record<Fuel, ConsKey> = {
+  gasolina: 'km_per_l_gasolina',
+  alcool: 'km_per_l_alcool',
+  diesel: 'km_per_l_diesel',
+  gnv: 'km_per_m3_gnv',
+  eletrico: 'km_per_kwh',
 }
+const consKeys = (fuels: Fuel[]) => normalizeFuels(fuels).map((f) => CONS_OF[f])
+const FUELS_HELP = 'Flex = Gasolina + Álcool; Híbrido = Gasolina + Elétrico; carro com kit GNV: marque também GNV'
+const MSG_NO_FUEL = 'Marque ao menos um combustível'
 type ConsText = Partial<Record<ConsKey, string>>
 
 const consTextOf = (car: Car): ConsText => {
@@ -60,10 +53,10 @@ const consTextOf = (car: Car): ConsText => {
   return out
 }
 
-/** Consumos preenchidos para o tipo; null = algum valor inválido (<= 0 ou texto). */
-function parseConsumption(fuel: CarFuelType, text: ConsText): CarConsumption | null {
+/** Consumos dos combustíveis marcados; null = algum valor inválido (<= 0 ou texto). */
+function parseConsumption(fuels: Fuel[], text: ConsText): CarConsumption | null {
   const out: CarConsumption = {}
-  for (const k of CONS_BY_FUEL[fuel]) {
+  for (const k of consKeys(fuels)) {
     const raw = (text[k] ?? '').trim()
     if (raw === '') {
       out[k] = null
@@ -76,32 +69,35 @@ function parseConsumption(fuel: CarFuelType, text: ConsText): CarConsumption | n
   return out
 }
 
-const hasNoConsumption = (c: CarConsumption) => Object.values(c).every((v) => v == null)
+/** Algum combustível marcado ficou sem consumo (pede confirmação). */
+const missingConsumption = (c: CarConsumption) => Object.values(c).some((v) => v == null)
 
 function FuelFields({
-  fuel,
-  onFuel,
+  fuels,
+  onFuels,
   text,
   onText,
 }: {
-  fuel: CarFuelType
-  onFuel: (f: CarFuelType) => void
+  fuels: Fuel[]
+  onFuels: (f: Fuel[]) => void
   text: ConsText
   onText: (t: ConsText) => void
 }) {
+  const toggle = (f: Fuel, on: boolean) =>
+    onFuels(normalizeFuels(on ? [...fuels, f] : fuels.filter((x) => x !== f)))
   return (
     <>
-      <label className="field">
-        Combustível
-        <select value={fuel} onChange={(e) => onFuel(e.target.value as CarFuelType)}>
-          {(Object.keys(FUEL_LABEL) as CarFuelType[]).map((f) => (
-            <option key={f} value={f}>
-              {FUEL_LABEL[f]}
-            </option>
-          ))}
-        </select>
-      </label>
-      {CONS_BY_FUEL[fuel].map((k) => (
+      <fieldset className="field">
+        <legend>Combustíveis</legend>
+        {ALL_FUELS.map((f) => (
+          <label key={f} className="check">
+            <input type="checkbox" checked={fuels.includes(f)} onChange={(e) => toggle(f, e.target.checked)} />
+            {FUEL_LABEL[f]}
+          </label>
+        ))}
+        <p className="hint">{FUELS_HELP}</p>
+      </fieldset>
+      {consKeys(fuels).map((k) => (
         <label className="field" key={k}>
           {`${CONS_FIELDS[k].label} (${CONS_FIELDS[k].unit})`}
           <input
@@ -116,8 +112,7 @@ function FuelFields({
 }
 
 const consSummary = (c: Car) => {
-  const fuel = (c.fuel_type ?? 'flex') as CarFuelType
-  const parts = CONS_BY_FUEL[fuel]
+  const parts = consKeys(carFuels(c))
     .filter((k) => c[k] != null)
     .map((k) => `${fmtNum(Number(c[k]))} ${CONS_FIELDS[k].unit}`)
   return parts.length ? parts.join(' / ') : '—'
@@ -201,7 +196,7 @@ export default function CarsPage() {
               <tr key={c.id}>
                 <td>{c.model}</td>
                 <td>{c.plate}</td>
-                <td>{FUEL_LABEL[(c.fuel_type ?? 'flex') as CarFuelType]}</td>
+                <td>{fuelsLabel(carFuels(c))}</td>
                 <td>{consSummary(c)}</td>
                 <td>{c.ownership === 'company' ? 'Empresa' : 'Próprio'}</td>
                 <td>{(c.current_driver_id && driverById.get(c.current_driver_id)?.name) || '—'}</td>
@@ -252,7 +247,7 @@ export default function CarsPage() {
 function NewCarForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: () => void }) {
   const [model, setModel] = useState('')
   const [plate, setPlate] = useState('')
-  const [fuel, setFuel] = useState<CarFuelType>('flex')
+  const [fuels, setFuels] = useState<Fuel[]>(['gasolina', 'alcool'])
   const [cons, setCons] = useState<ConsText>({})
   const [ownership, setOwnership] = useState<'company' | 'own'>('company')
   const [error, setError] = useState('')
@@ -262,16 +257,17 @@ function NewCarForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: 
     e.preventDefault()
     if (!model.trim()) return setError('Informe o modelo')
     if (!plate.trim()) return setError('Informe a placa')
-    const parsed = parseConsumption(fuel, cons)
+    if (fuels.length === 0) return setError(MSG_NO_FUEL)
+    const parsed = parseConsumption(fuels, cons)
     if (!parsed) return setError(MSG_CONSUMPTION)
     setError('')
-    if (hasNoConsumption(parsed) && !window.confirm(MSG_NO_CONSUMPTION)) return
+    if (missingConsumption(parsed) && !window.confirm(MSG_NO_CONSUMPTION)) return
     setBusy(true)
     try {
       await api.createCar({
         model: model.trim(),
         plate: plate.trim().toUpperCase(),
-        fuel_type: fuel,
+        fuels,
         ...parsed,
         ownership,
       })
@@ -293,7 +289,7 @@ function NewCarForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: 
         Placa
         <input value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} />
       </label>
-      <FuelFields fuel={fuel} onFuel={setFuel} text={cons} onText={setCons} />
+      <FuelFields fuels={fuels} onFuels={setFuels} text={cons} onText={setCons} />
       <label className="field">
         Propriedade
         <select value={ownership} onChange={(e) => setOwnership(e.target.value as 'company' | 'own')}>
@@ -314,18 +310,19 @@ function NewCarForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: 
 
 function EditCar({ car, onDone }: { car: Car; onDone: (changed: boolean) => void }) {
   const [model, setModel] = useState(car.model)
-  const [fuel, setFuel] = useState<CarFuelType>((car.fuel_type ?? 'flex') as CarFuelType)
+  const [fuels, setFuels] = useState<Fuel[]>(() => carFuels(car))
   const [cons, setCons] = useState<ConsText>(consTextOf(car))
   const [error, setError] = useState('')
 
   async function save() {
     if (!model.trim()) return setError('Informe o modelo')
-    const parsed = parseConsumption(fuel, cons)
+    if (fuels.length === 0) return setError(MSG_NO_FUEL)
+    const parsed = parseConsumption(fuels, cons)
     if (!parsed) return setError(MSG_CONSUMPTION)
     setError('')
-    if (hasNoConsumption(parsed) && !window.confirm(MSG_NO_CONSUMPTION)) return
+    if (missingConsumption(parsed) && !window.confirm(MSG_NO_CONSUMPTION)) return
     try {
-      await api.updateCar(car.id, { model: model.trim(), fuel_type: fuel, ...parsed })
+      await api.updateCar(car.id, { model: model.trim(), fuels, ...parsed })
       onDone(true)
     } catch (err) {
       setError(carErrorMessage(err))
@@ -338,7 +335,7 @@ function EditCar({ car, onDone }: { car: Car; onDone: (changed: boolean) => void
         Novo modelo
         <input value={model} onChange={(e) => setModel(e.target.value)} />
       </label>
-      <FuelFields fuel={fuel} onFuel={setFuel} text={cons} onText={setCons} />
+      <FuelFields fuels={fuels} onFuels={setFuels} text={cons} onText={setCons} />
       {error && <p className="error" role="alert">{error}</p>}
       <button type="button" onClick={() => void save()}>
         Salvar

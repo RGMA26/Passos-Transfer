@@ -119,12 +119,18 @@ test('fluxo completo: cadastro → turno → Transfer → conferência → fecha
   await admin.getByRole('button', { name: 'Novo carro' }).click()
   await admin.getByLabel('Modelo', { exact: true }).fill('Gol')
   await admin.getByLabel('Placa', { exact: true }).fill('PAS3C45')
-  await admin.getByLabel(/^Combustível/).selectOption('flex')
+  // combustíveis por caixas: flex (já marcado) + kit GNV
+  await expect(admin.getByRole('checkbox', { name: 'Gasolina' })).toBeChecked()
+  await expect(admin.getByRole('checkbox', { name: 'Álcool' })).toBeChecked()
+  await admin.getByRole('checkbox', { name: 'GNV' }).check()
   await admin.getByLabel('Consumo gasolina (km/l)').fill('10')
+  await admin.getByLabel('Consumo álcool (km/l)').fill('7')
+  await admin.getByLabel('Consumo GNV (km/m³)').fill('13')
   await admin.getByLabel('Propriedade').selectOption('company')
   await admin.getByRole('button', { name: 'Criar carro' }).click()
   const carRow = admin.getByRole('row', { name: /PAS3C45/ })
   await expect(carRow).toContainText('10 km/l')
+  await expect(carRow).toContainText('Flex + GNV')
 
   // gasto recorrente do carro da empresa (entra no Resultado do mês)
   await carRow.getByRole('button', { name: 'Gastos' }).click()
@@ -201,6 +207,7 @@ test('fluxo completo: cadastro → turno → Transfer → conferência → fecha
   // ---------- 4. abastecimentos: nota em PDF; depois conflito e "Salvar mesmo assim" ----------
   await driver.getByRole('button', { name: 'Abastecimento' }).click()
   await expect(driver.getByLabel(/^Combustível/)).toHaveValue('gasolina')
+  await expect(driver.getByLabel(/^Combustível/).locator('option')).toHaveText(['Gasolina', 'Álcool', 'GNV'])
   await driver.getByLabel('Valor total').fill('200,00')
   await driver.getByLabel('Quantidade (L)').fill('40')
   await driver.getByLabel('Preço por L').fill('5,00')

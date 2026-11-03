@@ -9,7 +9,9 @@ export const FUEL_LABEL: Record<Fuel, string> = {
   eletrico: 'Elétrico',
 }
 
-const ALL: Fuel[] = ['gasolina', 'alcool', 'diesel', 'gnv', 'eletrico']
+/** Ordem fixa dos combustíveis (a mesma do banco). */
+export const ALL_FUELS: Fuel[] = ['gasolina', 'alcool', 'diesel', 'gnv', 'eletrico']
+const ALL = ALL_FUELS
 
 /** Combustíveis aceitos pelo tipo do carro (spec §9.1); tipo desconhecido → todos. */
 export function fuelOptions(fuelType: string | null | undefined): Fuel[] {
@@ -27,6 +29,31 @@ export function fuelOptions(fuelType: string | null | undefined): Fuel[] {
     default:
       return ALL
   }
+}
+
+/** Ordem fixa, sem repetidos, só combustíveis conhecidos. */
+export function normalizeFuels(fuels: readonly string[]): Fuel[] {
+  return ALL_FUELS.filter((f) => fuels.includes(f))
+}
+
+/**
+ * Combustíveis do carro (cars.fuels). Carro lido antes da 0017 (sem fuels) usa o tipo antigo;
+ * carro desconhecido → todos.
+ */
+export function carFuels(car: { fuels?: readonly string[] | null; fuel_type?: string | null } | null | undefined): Fuel[] {
+  const own = Array.isArray(car?.fuels) ? normalizeFuels(car.fuels) : []
+  return own.length > 0 ? own : fuelOptions(car?.fuel_type)
+}
+
+/** Rótulo curto: "Flex", "Flex + GNV", "Híbrido", "Diesel + GNV"… */
+export function fuelsLabel(fuels: readonly string[]): string {
+  const f = normalizeFuels(fuels)
+  if (f.length === 2 && f[0] === 'gasolina' && f[1] === 'eletrico') return 'Híbrido'
+  const parts: string[] = []
+  const flex = f.includes('gasolina') && f.includes('alcool')
+  if (flex) parts.push('Flex')
+  for (const x of f) if (!(flex && (x === 'gasolina' || x === 'alcool'))) parts.push(FUEL_LABEL[x])
+  return parts.join(' + ')
 }
 
 /** Unidade da quantidade: L, m³ (GNV) ou kWh (elétrico). */
