@@ -58,7 +58,11 @@ describe('opLabel', () => {
     [{ kind: 'insert_expense', payload: { kind: 'toll', amount: 15 } }, /^Pedágio R\$\s15,00 de 30\/10$/],
     [{ kind: 'start_shift', payload: { odometer: 1000 } }, /^Início de turno \(odômetro 1000\) de 30\/10$/],
     [{ kind: 'end_shift', payload: { odometer: 1100 } }, /^Encerramento de turno \(odômetro 1100\) de 30\/10$/],
-    [{ kind: 'complete_transfer', payload: { km: 20 } }, /^Conclusão de transfer \(20 km\) de 30\/10$/],
+    [{ kind: 'complete_transfer', payload: { ride_id: 'r', odometer: 5042 } }, /^Conclusão de Transfer \(odômetro 5042\) de 30\/10$/],
+    [{ kind: 'start_transfer', payload: { ride_id: 'r', odometer: 5000 } }, /^Início de Transfer \(odômetro 5000\) de 30\/10$/],
+    [{ kind: 'attach_photo', payload: { target: 'shift_start', id: 's' } }, /^Foto do odômetro \(início do turno\) de 30\/10$/],
+    [{ kind: 'attach_photo', payload: { target: 'shift_uber', id: 's' } }, /^Print da Uber do turno de 30\/10$/],
+    [{ kind: 'attach_photo', payload: { target: 'transfer_end', id: 'r' } }, /^Foto do odômetro \(fim do Transfer\) de 30\/10$/],
   ] as const)('%j', (over, re) => {
     expect(opLabel(failed(over as Partial<QueuedOp>))).toMatch(re)
   })

@@ -5,6 +5,13 @@ import type { QueuedOp } from '../lib/offline/queue'
 import { formatBRL } from '../lib/money'
 
 const PLATFORM: Record<string, string> = { uber: 'Uber', blablacar: 'BlaBlaCar', transfer: 'Transfer' }
+const ATTACH: Record<string, string> = {
+  shift_start: 'Foto do odômetro (início do turno)',
+  shift_end: 'Foto do odômetro (fim do turno)',
+  shift_uber: 'Print da Uber do turno',
+  transfer_start: 'Foto do odômetro (início do Transfer)',
+  transfer_end: 'Foto do odômetro (fim do Transfer)',
+}
 
 /** 'YYYY-MM-DD' -> 'dd/mm'; sem data usa o dia em que a op foi criada. */
 function day(value: unknown, createdAt: number): string {
@@ -31,8 +38,12 @@ export function opLabel(op: QueuedOp): string {
       return `Início de turno (odômetro ${p.odometer}) de ${when()}`
     case 'end_shift':
       return `Encerramento de turno (odômetro ${p.odometer}) de ${when()}`
+    case 'start_transfer':
+      return `Início de Transfer (odômetro ${p.odometer}) de ${when()}`
     case 'complete_transfer':
-      return `Conclusão de transfer (${p.km} km) de ${when()}`
+      return `Conclusão de Transfer (odômetro ${p.odometer}) de ${when()}`
+    case 'attach_photo':
+      return `${ATTACH[String(p.target)] ?? 'Foto'} de ${when()}`
     case 'update_ride':
       return `Edição de corrida (${money(p.amount)}) de ${when()}`
     case 'delete_ride':

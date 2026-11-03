@@ -173,13 +173,14 @@ export async function startShift(a: {
   id: string
   car_id: string
   odometer: number
-  photo: string
+  /** null = a foto não subiu; vem depois por attachPhoto (pendência 📷 no admin até lá) */
+  photo: string | null
 }): Promise<void> {
   const { error, status } = await supabase.rpc('start_shift', {
     p_id: a.id,
     p_car_id: a.car_id,
     p_odometer: a.odometer,
-    p_photo: a.photo,
+    p_photo: a.photo as string,
   })
   if (error) fail(error, status)
 }
@@ -194,13 +195,13 @@ export interface EndShiftResult {
 export async function endShift(a: {
   shift_id: string
   odometer: number
-  photo: string
+  photo: string | null
   uber_photo?: string | null
 }): Promise<EndShiftResult> {
   const { data, error, status } = await supabase.rpc('end_shift', {
     p_shift_id: a.shift_id,
     p_odometer: a.odometer,
-    p_photo: a.photo,
+    p_photo: a.photo as string,
     // o parâmetro precisa estar sempre no corpo (PostgREST não resolve sem ele); null = sem print
     p_uber_photo: (a.uber_photo ?? null) as string,
   })
@@ -208,21 +209,31 @@ export async function endShift(a: {
   return data as unknown as EndShiftResult
 }
 
-export async function startTransfer(a: { ride_id: string; odometer: number; photo: string }): Promise<void> {
+export async function startTransfer(a: { ride_id: string; odometer: number; photo: string | null }): Promise<void> {
   const { error, status } = await supabase.rpc('start_transfer', {
     p_ride_id: a.ride_id,
     p_odometer: a.odometer,
-    p_photo: a.photo,
+    p_photo: a.photo as string,
   })
   if (error) fail(error, status)
 }
 
-export async function completeTransfer(a: { ride_id: string; odometer: number; photo: string }): Promise<void> {
+export async function completeTransfer(a: { ride_id: string; odometer: number; photo: string | null }): Promise<void> {
   const { error, status } = await supabase.rpc('complete_transfer', {
     p_ride_id: a.ride_id,
     p_odometer: a.odometer,
-    p_photo: a.photo,
+    p_photo: a.photo as string,
   })
+  if (error) fail(error, status)
+}
+
+/** Anexa a foto do odômetro / print da Uber que não subiu junto (só preenche se ainda estiver vazia). */
+export async function attachPhoto(a: {
+  target: 'shift_start' | 'shift_end' | 'shift_uber' | 'transfer_start' | 'transfer_end'
+  id: string
+  path: string
+}): Promise<void> {
+  const { error, status } = await supabase.rpc('attach_photo', { p_target: a.target, p_id: a.id, p_path: a.path })
   if (error) fail(error, status)
 }
 

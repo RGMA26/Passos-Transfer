@@ -13,6 +13,7 @@ const api = vi.hoisted(() => ({
   deleteRide: vi.fn(),
   updateFueling: vi.fn(),
   deleteFueling: vi.fn(),
+  attachPhoto: vi.fn(),
 }))
 const photos = vi.hoisted(() => ({ uploadPhoto: vi.fn() }))
 vi.mock('../api', () => api)
@@ -22,7 +23,8 @@ vi.mock('../supabase', () => ({
   supabase: { auth: { getSession: async () => ({ data: { session: uid ? { user: { id: uid } } : null } }) } },
 }))
 
-import { enqueue, flush, listOps, discardOp, onQueueChange, retryOp } from './queue'
+import { openDB } from 'idb'
+import { enqueue, flush, listOps, discardOp, onQueueChange, retryOp, readStoredPhoto, PhotoLostError } from './queue'
 import type { QueuedOp } from './queue'
 
 function op(id: string, over: Partial<QueuedOp> = {}): Omit<QueuedOp, 'status' | 'createdAt'> {
@@ -258,5 +260,154 @@ describe('fila offline', () => {
     await enqueue(op('a'))
     await flush()
     expect((await listOps())[0].status).toBe('failed')
+  })
+
+  // ---------- fotos robustas e fila que não trava (fix 2026-11-03) ----------
+
+  const netErr = () => new TypeError('Failed to fetch')
+  const photo = (field = 'photo', photoId = 'p') => ({ field, photoId, blob: new Blob(['abc'], { type: 'image/jpeg' }) })
+  /** Grava uma op "antiga" direto no IndexedDB (formato com Blob). */
+  async function putRaw(o: Record<string, unknown>) {
+    const db = await openDB('passos-queue', 1)
+    await db.put('ops', { status: 'pending', createdAt: Date.now() * 1000, ...o })
+    db.close()
+  }
+  const lostBlob = () => {
+    const b = new Blob(['x'])
+    Object.defineProperty(b, 'arrayBuffer', { value: () => Promise.reject(new DOMException('gone', 'NotReadableError')) })
+    return b
+  }
+
+  it('guarda a foto como bytes (ArrayBuffer + tipo), não como Blob, e reconstrói no envio', async () => {
+    uid = null // não envia: só inspeciona o que foi gravado
+    await enqueue(op('f', { kind: 'insert_fueling', payload: { id: 'f' }, photos: [photo('photo_path', 'p1')] }))
+    const [stored] = await listOps()
+    const ph = stored.photos[0] as unknown as Record<string, unknown>
+    expect(ph.blob).toBeUndefined()
+    expect(Object.prototype.toString.call(ph.bytes)).toBe('[object ArrayBuffer]')
+    expect(ph.type).toBe('image/jpeg')
+    uid = 'u1'
+    await flush()
+    const sent = photos.uploadPhoto.mock.calls[0][0] as Blob
+    expect(sent).toBeInstanceOf(Blob)
+    expect(sent.type).toBe('image/jpeg')
+    expect(await sent.text()).toBe('abc')
+  })
+
+  it('op antiga com Blob: lê os bytes se o Blob ainda é legível; senão, PhotoLostError', async () => {
+    const ok = await readStoredPhoto({ field: 'f', photoId: 'p', blob: new Blob(['z'], { type: 'image/jpeg' }) })
+    expect(ok.type).toBe('image/jpeg')
+    expect(await ok.text()).toBe('z')
+    await expect(readStoredPhoto({ field: 'f', photoId: 'p', blob: lostBlob() })).rejects.toBeInstanceOf(PhotoLostError)
+    // o que o IndexedDB devolve quando o Blob não sobreviveu (objeto vazio)
+    await expect(readStoredPhoto({ field: 'f', photoId: 'p', blob: {} as Blob })).rejects.toBeInstanceOf(PhotoLostError)
+  })
+
+  it.each([
+    ['start_shift', 'startShift', { id: 's1', car_id: 'c', odometer: 10 }, 'photo', 'shift_start', 's1'],
+    ['end_shift', 'endShift', { shift_id: 's1', odometer: 20 }, 'photo', 'shift_end', 's1'],
+    ['end_shift', 'endShift', { shift_id: 's1', odometer: 20 }, 'uber_photo', 'shift_uber', 's1'],
+    ['start_transfer', 'startTransfer', { ride_id: 'r1', odometer: 10 }, 'photo', 'transfer_start', 'r1'],
+    ['complete_transfer', 'completeTransfer', { ride_id: 'r1', odometer: 20 }, 'photo', 'transfer_end', 'r1'],
+  ] as const)('%s: foto que não sobe não trava — envia sem a foto e anexa depois (%s/%s)', async (kind, fn, payload, field, target, id) => {
+    photos.uploadPhoto.mockRejectedValue(netErr())
+    await enqueue(op('a', { kind, payload: { ...payload }, photos: [photo(field, 'ph')] }))
+    await enqueue(op('b')) // corrida lançada depois
+    await flush()
+    expect(api[fn]).toHaveBeenCalledWith(expect.objectContaining({ [field]: null }))
+    expect(api.insertRide).toHaveBeenCalledTimes(1) // a fila andou
+    const ops = await listOps()
+    expect(ops.map((o) => o.kind)).toEqual(['attach_photo'])
+    expect(ops[0]).toMatchObject({ status: 'pending', payload: { target, id } })
+    // a rede volta: a foto sobe e é anexada
+    photos.uploadPhoto.mockReset().mockImplementation(async (_b, d, p) => `${d}/${p}.jpg`)
+    await flush()
+    expect(api.attachPhoto).toHaveBeenCalledWith({ target, id, path: 'u1/ph.jpg' })
+    expect(await listOps()).toEqual([])
+  })
+
+  it('attach_photo que falha não segura as ops seguintes', async () => {
+    photos.uploadPhoto.mockRejectedValue(netErr())
+    await enqueue(op('s', { kind: 'start_transfer', payload: { ride_id: 'r', odometer: 1 }, photos: [photo()] }))
+    await flush()
+    await enqueue(op('c', { kind: 'complete_transfer', payload: { ride_id: 'r', odometer: 9 } }))
+    await flush()
+    expect(api.completeTransfer).toHaveBeenCalledWith({ ride_id: 'r', odometer: 9 })
+    expect((await listOps()).map((o) => o.kind)).toEqual(['attach_photo'])
+  })
+
+  it('Blob antigo ilegível (iOS) em início de Transfer: envia sem foto, sem anexo, e a fila anda', async () => {
+    await putRaw({ id: 'st', kind: 'start_transfer', ownerId: 'u1', payload: { ride_id: 'r', odometer: 5 }, photos: [{ field: 'photo', photoId: 'p', blob: lostBlob() }] })
+    await enqueue(op('b'))
+    await flush()
+    expect(api.startTransfer).toHaveBeenCalledWith({ ride_id: 'r', odometer: 5, photo: null })
+    expect(api.insertRide).toHaveBeenCalledTimes(1)
+    expect(await listOps()).toEqual([])
+  })
+
+  it('comprovante ilegível: op fica failed com mensagem clara e a fila anda', async () => {
+    await putRaw({ id: 'f', kind: 'insert_fueling', ownerId: 'u1', payload: { id: 'f' }, photos: [{ field: 'photo_path', photoId: 'p', blob: lostBlob() }] })
+    await enqueue(op('b'))
+    await flush()
+    expect(api.insertFueling).not.toHaveBeenCalled()
+    expect(api.insertRide).toHaveBeenCalledTimes(1)
+    expect(await listOps()).toEqual([
+      expect.objectContaining({ id: 'f', status: 'failed', error: 'Não enviado: a foto do comprovante se perdeu. Exclua e lance de novo.' }),
+    ])
+  })
+
+  it('comprovante que não sobe por rede continua obrigatório (op fica pending)', async () => {
+    photos.uploadPhoto.mockRejectedValue(netErr())
+    await enqueue(op('f', { kind: 'insert_fueling', payload: { id: 'f' }, photos: [photo('photo_path')] }))
+    await flush()
+    expect(api.insertFueling).not.toHaveBeenCalled()
+    expect((await listOps())[0]).toMatchObject({ status: 'pending', attempts: 1 })
+  })
+
+  it('5 falhas transitórias seguidas: op fica failed, as seguintes continuam pending e não passam na frente', async () => {
+    api.insertRide.mockImplementation(async (p: { id: string }) => {
+      if (p.id === 'a') throw netErr()
+    })
+    await enqueue(op('a'))
+    await enqueue(op('b'))
+    for (let i = 0; i < 4; i++) await flush()
+    expect((await listOps()).map((o) => [o.id, o.status, o.attempts])).toEqual([['a', 'pending', 4], ['b', 'pending', undefined]])
+    await flush()
+    expect((await listOps()).map((o) => [o.id, o.status])).toEqual([['a', 'failed'], ['b', 'pending']])
+    expect((await listOps())[0].error).toBe('Não enviado: falha de conexão ao enviar. Tente de novo.')
+    await flush() // a travada continua segurando a fila
+    expect(api.insertRide.mock.calls.some(([p]) => p.id === 'b')).toBe(false)
+    // "Tentar de novo" com a rede boa envia as duas, na ordem
+    api.insertRide.mockReset().mockResolvedValue(undefined)
+    await retryOp('a')
+    await flush()
+    expect(api.insertRide.mock.calls.map(([p]) => p.id)).toEqual(['a', 'b'])
+    expect(await listOps()).toEqual([])
+  })
+
+  it('sem rede (navigator offline) não conta tentativa', async () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true })
+    api.insertRide.mockRejectedValue(netErr())
+    await enqueue(op('a'))
+    for (let i = 0; i < 6; i++) await flush()
+    expect((await listOps())[0]).toMatchObject({ status: 'pending' })
+    expect((await listOps())[0].attempts ?? 0).toBe(0)
+  })
+
+  it('"Tentar de novo" durante um envio em andamento que cai por rede ainda reenvia', async () => {
+    api.insertRide.mockRejectedValueOnce(codeErr('PERIOD_CLOSED'))
+    await enqueue(op('x'))
+    await flush()
+    expect((await listOps())[0].status).toBe('failed')
+    let release!: (e: unknown) => void
+    api.insertRide.mockReset().mockImplementationOnce(() => new Promise((_r, rej) => (release = rej)))
+    api.insertRide.mockResolvedValue(undefined)
+    await enqueue(op('y'))
+    await new Promise((r) => setTimeout(r, 10)) // 'y' em envio
+    await retryOp('x')
+    release(netErr()) // a passada atual cai por rede
+    await new Promise((r) => setTimeout(r, 30))
+    expect(api.insertRide.mock.calls.map(([p]) => p.id)).toContain('x')
+    expect((await listOps()).map((o) => o.id)).not.toContain('x')
   })
 })
