@@ -134,7 +134,7 @@ Entre como admin no computador e faça, nesta ordem:
 Só para quem **já tem o app no ar** com a versão anterior. Faça uma vez, nesta ordem, no computador, dentro da pasta do código (já ligada ao projeto pelo passo 2):
 
 1. **Backup:** no painel do Supabase, em **Database → Backups**, confira se há um backup recente.
-2. **Motorista de teste:** os dados do motorista de teste (lançamentos, turnos, quinzenas) são apagados **antes** da atualização. Quem cuida disso é o responsável técnico, e só depois de você confirmar. Não há dados reais a migrar.
+2. **Motorista de teste:** os dados do motorista de teste (lançamentos, turnos, quinzenas) são apagados **antes** da atualização. Quem cuida disso é o responsável técnico, e só depois de você confirmar. Não há dados reais a migrar. Atenção: a atualização exige CPF de todo motorista; se houver outro motorista cadastrado sem CPF além do de teste, o `db push` falha. Nesse caso, fale com o responsável técnico antes.
 3. **Aplicar as mudanças no banco** (migrações `0010` a `0014`: quinzena de cada motorista, CPF, combustível e consumo, Transfer com Iniciar/Concluir, pausa, gastos dos carros, documentos e Balanço mensal):
 
    ```bash
@@ -148,7 +148,7 @@ Só para quem **já tem o app no ar** com a versão anterior. Faça uma vez, nes
    npx supabase functions deploy create-driver update-driver estimate-route
    ```
 
-5. **Conferir:** entre como admin e veja se aparecem o menu **Balanço mensal**, as bolinhas no **Início** e o campo **CPF** no cadastro de motorista. Depois, em **Motoristas → Editar**, preencha o **CPF** dos motoristas que já existiam.
+5. **Conferir:** entre como admin e veja se aparecem o menu **Balanço mensal**, as bolinhas no **Início** e o campo **CPF** no cadastro de motorista.
 
 ## Fechamento da quinzena
 
