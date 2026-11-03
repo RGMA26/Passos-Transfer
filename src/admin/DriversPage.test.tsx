@@ -308,6 +308,29 @@ describe('ações', () => {
     expect(m.driverAccess).not.toHaveBeenCalled()
   })
 
+  it('excluir confirma avisando que o código fica livre e recarrega', async () => {
+    m.driverAccess.mockResolvedValue({})
+    const user = await ready()
+    await user.click(screen.getByRole('button', { name: 'Excluir motorista' }))
+    expect(confirmSpy).toHaveBeenCalledWith('Excluir Maria Souza? O código PASSOS01 ficará livre para um novo motorista.')
+    await waitFor(() => expect(m.driverAccess).toHaveBeenCalledWith('d1', 'delete'))
+    await waitFor(() => expect(m.listDrivers).toHaveBeenCalledTimes(2))
+  })
+
+  it('excluir motorista com lançamentos mostra "Use Desativar"', async () => {
+    m.driverAccess.mockRejectedValue(Object.assign(new Error('HAS_ENTRIES'), { code: 'HAS_ENTRIES' }))
+    const user = await ready()
+    await user.click(screen.getByRole('button', { name: 'Excluir motorista' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Este motorista tem lançamentos. Use Desativar.')
+  })
+
+  it('excluir cancelado não chama o servidor', async () => {
+    confirmSpy.mockReturnValue(false)
+    const user = await ready()
+    await user.click(screen.getByRole('button', { name: 'Excluir motorista' }))
+    expect(m.driverAccess).not.toHaveBeenCalled()
+  })
+
   it('reativar não pede confirmação', async () => {
     m.listDrivers.mockResolvedValue([driver({ active: false })])
     m.driverAccess.mockResolvedValue({})

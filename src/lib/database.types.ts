@@ -405,6 +405,9 @@ isOneToOne: true
 "cost_per_km_for":
 { Args: { "p_driver": string,"p_period": string }; Returns: Json
                            },
+"delete_driver":
+{ Args: { "p_driver_id": string }; Returns: string
+                           },
 "driver_period_for":
 { Args: { "p_date": string,"p_driver": string }; Returns: string
                            },

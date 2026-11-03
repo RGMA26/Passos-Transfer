@@ -49,45 +49,56 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { data: code, error: codeErr } = await admin.rpc('generate_login_code', { p_name: name })
-    if (codeErr || typeof code !== 'string') {
-      const invalid = codeErr?.message?.includes('INVALID_NAME')
-      return invalid ? json({ error: 'INVALID_NAME' }, 400) : json({ error: 'CREATE_FAILED' }, 500)
-    }
-    const seq = Number(/^PASSOS(\d+)/.exec(code)?.[1])
+    // O número do código é o menor livre (números de motoristas excluídos voltam). Dois cadastros
+    // ao mesmo tempo podem receber o mesmo número: o segundo colide no seq_number e tenta de novo.
     const pin = randomPin()
+    let code = ''
+    let userId = ''
+    for (let attempt = 0; ; attempt++) {
+      if (attempt >= 3) return json({ error: 'CREATE_FAILED' }, 500)
+      const { data: gen, error: codeErr } = await admin.rpc('generate_login_code', { p_name: name })
+      if (codeErr || typeof gen !== 'string') {
+        const invalid = codeErr?.message?.includes('INVALID_NAME')
+        return invalid ? json({ error: 'INVALID_NAME' }, 400) : json({ error: 'CREATE_FAILED' }, 500)
+      }
+      code = gen
+      const seq = Number(/^PASSOS(\d+)/.exec(code)?.[1])
 
-    const { data: created, error: userErr } = await admin.auth.admin.createUser({
-      email: `${code.toLowerCase()}@login.passostransfer.app`,
-      password: pin,
-      email_confirm: true,
-    })
-    if (userErr || !created.user) return json({ error: 'CREATE_FAILED' }, 500)
-    const userId = created.user.id
+      const { data: created, error: userErr } = await admin.auth.admin.createUser({
+        email: `${code.toLowerCase()}@login.passostransfer.app`,
+        password: pin,
+        email_confirm: true,
+      })
+      if (userErr || !created.user) {
+        // mesmo e-mail (mesmo número e nome) criado por um cadastro concorrente: tenta outro número
+        if (/already|registered|exists/i.test(userErr?.message ?? '')) continue
+        return json({ error: 'CREATE_FAILED' }, 500)
+      }
+      userId = created.user.id
 
-    const rollback = async () => {
+      const { error: profErr } = await admin.from('profiles').insert({
+        id: userId,
+        role: 'driver',
+        login_code: code,
+        seq_number: seq,
+        name,
+        phone,
+        cpf,
+        driver_type: driverType,
+        uber_pct: driverType === 'company_car' ? body.uber_pct : null,
+        transfer_pct: body.transfer_pct,
+        must_change_password: true,
+      })
+      if (!profErr) break
       await admin.auth.admin.deleteUser(userId)
+      const detail = `${profErr.message} ${profErr.details ?? ''}`
+      if (profErr.code === '23505' && /cpf/i.test(detail)) return json({ error: 'CPF_TAKEN' }, 400)
+      if (profErr.code === '23505' && /seq_number|login_code/i.test(detail)) continue
       return json({ error: 'CREATE_FAILED' }, 500)
     }
 
-    const { error: profErr } = await admin.from('profiles').insert({
-      id: userId,
-      role: 'driver',
-      login_code: code,
-      seq_number: seq,
-      name,
-      phone,
-      cpf,
-      driver_type: driverType,
-      uber_pct: driverType === 'company_car' ? body.uber_pct : null,
-      transfer_pct: body.transfer_pct,
-      must_change_password: true,
-    })
-    if (profErr) {
+    const rollback = async () => {
       await admin.auth.admin.deleteUser(userId)
-      if (profErr.code === '23505' && /cpf/i.test(`${profErr.message} ${profErr.details ?? ''}`)) {
-        return json({ error: 'CPF_TAKEN' }, 400)
-      }
       return json({ error: 'CREATE_FAILED' }, 500)
     }
 

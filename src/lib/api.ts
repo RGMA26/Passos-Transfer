@@ -522,7 +522,7 @@ export async function createDriver(input: NewDriverInput): Promise<DriverAccess>
 
 export async function driverAccess(
   driverId: string,
-  action: 'reset_password' | 'deactivate' | 'reactivate',
+  action: 'reset_password' | 'deactivate' | 'reactivate' | 'delete',
 ): Promise<{ temp_pin?: string }> {
   const { data, error } = await supabase.functions.invoke('driver-access', {
     body: { driver_id: driverId, action },

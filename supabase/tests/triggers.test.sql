@@ -14,12 +14,11 @@ delete from profiles;
 delete from cars;
 delete from auth.users;
 
-select setval('driver_seq', 1, false);
 
 select is(generate_login_code('João da Silva'), 'PASSOS01JOAO', 'primeiro código');
-select is(generate_login_code('maria'), 'PASSOS02MARIA', 'segundo código');
+select is(generate_login_code('maria'), 'PASSOS01MARIA', 'sem perfil gravado o número não é consumido (0016)');
 select throws_ok($$select generate_login_code('123 ---')$$, 'P0001', 'INVALID_NAME', 'nome vazio rejeitado');
-select is(generate_login_code('Zé'), 'PASSOS03ZE', 'falha não consome sequência');
+select is(generate_login_code('Zé'), 'PASSOS01ZE', 'falha não consome número');
 
 insert into auth.users (id) values
   ('00000000-0000-0000-0000-0000000000a1'),
@@ -110,8 +109,7 @@ select results_eq(
 
 select is((select count(*)::int from audit_log where table_name='rides' and action='INSERT'), 3, 'audit de insert em rides');
 
-select setval('driver_seq', 100, false);
-select is(generate_login_code('Ana'), 'PASSOS100ANA', 'código com 3 dígitos não trunca');
+select is(generate_login_code('Ana'), 'PASSOS04ANA', 'próximo número livre depois dos perfis (≥100: login_code_reuse)');
 
 select * from finish();
 rollback;

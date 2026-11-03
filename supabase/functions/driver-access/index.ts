@@ -1,6 +1,6 @@
 import { corsHeaders, json, randomPin, readBody, requireAdmin } from '../_shared/admin.ts'
 
-const ACTIONS = ['reset_password', 'deactivate', 'reactivate']
+const ACTIONS = ['reset_password', 'deactivate', 'reactivate', 'delete']
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 Deno.serve(async (req) => {
@@ -23,6 +23,17 @@ Deno.serve(async (req) => {
     const { data: target } = await admin
       .from('profiles').select('id, role').eq('id', id).maybeSingle()
     if (!target || target.role !== 'driver') return json({ error: 'NOT_FOUND' }, 404)
+
+    if (action === 'delete') {
+      // só sem lançamentos; desfaz carro, apaga perfil e login numa transação (libera o número do código)
+      const { data: code, error } = await admin.rpc('delete_driver', { p_driver_id: id })
+      if (error) {
+        if (error.message?.includes('HAS_ENTRIES')) return json({ error: 'HAS_ENTRIES' }, 400)
+        if (error.message?.includes('NOT_FOUND')) return json({ error: 'NOT_FOUND' }, 404)
+        return json({ error: 'ACCESS_FAILED' }, 500)
+      }
+      return json({ login_code: code })
+    }
 
     if (action === 'reset_password') {
       const pin = randomPin()

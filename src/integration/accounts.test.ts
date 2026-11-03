@@ -284,4 +284,32 @@ describe.skipIf(!URL_)('edge functions de contas', () => {
     expect(bad.status).toBe(400)
     expect(bad.json.error).toBe('INVALID_ACTION')
   })
+
+  it('delete: motorista sem lançamentos é excluído, não loga mais e o número volta a ser usado', async () => {
+    const r = await create({ ...valid, name: 'Zuleica Teste' })
+    expect(r.status).toBe(200)
+    const code = r.json.login_code as string
+    const del = await call('driver-access', { driver_id: r.json.driver_id, action: 'delete' }, driverToken)
+    expect(del.status).toBe(403)
+    const ok = await call('driver-access', { driver_id: r.json.driver_id, action: 'delete' }, adminToken)
+    expect(ok.status).toBe(200)
+    expect(ok.json.login_code).toBe(code)
+    expect(await canLogin(code, r.json.temp_pin)).toBe(false)
+    const again = await create({ ...valid, name: 'Zuleica Teste' })
+    expect(again.status).toBe(200)
+    expect(again.json.login_code).toBe(code)
+  })
+
+  it.skipIf(!SERVICE)('delete: motorista com lançamentos → 400 HAS_ENTRIES (continua existindo)', async () => {
+    const r = await create({ ...valid, name: 'Ubirajara Teste' })
+    expect(r.status).toBe(200)
+    const admin = createClient(URL_, SERVICE!, { auth: { persistSession: false } })
+    const { error } = await admin.from('driver_pauses').insert({ driver_id: r.json.driver_id, paused_on: '2026-01-10', resumed_on: '2026-01-11' })
+    expect(error).toBeNull()
+    const del = await call('driver-access', { driver_id: r.json.driver_id, action: 'delete' }, adminToken)
+    expect(del.status).toBe(400)
+    expect(del.json.error).toBe('HAS_ENTRIES')
+    expect(await canLogin(r.json.login_code, r.json.temp_pin)).toBe(true)
+    await admin.from('driver_pauses').delete().eq('driver_id', r.json.driver_id)
+  })
 })

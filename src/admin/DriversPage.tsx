@@ -97,6 +97,21 @@ export default function DriversPage() {
     }
   }
 
+  async function remove(d: Profile) {
+    if (!window.confirm(`Excluir ${d.name}? O código ${d.login_code} ficará livre para um novo motorista.`)) return
+    setActionError('')
+    try {
+      await api.driverAccess(d.id, 'delete')
+      await load()
+    } catch (err) {
+      setActionError(
+        errCode(err) === 'HAS_ENTRIES'
+          ? 'Este motorista tem lançamentos. Use Desativar.'
+          : 'Não foi possível excluir o motorista',
+      )
+    }
+  }
+
   async function resetPassword(d: Profile) {
     if (!window.confirm(`Gerar um novo PIN para ${d.name}?`)) return
     setActionError('')
@@ -218,6 +233,9 @@ export default function DriversPage() {
                     </button>
                     <button type="button" onClick={() => void toggleActive(d)}>
                       {d.active ? 'Desativar' : 'Reativar'}
+                    </button>
+                    <button type="button" onClick={() => void remove(d)}>
+                      Excluir motorista
                     </button>
                   </td>
                 </tr>
