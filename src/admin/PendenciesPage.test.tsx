@@ -58,3 +58,22 @@ describe('PendenciesPage', () => {
     expect(await screen.findByText('at:/admin/quinzenas?motorista=d9')).toBeInTheDocument()
   })
 })
+
+describe('PendenciesPage: 📷', () => {
+  it('filtra por foto e não repete chave quando o mesmo turno está em duas categorias', async () => {
+    m.listPendencies.mockResolvedValue([
+      p({ category: 'white', item_type: 'shift', item_id: 's1', label: 'Turno aguardando conferência' }),
+      p({ category: 'photo', item_type: 'shift', item_id: 's1', label: 'Turno sem foto do odômetro (início)' }),
+    ])
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    renderAt('/admin/pendencias')
+    expect(await screen.findByText('Turno sem foto do odômetro (início)')).toBeInTheDocument()
+    expect(err.mock.calls.some((c) => String(c[0]).includes('same key'))).toBe(false)
+    err.mockRestore()
+  })
+  it('título da categoria photo', async () => {
+    m.listPendencies.mockResolvedValue([p({ category: 'photo', item_type: 'transfer', item_id: 't1', label: 'Transfer sem foto do odômetro (fim)' })])
+    renderAt('/admin/pendencias?tipo=photo')
+    expect(await screen.findByRole('heading', { name: 'Pendências — 📷 Foto não enviada' })).toBeInTheDocument()
+  })
+})

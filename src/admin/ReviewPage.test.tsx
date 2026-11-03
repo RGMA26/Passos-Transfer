@@ -336,3 +336,24 @@ describe('âncoras #item-<id>', () => {
     expect(scroll.mock.instances[0]).toBe(document.getElementById('item-t1'))
   })
 })
+
+describe('foto do odômetro não enviada (📷)', () => {
+  it('avisa no turno e no Transfer sem foto do odômetro', async () => {
+    const q = full()
+    q.shifts[0] = { ...q.shifts[0], odometer_start_photo: null, uber_earnings_photo: 'u.jpg' }
+    q.transfers[0] = transfer({ odometer_end_photo: null })
+    m.listPendingReview.mockResolvedValue(q)
+    renderPage()
+    const s = within(await waitFor(() => section('Turnos')))
+    expect(s.getByText('📷 Foto do odômetro não enviada (início)')).toBeInTheDocument()
+    const t = within(section('Transfers concluídos'))
+    expect(t.getByText('📷 Foto do odômetro não enviada (fim)')).toBeInTheDocument()
+  })
+  it('turno com Uber e sem print avisa; com todas as fotos não avisa', async () => {
+    renderPage()
+    const s = within(await waitFor(() => section('Turnos')))
+    expect(s.getByText('📷 Print da Uber não enviado')).toBeInTheDocument()
+    expect(s.queryByText(/Foto do odômetro não enviada/)).not.toBeInTheDocument()
+    expect(within(section('Transfers concluídos')).queryByText(/📷/)).not.toBeInTheDocument()
+  })
+})

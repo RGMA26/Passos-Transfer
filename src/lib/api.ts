@@ -1299,7 +1299,7 @@ export async function markStatementPaid(statementId: string, paidAt: string, met
 
 // ---------- Admin: pendências e balanço mensal ----------
 
-export type PendencyCategory = 'white' | 'yellow' | 'red' | 'orange'
+export type PendencyCategory = 'white' | 'yellow' | 'red' | 'orange' | 'photo'
 export type Pendency = Omit<
   Database['public']['Functions']['admin_pendencies']['Returns'][number],
   'category' | 'item_type'

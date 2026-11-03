@@ -76,3 +76,15 @@ describe('DashboardPage', () => {
     expect(await screen.findByText('Não foi possível carregar. Tente novamente.')).toBeInTheDocument()
   })
 })
+
+describe('DashboardPage: 📷', () => {
+  it('pendência de foto vira bolinha 📷 que abre a conferência do item', async () => {
+    m.listPendencies.mockResolvedValue([
+      p({ category: 'photo', item_type: 'shift', item_id: 's7', label: 'Turno sem foto do odômetro (início)' }),
+    ])
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /📷 1/ }))
+    expect(await screen.findByText('at:/admin/conferencia#item-s7')).toBeInTheDocument()
+  })
+})

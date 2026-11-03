@@ -10,6 +10,7 @@ export const CATEGORY_LABEL: Record<api.PendencyCategory, string> = {
   yellow: '🟡 Quinzena terminando',
   red: '🔴 Quinzena atrasada',
   orange: '🟠 Valores conflitantes',
+  photo: '📷 Foto não enviada',
 }
 
 export default function PendenciesPage() {
@@ -53,7 +54,7 @@ export default function PendenciesPage() {
       <div className="panel">
         {list.map((i) => (
           <button
-            key={`${i.item_type}-${i.item_id}`}
+            key={`${i.category}-${i.item_type}-${i.item_id}`}
             type="button"
             className="link"
             style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left', gap: '0.125rem' }}

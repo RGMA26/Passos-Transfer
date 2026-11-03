@@ -284,6 +284,12 @@ function TransferItem({ transfer: t, onDone }: { transfer: api.PendingTransfer; 
       <span>{`Odômetro ${t.odometer_start ?? '—'} → ${t.odometer_end ?? '—'}`}</span>
       <span>{`Km real: ${t.km ?? '—'} · Km estimado: ${t.estimated_km ?? '—'}`}</span>
       {kmAboveEstimate(t.km, t.estimated_km) && <span className="warn">Km acima do estimado</span>}
+      {t.odometer_start != null && !t.odometer_start_photo && (
+        <span className="warn">📷 Foto do odômetro não enviada (início)</span>
+      )}
+      {t.odometer_end != null && !t.odometer_end_photo && (
+        <span className="warn">📷 Foto do odômetro não enviada (fim)</span>
+      )}
       {t.expenses.map((e) => (
         <span key={e.id}>{`${EXPENSE_LABEL[e.kind] ?? e.kind} · ${formatBRL(e.amount)}`}</span>
       ))}
@@ -359,6 +365,13 @@ function ShiftItem({ shift, onDone }: { shift: api.PendingShift; onDone: () => v
       </span>
       <span>{`BlaBlaCar: ${formatBRL(shift.totals.blablacar.amount)} (${shift.totals.blablacar.km} km)`}</span>
       <span>{`Transfers: ${shift.totals.transfer_km} km`}</span>
+      {!shift.odometer_start_photo && <span className="warn">📷 Foto do odômetro não enviada (início)</span>}
+      {shift.odometer_end != null && !shift.odometer_end_photo && (
+        <span className="warn">📷 Foto do odômetro não enviada (fim)</span>
+      )}
+      {!shift.uber_earnings_photo && shift.rides.some((r) => r.platform === 'uber') && (
+        <span className="warn">📷 Print da Uber não enviado</span>
+      )}
       {shift.rides.length > 0 && (
         <ul className="shift-rides" aria-label="Corridas do turno" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {shift.rides.map((r, i) => {

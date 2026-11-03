@@ -12,6 +12,7 @@ const DOTS: { cat: api.PendencyCategory; icon: string; label: string }[] = [
   { cat: 'yellow', icon: '🟡', label: 'quinzena terminando' },
   { cat: 'red', icon: '🔴', label: 'quinzena atrasada' },
   { cat: 'orange', icon: '🟠', label: 'valores conflitantes' },
+  { cat: 'photo', icon: '📷', label: 'foto do odômetro não enviada' },
 ]
 
 export default function DashboardPage() {
