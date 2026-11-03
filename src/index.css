@@ -93,3 +93,25 @@ dl.panel dd { margin: 0 0 0.5rem; font-size: 1.15rem; font-weight: 700; }
 .review-item { display: flex; flex-direction: column; gap: 0.25rem; padding-bottom: 0.5rem; }
 textarea { font: inherit; padding: 0.75rem; border: 1px solid #9ca3af; border-radius: 8px; }
 input[type='file'] { padding: 0.5rem; background: #fff; }
+
+.update-banner {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #1e3a8a;
+  color: #fff;
+  font-weight: 600;
+}
+.update-banner button {
+  background: #fff;
+  color: #1e3a8a;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-weight: 700;
+}

@@ -8,7 +8,8 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
+      injectRegister: false,
       includeAssets: ['icons/apple-touch-icon-180.png', 'icons/icon.svg'],
       manifest,
       workbox: {
@@ -30,5 +31,6 @@ export default defineConfig({
     setupFiles: ['./src/setupTests.ts'],
     globals: false,
     include: ['src/**/*.test.{ts,tsx}'],
+    alias: { 'virtual:pwa-register': '/src/test/pwaRegisterStub.ts' },
   },
 })

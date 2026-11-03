@@ -11,7 +11,7 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["node", "vite/client", "@testing-library/jest-dom"]
+    "types": ["node", "vite/client", "@testing-library/jest-dom", "vite-plugin-pwa/client"]
   },
   "include": ["src", "vite.config.ts"]
 }

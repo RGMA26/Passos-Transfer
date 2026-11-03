@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import UpdateBanner from './components/UpdateBanner'
 import type { ReactNode } from 'react'
 import { AuthProvider, useAuth } from './lib/auth'
 import LoginPage from './auth/LoginPage'
@@ -110,6 +111,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <UpdateBanner />
         <AppRoutes />
       </AuthProvider>
     </BrowserRouter>
