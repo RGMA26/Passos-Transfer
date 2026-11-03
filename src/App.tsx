@@ -18,6 +18,9 @@ import PeriodsPage from './admin/PeriodsPage'
 import PrintStatementPage from './admin/PrintStatementPage'
 import PrintReceiptPage from './admin/PrintReceiptPage'
 import DashboardPage from './admin/DashboardPage'
+import PendenciesPage from './admin/PendenciesPage'
+import BalancePage from './admin/BalancePage'
+import PrintBalancePage from './admin/PrintBalancePage'
 
 const homeFor = (role: string) => (role === 'admin' ? '/admin' : '/m/hoje')
 
@@ -92,6 +95,9 @@ export function AppRoutes() {
         <Route path="transfers" element={<TransfersPage />} />
         <Route path="conferencia" element={<ReviewPage />} />
         <Route path="quinzenas" element={<PeriodsPage />} />
+        <Route path="pendencias" element={<PendenciesPage />} />
+        <Route path="balanco" element={<BalancePage />} />
+        <Route path="balanco/imprimir/:month" element={<PrintBalancePage />} />
         <Route path="extrato/:statementId" element={<PrintStatementPage />} />
         <Route path="recibo/:statementId" element={<PrintReceiptPage />} />
       </Route>

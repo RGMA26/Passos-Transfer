@@ -8,6 +8,7 @@ const links = [
   { to: '/admin/transfers', label: 'Transfers', end: false },
   { to: '/admin/conferencia', label: 'Conferência', end: false },
   { to: '/admin/quinzenas', label: 'Quinzenas', end: false },
+  { to: '/admin/balanco', label: 'Balanço mensal', end: false },
 ]
 
 export default function AdminLayout() {

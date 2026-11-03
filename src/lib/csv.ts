@@ -12,3 +12,15 @@ export function toCSV(rows: Record<string, string | number>[]): string {
   const lines = [keys.map(cell).join(';'), ...rows.map((r) => keys.map((k) => cell(r[k] ?? '')).join(';'))]
   return '\uFEFF' + lines.join('\r\n')
 }
+
+/** Baixa um CSV no navegador. */
+export function downloadCSV(filename: string, csv: string): void {
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}

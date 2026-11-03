@@ -1251,18 +1251,91 @@ export async function markStatementPaid(statementId: string, paidAt: string, met
   if (error) throw Object.assign(new Error(error.message), { code: error.code })
 }
 
-export interface PeriodSummary {
-  revenue: { uber: number; transfer: number; blablacar: number }
-  drivers_share: number
-  company_share: number
-  fuel_reimbursed: number
-  fuel_discounted: number
-  off_km_ranking: { driver_id: string; name: string; km_off: number }[]
+// ---------- Admin: pendências e balanço mensal ----------
+
+export type PendencyCategory = 'white' | 'yellow' | 'red' | 'orange'
+export type Pendency = Omit<
+  Database['public']['Functions']['admin_pendencies']['Returns'][number],
+  'category' | 'item_type'
+> & { category: PendencyCategory; item_type: 'fueling' | 'shift' | 'transfer' | 'period' }
+
+export async function listPendencies(): Promise<Pendency[]> {
+  return (must(await supabase.rpc('admin_pendencies')) ?? []) as Pendency[]
 }
 
-/** Quinzena global não existe mais; o Início é refeito na Task 10. */
-export async function periodSummary(_periodId: string): Promise<PeriodSummary> {
-  throw Object.assign(new Error('NOT_AVAILABLE'), { code: 'NOT_AVAILABLE' })
+export interface BalanceCarExpense {
+  expense_id: string
+  car_id: string
+  plate: string
+  model: string
+  kind: string
+  description: string | null
+  mode: string
+  installment_no: number | null
+  installments: number | null
+  amount: number
+}
+
+export interface MonthlyBalance {
+  month: string
+  estimated: boolean
+  result: {
+    revenue: { uber: number; transfer: number; blablacar: number; total: number }
+    owed: {
+      total: number
+      uber_share: number
+      transfer_share: number
+      fuel_reimbursement: number
+      transfer_fuel: number
+      expense_reimbursement: number
+      /** vem positivo; é um desconto */
+      off_duty_discount: number
+      adjustments: number
+      by_driver: { driver_id: string; name: string; total: number }[]
+    }
+    car_expenses: {
+      total: number
+      by_kind: { maintenance: number; insurance: number; tax: number; other: number }
+      items: BalanceCarExpense[]
+    }
+    company_result: number
+    previous_company_result: number
+    diff: number
+    diff_pct: number | null
+  }
+  cash: {
+    total: number
+    items: {
+      statement_id: string
+      driver_id: string
+      name: string
+      period_start: string
+      period_end: string
+      total: number
+      paid_at: string
+      payment_method: string | null
+      has_payment_proof: boolean
+      has_signed_receipt: boolean
+    }[]
+  }
+  payable: {
+    total: number
+    items: { driver_id: string; name: string; closed_unpaid: number; open_estimate: number }[]
+  }
+  off_km_ranking: {
+    by_driver: { driver_id: string; name: string; km_off: number }[]
+    by_car: { car_id: string; plate: string; model: string; km_off: number }[]
+  }
+}
+
+export async function monthlyBalance(month: string): Promise<MonthlyBalance> {
+  return mustRow(await supabase.rpc('monthly_balance', { p_month: month })) as unknown as MonthlyBalance
+}
+
+export type MonthlyDetailRow = Database['public']['Functions']['monthly_detail']['Returns'][number]
+
+export async function monthlyDetail(month: string): Promise<MonthlyDetailRow[]> {
+  return must(await supabase.rpc('monthly_detail', { p_month: month })) ?? []
 }
 
 export interface FullStatement {
