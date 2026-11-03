@@ -157,8 +157,8 @@ reset role;
 -- ===== c: carro próprio — reembolso 0 e Transfer 50 km × 0,625 =====
 insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path, review_status) values
   ('00000000-0000-0000-0000-000000002a03','00000000-0000-0000-0000-000000002cf4','2026-04-05','gasolina',100,16,6.25,'x','approved');
-insert into rides (driver_id, platform, ride_date, amount, km, client_name, transfer_status) values
-  ('00000000-0000-0000-0000-000000002a03','transfer','2026-04-05',200,50,'Cli','completed');
+insert into rides (driver_id, platform, ride_date, amount, km, client_name, transfer_status, car_id) values
+  ('00000000-0000-0000-0000-000000002a03','transfer','2026-04-05',200,50,'Cli','completed','00000000-0000-0000-0000-000000002cf4');
 create temp table pc as select driver_period_for('00000000-0000-0000-0000-000000002a03','2026-04-05') as id;
 grant select on pc to authenticated;
 set local role authenticated;

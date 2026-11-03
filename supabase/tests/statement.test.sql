@@ -94,8 +94,8 @@ insert into rides (driver_id, platform, ride_date, amount) values
   ('00000000-0000-0000-0000-0000000006d2','uber','2026-04-10',100);
 
 -- ===== d3: carro próprio (Transfer de 50 km) =====
-insert into rides (driver_id, platform, ride_date, amount, km, client_name, transfer_status) values
-  ('00000000-0000-0000-0000-0000000006d3','transfer','2026-05-05',200,50,'Cli','completed');
+insert into rides (driver_id, platform, ride_date, amount, km, client_name, transfer_status, car_id) values
+  ('00000000-0000-0000-0000-0000000006d3','transfer','2026-05-05',200,50,'Cli','completed','00000000-0000-0000-0000-0000000006c2');
 
 -- ===== d4: km negativo =====
 insert into rides (driver_id, platform, ride_date, amount, km) values

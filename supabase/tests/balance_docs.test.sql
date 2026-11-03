@@ -56,9 +56,9 @@ insert into adjustments (driver_id, kind, amount, description, effective_date) v
   ('00000000-0000-0000-0000-000000005a01','bonus',10,'Bônus','2026-09-20');
 
 -- ===== Y: quinzena 25/09–09/10 =====
-insert into rides (id, driver_id, platform, ride_date, amount, km, client_name, transfer_status) values
-  ('00000000-0000-0000-0000-000000005b02','00000000-0000-0000-0000-000000005a02','transfer','2026-09-28',200,50,'Cli Y1','checked'),
-  ('00000000-0000-0000-0000-000000005b03','00000000-0000-0000-0000-000000005a02','transfer','2026-10-05',100,25,'Cli Y2','checked');
+insert into rides (id, driver_id, platform, ride_date, amount, km, client_name, transfer_status, car_id) values
+  ('00000000-0000-0000-0000-000000005b02','00000000-0000-0000-0000-000000005a02','transfer','2026-09-28',200,50,'Cli Y1','checked','00000000-0000-0000-0000-000000005c02'),
+  ('00000000-0000-0000-0000-000000005b03','00000000-0000-0000-0000-000000005a02','transfer','2026-10-05',100,25,'Cli Y2','checked','00000000-0000-0000-0000-000000005c02');
 -- nota aprovada 02/10: 25 L × 6,00 = 150 no HB20 (12,5 km/L) → custo 0,48/km (não reembolsada: carro próprio)
 insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path, review_status) values
   ('00000000-0000-0000-0000-000000005a02','00000000-0000-0000-0000-000000005c02','2026-10-02','gasolina',150,25,6.000,'n.jpg','approved');

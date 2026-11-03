@@ -259,6 +259,25 @@ describe('ações', () => {
     expect(m.updateDriver).not.toHaveBeenCalled()
   })
 
+  it('mudar o tipo pede confirmação e cancelar não altera', async () => {
+    confirmSpy.mockReturnValue(false)
+    const user = await ready()
+    await user.click(screen.getByRole('button', { name: 'Editar' }))
+    await user.selectOptions(screen.getByLabelText('Tipo'), 'own_car')
+    await user.click(screen.getByRole('button', { name: 'Salvar' }))
+    expect(confirmSpy).toHaveBeenCalledWith('Mudar o tipo do motorista? Isso não altera lançamentos já feitos.')
+    expect(m.updateDriver).not.toHaveBeenCalled()
+  })
+
+  it('editar sem mudar o tipo não pergunta sobre o tipo', async () => {
+    m.updateDriver.mockResolvedValue()
+    const user = await ready()
+    await user.click(screen.getByRole('button', { name: 'Editar' }))
+    await user.click(screen.getByRole('button', { name: 'Salvar' }))
+    await waitFor(() => expect(m.updateDriver).toHaveBeenCalled())
+    expect(confirmSpy).not.toHaveBeenCalledWith('Mudar o tipo do motorista? Isso não altera lançamentos já feitos.')
+  })
+
   it('CPF inválido no cadastro não envia', async () => {
     const user = userEvent.setup()
     render(<DriversPage />)

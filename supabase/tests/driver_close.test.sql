@@ -60,9 +60,9 @@ grant select on pa1, pa2, pb1, pc1 to authenticated;
 
 -- A: Transfer conferido de 50 km (carro próprio) e nenhuma nota aprovada até 15/07 → falta preço
 -- B: Transfer conferido de 40 km e nota aprovada de carro sem consumo → falta consumo
-insert into rides (driver_id, platform, ride_date, amount, km, client_name, transfer_status) values
-  ('00000000-0000-0000-0000-000000004a01','transfer','2026-07-05',200,50,'Cli','checked'),
-  ('00000000-0000-0000-0000-000000004a02','transfer','2026-07-05',100,40,'Cli','checked');
+insert into rides (driver_id, platform, ride_date, amount, km, client_name, transfer_status, car_id) values
+  ('00000000-0000-0000-0000-000000004a01','transfer','2026-07-05',200,50,'Cli','checked','00000000-0000-0000-0000-000000004c02'),
+  ('00000000-0000-0000-0000-000000004a02','transfer','2026-07-05',100,40,'Cli','checked','00000000-0000-0000-0000-000000004c03');
 insert into fuelings (driver_id, car_id, fueled_on, fuel, amount, quantity, unit_price, photo_path, review_status) values
   ('00000000-0000-0000-0000-000000004a02','00000000-0000-0000-0000-000000004c03','2026-07-06','gasolina',60,10,6.000,'x','approved');
 

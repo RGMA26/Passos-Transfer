@@ -15,7 +15,6 @@ declare
   per driver_periods%rowtype;
   v_from date;
   v_to date;
-  v_type text;
   v_cpk jsonb;
   v_cost numeric;
   v_uber numeric;
@@ -40,7 +39,6 @@ begin
   v_from := greatest(per.start_date, coalesce(p_from, per.start_date));
   v_to := least(per.end_date, coalesce(p_to, per.end_date));
 
-  select driver_type into v_type from profiles where id = p_driver;
   v_cpk := cost_per_km_for(p_driver, p_period);
   if p_frozen is not null and p_frozen ? 'cost_per_km' then
     v_cost := (p_frozen->>'cost_per_km')::numeric;
@@ -53,27 +51,26 @@ begin
    where driver_id = p_driver and platform = 'uber'
      and ride_date between v_from and v_to;
 
-  select round(coalesce(sum(amount * driver_pct / 100), 0), 2),
-         coalesce(sum(km), 0)
+  -- gasolina do Transfer: pelo carro usado no Transfer (rides.car_id próprio), não pelo tipo
+  -- atual do motorista (mudar o tipo não reescreve lançamentos já feitos)
+  select round(coalesce(sum(r.amount * r.driver_pct / 100), 0), 2),
+         coalesce(sum(r.km) filter (where c.ownership = 'own'), 0)
     into v_transfer, v_own_km
-    from rides
-   where driver_id = p_driver and platform = 'transfer'
-     and transfer_status in ('completed', 'checked')
-     and ride_date between v_from and v_to;
-  if v_type is distinct from 'own_car' then
-    v_own_km := 0;
-  end if;
+    from rides r
+    left join cars c on c.id = r.car_id
+   where r.driver_id = p_driver and r.platform = 'transfer'
+     and r.transfer_status in ('completed', 'checked')
+     and r.ride_date between v_from and v_to;
   v_transfer_fuel := round(v_own_km * coalesce(v_cost, 0), 2);
 
-  select coalesce(sum(amount) filter (where review_status = 'approved'), 0),
-         coalesce(sum(amount) filter (where review_status = 'pending'), 0)
+  -- reembolso de abastecimento: só nota de carro da empresa (pelo carro abastecido)
+  select coalesce(sum(f.amount) filter (where f.review_status = 'approved' and c.ownership = 'company'), 0),
+         coalesce(sum(f.amount) filter (where f.review_status = 'pending'), 0)
     into v_fuel, v_pending_fuel
-    from fuelings
-   where driver_id = p_driver
-     and fueled_on between v_from and v_to;
-  if v_type is distinct from 'company_car' then
-    v_fuel := 0;
-  end if;
+    from fuelings f
+    join cars c on c.id = f.car_id
+   where f.driver_id = p_driver
+     and f.fueled_on between v_from and v_to;
 
   select coalesce(sum(e.amount) filter (where e.review_status = 'approved'), 0),
          coalesce(sum(e.amount) filter (where e.review_status = 'pending'), 0)
@@ -564,12 +561,12 @@ begin
       left join shifts s on s.id = r.shift_id
      where r.ride_date between v_start and v_end
     union all
-    -- abastecimentos (reembolso só para carro da empresa)
+    -- abastecimentos (reembolso só para nota de carro da empresa)
     select f.fueled_on, f.driver_id, 'fueling', f.fuel,
            f.amount,
-           case when f.review_status = 'approved' and pr.driver_type = 'company_car' then f.amount else 0 end,
+           case when f.review_status = 'approved' and c.ownership = 'company' then f.amount else 0 end,
            f.review_status, null::uuid
-      from fuelings f join profiles pr on pr.id = f.driver_id
+      from fuelings f join cars c on c.id = f.car_id
      where f.fueled_on between v_start and v_end
     union all
     -- pedágios e estacionamentos (pela data do Transfer)

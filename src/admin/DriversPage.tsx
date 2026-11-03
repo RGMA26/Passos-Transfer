@@ -314,6 +314,13 @@ function DriverForm({
     const cpfDigits = onlyDigits(cpf)
     if (
       driver &&
+      type !== driver.driver_type &&
+      !window.confirm('Mudar o tipo do motorista? Isso não altera lançamentos já feitos.')
+    ) {
+      return
+    }
+    if (
+      driver &&
       (uberPct !== driver.uber_pct || transferPct !== driver.transfer_pct) &&
       !window.confirm('Vale a partir de hoje para novas corridas. Confirmar?')
     ) {
