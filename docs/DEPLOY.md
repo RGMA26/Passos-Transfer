@@ -160,7 +160,7 @@ Só para quem **já tem o app no ar** com a versão anterior. Faça uma vez, **n
 - Cada motorista tem a **própria quinzena**: 15 dias contados a partir do cadastro dele. Em **Quinzenas**, abra o motorista e feche a quinzena dele. 🟡 avisa que ela termina em até 5 dias e 🔴 que já terminou e falta fechar (o **Início** mostra as mesmas bolinhas).
 - O preço da gasolina vem das **notas de abastecimento** aprovadas na **Conferência** (não existe mais preço de referência). Se não houver nota, o app avisa antes de fechar.
 - Feche a quinzena **1 a 2 dias depois de ela terminar** (ex.: a de 1–15 no dia 16 ou 17), **depois que os motoristas abrirem o app com internet** para enviar o que ficou pendente de envio. O que chegar depois do fechamento é recusado ("quinzena fechada").
-- Se tentar fechar antes do último dia, o app pergunta "A quinzena ainda não terminou. Fechar mesmo assim?". Só confirme se tiver certeza de que não haverá mais lançamentos nela.
+- Se tentar fechar antes do último dia, o app pergunta "A quinzena ainda não terminou. Fechar mesmo assim? O motorista não poderá lançar nada nos dias restantes desta quinzena.". Só confirme se tiver certeza de que não haverá mais lançamentos nela.
 - Turnos recusados também impedem o fechamento ("Há turnos não aprovados"): o motorista corrige as corridas do turno e ele volta para a **Conferência**.
 
 ## Backup

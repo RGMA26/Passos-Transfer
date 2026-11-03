@@ -10,13 +10,13 @@ import { formatBRL } from '../lib/money'
 import { localDate } from '../lib/periods'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
-const MSG_NOT_ENDED = 'A quinzena ainda não terminou. Fechar mesmo assim?'
+const MSG_NOT_ENDED = 'A quinzena ainda não terminou. Fechar mesmo assim? O motorista não poderá lançar nada nos dias restantes desta quinzena.'
 const MSG_MISSING_PRICE =
   'Não há nota de abastecimento aprovada para calcular a gasolina desta quinzena. A gasolina será calculada como R$ 0,00. Tem certeza que deseja fechar?'
 const MSG_MISSING_CONSUMPTION =
   'Falta o consumo do carro para calcular a gasolina. A gasolina será calculada como R$ 0,00. Tem certeza que deseja fechar?'
 const MSG_DOC_TYPE = 'Envie JPG, PNG ou PDF de até 10 MB'
-const MARK_TITLE = 'Fechada sem nota de abastecimento'
+const MARK_TITLE = 'Fechada sem consumo/nota'
 const CLOSE_ERRORS: Record<string, string> = {
   PREVIOUS_OPEN: 'Feche a quinzena anterior primeiro',
   OPEN_SHIFTS: 'Há turnos abertos',

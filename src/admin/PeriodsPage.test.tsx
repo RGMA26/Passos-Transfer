@@ -165,10 +165,10 @@ describe('quinzenas do motorista', () => {
     expect(m.listDriverPeriods).toHaveBeenCalledWith('d1')
     expect(await screen.findByText('16/10 – 30/10/2026 · Aberta')).toBeInTheDocument()
     const closedMissing = screen.getByText('01/10 – 15/10/2026 · Fechada').closest('li')!
-    const mark = within(closedMissing).getByTitle('Fechada sem nota de abastecimento')
+    const mark = within(closedMissing).getByTitle('Fechada sem consumo/nota')
     expect(mark).toHaveTextContent('❗')
     const closedOk = screen.getByText('16/09 – 30/09/2026 · Fechada').closest('li')!
-    expect(within(closedOk).queryByTitle('Fechada sem nota de abastecimento')).toBeNull()
+    expect(within(closedOk).queryByTitle('Fechada sem consumo/nota')).toBeNull()
   })
 
   it('expande o extrato estimado da quinzena aberta', async () => {
@@ -199,7 +199,7 @@ describe('fechar quinzena', () => {
     m.closeDriverPeriod.mockResolvedValue('s1')
     await startClose({ end_date: '2099-12-31' })
     await waitFor(() => expect(m.closeDriverPeriod).toHaveBeenCalledWith('p1', { force: true, allowMissingFuelPrice: false }))
-    expect(confirmSpy).toHaveBeenLastCalledWith('A quinzena ainda não terminou. Fechar mesmo assim?')
+    expect(confirmSpy).toHaveBeenLastCalledWith('A quinzena ainda não terminou. Fechar mesmo assim? O motorista não poderá lançar nada nos dias restantes desta quinzena.')
     expect(m.closeDriverPeriod).toHaveBeenCalledTimes(1)
   })
 
@@ -209,7 +209,7 @@ describe('fechar quinzena', () => {
     await waitFor(() => expect(m.closeDriverPeriod).toHaveBeenCalledTimes(2))
     expect(m.closeDriverPeriod).toHaveBeenNthCalledWith(1, 'p1', { force: false, allowMissingFuelPrice: false })
     expect(m.closeDriverPeriod).toHaveBeenNthCalledWith(2, 'p1', { force: true, allowMissingFuelPrice: false })
-    expect(confirmSpy).toHaveBeenLastCalledWith('A quinzena ainda não terminou. Fechar mesmo assim?')
+    expect(confirmSpy).toHaveBeenLastCalledWith('A quinzena ainda não terminou. Fechar mesmo assim? O motorista não poderá lançar nada nos dias restantes desta quinzena.')
   })
 
   it('cancelar a segunda confirmação não reenvia', async () => {

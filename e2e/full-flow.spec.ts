@@ -58,7 +58,7 @@ const today = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit',
 }).format(new Date())
 
-const MSG_NOT_ENDED = 'A quinzena ainda não terminou. Fechar mesmo assim?'
+const MSG_NOT_ENDED = 'A quinzena ainda não terminou. Fechar mesmo assim? O motorista não poderá lançar nada nos dias restantes desta quinzena.'
 const MSG_NO_ESTIMATE = 'Não foi possível calcular o km estimado'
 
 /** Erros do navegador (console/exceções/HTTP >= 400) — o fluxo feliz não deve ter nenhum. */
