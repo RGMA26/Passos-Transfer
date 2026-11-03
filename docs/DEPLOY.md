@@ -41,10 +41,10 @@ npx supabase db push
 ## 3. Publicar as funções de cadastro de motorista
 
 ```bash
-npx supabase functions deploy create-driver driver-access
+npx supabase functions deploy create-driver update-driver driver-access estimate-route
 ```
 
-Essas funções criam o login do motorista, geram o PIN, resetam senha e desativam contas.
+Essas funções criam e editam o motorista (com CPF), geram o PIN, resetam senha, desativam contas e calculam o km estimado dos Transfers pelo mapa (OpenStreetMap, sem custo).
 Elas usam a chave secreta do Supabase **dentro do próprio Supabase** — você não precisa copiar essa chave para lugar nenhum.
 
 ## 4. Ajustar o login (Auth)
@@ -124,14 +124,15 @@ Faça uma vez em um **Android** e uma vez em um **iPhone**, com um motorista de 
 
 Entre como admin no computador e faça, nesta ordem:
 
-- [ ] **Cadastrar os carros** (menu **Carros**): modelo, placa, consumo médio (km/l) e se é da empresa ou do motorista.
-- [ ] **Cadastrar os motoristas** (menu **Motoristas**): nome, telefone, tipo (carro da empresa ou próprio), % Uber e % Transfer do acordo de cada um, e o carro.
+- [ ] **Cadastrar os carros** (menu **Carros**): modelo, placa, combustível, consumo aproximado (km/l, km/m³ ou km/kWh) e se é da empresa ou do motorista. Nos carros da empresa, o botão **Gastos** guarda manutenção, seguro, impostos e outros gastos (eles entram no **Balanço mensal**).
+- [ ] **Cadastrar os motoristas** (menu **Motoristas**): nome, telefone, CPF, tipo (carro da empresa ou próprio), % Uber e % Transfer do acordo de cada um, e o carro.
 - [ ] **Enviar o código e o PIN** a cada motorista: logo após o cadastro aparecem o código (ex.: `PASSOS01JOAO`) e o PIN, com os botões **Copiar** e **Enviar por WhatsApp**. No primeiro acesso o motorista cria a própria senha.
-- [ ] **Definir o preço de referência do litro** na quinzena atual (menu **Quinzenas**). Ele é usado na gasolina dos motoristas de carro próprio e quando não houver abastecimento na quinzena. Sem ele a quinzena não fecha.
 - [ ] Pedir a cada motorista para **instalar o app** (passo 7) e entrar uma vez para conferir.
 
 ## Fechamento da quinzena
 
+- Cada motorista tem a **própria quinzena**: 15 dias contados a partir do cadastro dele. Em **Quinzenas**, abra o motorista e feche a quinzena dele. 🟡 avisa que ela termina em até 5 dias e 🔴 que já terminou e falta fechar (o **Início** mostra as mesmas bolinhas).
+- O preço da gasolina vem das **notas de abastecimento** aprovadas na **Conferência** (não existe mais preço de referência). Se não houver nota, o app avisa antes de fechar.
 - Feche a quinzena **1 a 2 dias depois de ela terminar** (ex.: a de 1–15 no dia 16 ou 17), **depois que os motoristas abrirem o app com internet** para enviar o que ficou pendente de envio. O que chegar depois do fechamento é recusado ("quinzena fechada").
 - Se tentar fechar antes do último dia, o app pergunta "A quinzena ainda não terminou. Fechar mesmo assim?". Só confirme se tiver certeza de que não haverá mais lançamentos nela.
 - Turnos recusados também impedem o fechamento ("Há turnos não aprovados"): o motorista corrige as corridas do turno e ele volta para a **Conferência**.
