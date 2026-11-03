@@ -41,7 +41,7 @@ beforeEach(() => {
   invoke = vi.fn()
 })
 
-const base = { name: 'A', phone: '1', driver_type: 'own_car' as const, transfer_pct: 10 }
+const base = { name: 'A', phone: '1', cpf: '52998224725', driver_type: 'own_car' as const, transfer_pct: 10 }
 
 describe('createDriver / driverAccess', () => {
   it('devolve código e PIN', async () => {

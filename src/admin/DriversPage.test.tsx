@@ -10,7 +10,9 @@ vi.mock('../lib/api', () => ({
   listCars: vi.fn(),
   createDriver: vi.fn(),
   driverAccess: vi.fn(),
-  updateDriverPcts: vi.fn(),
+  updateDriver: vi.fn(),
+  listDriverSignals: vi.fn(),
+  listDriverPauses: vi.fn(),
 }))
 const m = vi.mocked(api)
 
@@ -27,6 +29,8 @@ const driver = (over: Partial<Profile> = {}): Profile =>
     transfer_pct: 70,
     current_car_id: 'c1',
     active: true,
+    paused: false,
+    cpf: '52998224725',
     must_change_password: false,
     ...over,
   }) as Profile
@@ -46,6 +50,7 @@ let confirmSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   vi.clearAllMocks()
   m.listDrivers.mockResolvedValue([driver()])
+  m.listDriverSignals.mockResolvedValue([])
   m.listCars.mockResolvedValue([
     car(),
     car({ id: 'c2', model: 'Livre', plate: 'FREE001', current_driver_id: null }),
@@ -92,6 +97,7 @@ describe('novo motorista', () => {
     const user = await openForm()
     await user.type(screen.getByLabelText('Nome'), 'João Silva')
     await user.type(screen.getByLabelText('Telefone'), '11999998888')
+    await user.type(screen.getByLabelText('CPF'), '529.982.247-25')
     await user.type(screen.getByLabelText('% Transfer'), '70')
     await user.click(screen.getByRole('button', { name: 'Criar motorista' }))
     expect(await screen.findAllByText('Informe uma porcentagem entre 0 e 100')).toHaveLength(1)
@@ -102,6 +108,7 @@ describe('novo motorista', () => {
     const user = await openForm()
     await user.type(screen.getByLabelText('Nome'), 'João')
     await user.type(screen.getByLabelText('Telefone'), '11999998888')
+    await user.type(screen.getByLabelText('CPF'), '529.982.247-25')
     await user.selectOptions(screen.getByLabelText('Tipo'), 'own_car')
     await user.click(screen.getByRole('button', { name: 'Criar motorista' }))
     expect(await screen.findByText('Informe uma porcentagem entre 0 e 100')).toBeInTheDocument()
@@ -125,6 +132,7 @@ describe('novo motorista', () => {
     const user = await openForm()
     await user.type(screen.getByLabelText('Nome'), 'João Silva')
     await user.type(screen.getByLabelText('Telefone'), '(11) 99999-8888')
+    await user.type(screen.getByLabelText('CPF'), '529.982.247-25')
     await user.type(screen.getByLabelText('% Uber'), '40,5')
     await user.type(screen.getByLabelText('% Transfer'), '70')
     await user.selectOptions(screen.getByLabelText('Carro'), 'c2')
@@ -133,6 +141,7 @@ describe('novo motorista', () => {
     expect(m.createDriver).toHaveBeenCalledWith({
       name: 'João Silva',
       phone: '(11) 99999-8888',
+      cpf: '52998224725',
       driver_type: 'company_car',
       uber_pct: 40.5,
       transfer_pct: 70,
@@ -154,6 +163,7 @@ describe('novo motorista', () => {
     const write = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
     await user.type(screen.getByLabelText('Nome'), 'João')
     await user.type(screen.getByLabelText('Telefone'), '11999998888')
+    await user.type(screen.getByLabelText('CPF'), '529.982.247-25')
     await user.selectOptions(screen.getByLabelText('Tipo'), 'own_car')
     await user.type(screen.getByLabelText('% Transfer'), '60')
     await user.click(screen.getByRole('button', { name: 'Criar motorista' }))
@@ -166,12 +176,15 @@ describe('novo motorista', () => {
     ['INVALID_PHONE', 'Telefone inválido (DDD + número)'],
     ['INVALID_PCT', 'Porcentagem inválida'],
     ['INVALID_CAR', 'Carro indisponível para este motorista'],
+    ['INVALID_CPF', 'CPF inválido'],
+    ['CPF_TAKEN', 'CPF já cadastrado'],
     ['CREATE_FAILED', 'Não foi possível criar o motorista'],
   ])('erro %s vira mensagem', async (code, text) => {
     m.createDriver.mockRejectedValue(Object.assign(new Error(code), { code }))
     const user = await openForm()
     await user.type(screen.getByLabelText('Nome'), 'João')
     await user.type(screen.getByLabelText('Telefone'), '11999998888')
+    await user.type(screen.getByLabelText('CPF'), '529.982.247-25')
     await user.selectOptions(screen.getByLabelText('Tipo'), 'own_car')
     await user.type(screen.getByLabelText('% Transfer'), '60')
     await user.click(screen.getByRole('button', { name: 'Criar motorista' }))
@@ -187,23 +200,78 @@ describe('ações', () => {
     return user
   }
 
-  it('alterar % pede confirmação e salva', async () => {
+  it('Editar abre o formulário completo e salva via update-driver', async () => {
+    m.updateDriver.mockResolvedValue()
     const user = await ready()
-    await user.click(screen.getByRole('button', { name: 'Editar %' }))
-    const t = screen.getByLabelText('Novo % Transfer')
+    await user.click(screen.getByRole('button', { name: 'Editar' }))
+    expect(screen.getByLabelText('CPF')).toHaveValue('529.982.247-25')
+    const t = screen.getByLabelText('% Transfer')
     await user.clear(t)
     await user.type(t, '65,5')
-    await user.click(screen.getByRole('button', { name: 'Salvar %' }))
+    const n = screen.getByLabelText('Nome')
+    await user.clear(n)
+    await user.type(n, 'Maria S.')
+    await user.click(screen.getByRole('button', { name: 'Salvar' }))
     expect(confirmSpy).toHaveBeenCalledWith('Vale a partir de hoje para novas corridas. Confirmar?')
-    await waitFor(() => expect(m.updateDriverPcts).toHaveBeenCalledWith('d1', 40, 65.5))
+    await waitFor(() =>
+      expect(m.updateDriver).toHaveBeenCalledWith('d1', {
+        name: 'Maria S.',
+        phone: '(11) 98888-7777',
+        cpf: '52998224725',
+        driver_type: 'company_car',
+        uber_pct: 40,
+        transfer_pct: 65.5,
+        car_id: 'c1',
+      }),
+    )
   })
 
-  it('cancelar a confirmação não altera', async () => {
+  it('editar: o carro atual do motorista aparece entre as opções', async () => {
+    const user = await ready()
+    await user.click(screen.getByRole('button', { name: 'Editar' }))
+    const opts = within(screen.getByLabelText('Carro')).getAllByRole('option').map((o) => o.textContent)
+    expect(opts).toEqual(['Nenhum', 'Corolla ABC1D23', 'Livre FREE001'])
+  })
+
+  it('editar com CPF inválido não envia; CPF_TAKEN do servidor vira mensagem', async () => {
+    const user = await ready()
+    await user.click(screen.getByRole('button', { name: 'Editar' }))
+    await user.clear(screen.getByLabelText('CPF'))
+    await user.type(screen.getByLabelText('CPF'), '111.111.111-11')
+    await user.click(screen.getByRole('button', { name: 'Salvar' }))
+    expect(await screen.findByText('CPF inválido')).toBeInTheDocument()
+    expect(m.updateDriver).not.toHaveBeenCalled()
+    await user.clear(screen.getByLabelText('CPF'))
+    await user.type(screen.getByLabelText('CPF'), '52998224725')
+    m.updateDriver.mockRejectedValue(Object.assign(new Error('x'), { code: 'CPF_TAKEN' }))
+    await user.click(screen.getByRole('button', { name: 'Salvar' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('CPF já cadastrado')
+  })
+
+  it('cancelar a confirmação das porcentagens não altera', async () => {
     confirmSpy.mockReturnValue(false)
     const user = await ready()
-    await user.click(screen.getByRole('button', { name: 'Editar %' }))
-    await user.click(screen.getByRole('button', { name: 'Salvar %' }))
-    expect(m.updateDriverPcts).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Editar' }))
+    const t = screen.getByLabelText('% Transfer')
+    await user.clear(t)
+    await user.type(t, '60')
+    await user.click(screen.getByRole('button', { name: 'Salvar' }))
+    expect(m.updateDriver).not.toHaveBeenCalled()
+  })
+
+  it('CPF inválido no cadastro não envia', async () => {
+    const user = userEvent.setup()
+    render(<DriversPage />)
+    await screen.findByText('Maria Souza')
+    await user.click(screen.getByRole('button', { name: 'Novo motorista' }))
+    await user.type(screen.getByLabelText('Nome'), 'João')
+    await user.type(screen.getByLabelText('Telefone'), '11999998888')
+    await user.type(screen.getByLabelText('CPF'), '123.456.789-00')
+    await user.selectOptions(screen.getByLabelText('Tipo'), 'own_car')
+    await user.type(screen.getByLabelText('% Transfer'), '60')
+    await user.click(screen.getByRole('button', { name: 'Criar motorista' }))
+    expect(await screen.findByText('CPF inválido')).toBeInTheDocument()
+    expect(m.createDriver).not.toHaveBeenCalled()
   })
 
   it('desativar pede confirmação', async () => {
