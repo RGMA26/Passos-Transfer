@@ -65,6 +65,12 @@ describe('getCurrentPeriod', () => {
     expect(calls).toContainEqual(['driver_periods', 'eq', 'status', 'open'])
   })
 
+  it('FUTURE_DATE (relógio do celular adiantado): cai na última quinzena aberta', async () => {
+    rpc.mockResolvedValue({ data: null, error: { message: 'FUTURE_DATE', code: 'P0001' } })
+    expect(await getCurrentPeriod('d1', '2026-11-21')).toEqual(per)
+    expect(calls).toContainEqual(['driver_periods', 'eq', 'status', 'open'])
+  })
+
   it('outro erro propaga', async () => {
     rpc.mockResolvedValue({ data: null, error: { message: 'FORBIDDEN', code: 'P0001' } })
     await expect(getCurrentPeriod('d1', '2026-11-20')).rejects.toMatchObject({ message: 'FORBIDDEN' })

@@ -210,6 +210,11 @@ begin
   if auth.uid() is not null and auth.uid() is distinct from p_driver and not is_admin() then
     raise exception 'FORBIDDEN' using errcode = 'P0001';
   end if;
+  -- motorista só resolve quinzena de hoje para trás (datas antigas: sincronização offline)
+  if auth.uid() is not null and not is_admin()
+     and p_date > (now() at time zone 'America/Sao_Paulo')::date then
+    raise exception 'FUTURE_DATE' using errcode = 'P0001';
+  end if;
   return resolve_driver_period(p_driver, p_date);
 end $$;
 

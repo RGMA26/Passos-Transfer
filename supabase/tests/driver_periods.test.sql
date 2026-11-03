@@ -1,5 +1,5 @@
 begin;
-select plan(47);
+select plan(50);
 -- Endereço padrão dos Transfers destas fixtures (check de origem/destino da 0012; revertido no rollback).
 -- O check em si é testado em transfer_flow.test.sql.
 alter table rides
@@ -150,6 +150,15 @@ select throws_ok(
   '42501', null, 'motorista não cria quinzena direto');
 select throws_ok($$select driver_period_for('00000000-0000-0000-0000-000000001a01', '2026-11-26')$$,
   'P0001', 'FORBIDDEN', 'motorista não resolve quinzena de outro');
+-- motorista: só hoje para trás (data de SP); datas antigas continuam valendo (envio offline)
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000001a05","role":"authenticated"}';
+select throws_ok($$select driver_period_for(auth.uid(), (now() at time zone 'America/Sao_Paulo')::date + 1)$$,
+  'P0001', 'FUTURE_DATE', 'motorista não resolve quinzena de data futura');
+select lives_ok($$select driver_period_for(auth.uid(), (now() at time zone 'America/Sao_Paulo')::date - 40)$$,
+  'motorista resolve quinzena de data antiga');
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
+select lives_ok($$select driver_period_for('00000000-0000-0000-0000-000000001a05', (now() at time zone 'America/Sao_Paulo')::date + 20)$$,
+  'admin resolve quinzena de data futura');
 reset role;
 
 -- ===== Pausa =====

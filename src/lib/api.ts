@@ -304,7 +304,7 @@ export async function listExpenses(rideIds: string[]): Promise<RideExpense[]> {
 
 export type PeriodInfo = Pick<DriverPeriod, 'id' | 'start_date' | 'end_date' | 'status'>
 
-const NO_CURRENT_PERIOD = ['DRIVER_PAUSED', 'NO_PERIOD', 'BEFORE_CYCLE_START']
+const NO_CURRENT_PERIOD = ['DRIVER_PAUSED', 'NO_PERIOD', 'BEFORE_CYCLE_START', 'FUTURE_DATE']
 
 /**
  * Quinzena do motorista que contém a data (criada se preciso). Pausado (ou data fora de quinzena):

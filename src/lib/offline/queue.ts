@@ -90,6 +90,7 @@ const MESSAGES: Record<string, string> = {
   ALREADY_STARTED: 'Não enviado: o Transfer já foi iniciado',
   ALREADY_COMPLETED: 'Não enviado: o Transfer já foi concluído',
   INVALID_ODOMETER: 'Não enviado: leitura do odômetro inválida',
+  FUTURE_DATE: 'Não enviado: data no futuro',
 }
 
 /** Repetição de iniciar/concluir já aplicado (o Transfer andou): conta como enviado. */
