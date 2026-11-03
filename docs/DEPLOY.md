@@ -129,6 +129,27 @@ Entre como admin no computador e faça, nesta ordem:
 - [ ] **Enviar o código e o PIN** a cada motorista: logo após o cadastro aparecem o código (ex.: `PASSOS01JOAO`) e o PIN, com os botões **Copiar** e **Enviar por WhatsApp**. No primeiro acesso o motorista cria a própria senha.
 - [ ] Pedir a cada motorista para **instalar o app** (passo 7) e entrar uma vez para conferir.
 
+## Atualização: quinzena por motorista, Balanço mensal e Documentos (migrações 0010–0014)
+
+Só para quem **já tem o app no ar** com a versão anterior. Faça uma vez, nesta ordem, no computador, dentro da pasta do código (já ligada ao projeto pelo passo 2):
+
+1. **Backup:** no painel do Supabase, em **Database → Backups**, confira se há um backup recente.
+2. **Motorista de teste:** os dados do motorista de teste (lançamentos, turnos, quinzenas) são apagados **antes** da atualização. Quem cuida disso é o responsável técnico, e só depois de você confirmar. Não há dados reais a migrar.
+3. **Aplicar as mudanças no banco** (migrações `0010` a `0014`: quinzena de cada motorista, CPF, combustível e consumo, Transfer com Iniciar/Concluir, pausa, gastos dos carros, documentos e Balanço mensal):
+
+   ```bash
+   npx supabase db push
+   ```
+
+   O comando lista as migrações novas (`0010_driver_periods`, `0011_fuel`, `0012_transfer_flow`, `0013_driver_close`, `0014_balance_docs`) e pede confirmação. Responda `Y`.
+4. **Publicar as funções novas e atualizadas:**
+
+   ```bash
+   npx supabase functions deploy create-driver update-driver estimate-route
+   ```
+
+5. **Conferir:** entre como admin e veja se aparecem o menu **Balanço mensal**, as bolinhas no **Início** e o campo **CPF** no cadastro de motorista. Depois, em **Motoristas → Editar**, preencha o **CPF** dos motoristas que já existiam.
+
 ## Fechamento da quinzena
 
 - Cada motorista tem a **própria quinzena**: 15 dias contados a partir do cadastro dele. Em **Quinzenas**, abra o motorista e feche a quinzena dele. 🟡 avisa que ela termina em até 5 dias e 🔴 que já terminou e falta fechar (o **Início** mostra as mesmas bolinhas).
