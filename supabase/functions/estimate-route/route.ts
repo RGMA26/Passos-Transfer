@@ -98,3 +98,77 @@ export async function geocodeFirst(
   }
   return null
 }
+
+// ---------- Photon (komoot) ----------
+// Em produção o Nominatim responde 403 ("Access denied") para o Supabase Edge. O Photon responde.
+// Geocodificamos com o Photon (todas as buscas, 300 ms entre elas) e só se nada vier tentamos o
+// Nominatim uma única vez (ele funciona fora do Edge, por exemplo no ambiente local).
+
+export const PHOTON_SPACING_MS = 300
+
+/** Texto livre para o Photon: a busca de CEP vira "<CEP>, Brasil". */
+export function photonText(g: GeoQuery): string {
+  return 'q' in g ? g.q : `${g.postalcode}, ${g.country}`
+}
+
+const isBrazil = (p: { countrycode?: unknown; country?: unknown } | undefined) => {
+  if (!p) return false
+  if (typeof p.countrycode === 'string' && p.countrycode.toUpperCase() === 'BR') return true
+  return typeof p.country === 'string' && /^(brasil|brazil)$/i.test(p.country.trim())
+}
+
+/** Primeira feição do Brasil no GeoJSON do Photon -> {lat, lon} (coordenadas vêm [lon, lat]). */
+export function parsePhoton(json: unknown): { lat: number; lon: number } | null {
+  const feats = (json as { features?: unknown } | null)?.features
+  if (!Array.isArray(feats)) return null
+  for (const f of feats as { geometry?: { coordinates?: unknown }; properties?: { countrycode?: unknown; country?: unknown } }[]) {
+    if (!f || !isBrazil(f.properties)) continue
+    const c = f.geometry?.coordinates
+    if (!Array.isArray(c) || c.length < 2) continue
+    const lon = typeof c[0] === 'number' ? c[0] : NaN
+    const lat = typeof c[1] === 'number' ? c[1] : NaN
+    if (Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon }
+  }
+  return null
+}
+
+export type Geocoded = { lat: number; lon: number; source: 'photon' | 'nominatim'; query: string }
+
+/**
+ * Photon em todas as buscas (300 ms entre chamadas); sem resultado, uma tentativa no Nominatim com a
+ * primeira busca. Nunca lança; para antes do prazo.
+ */
+export async function geocodeAddress(
+  candidates: GeoQuery[],
+  fetchers: {
+    photon: (text: string) => Promise<unknown>
+    nominatim: (params: Record<string, string>) => Promise<unknown>
+  },
+  sleep: (ms: number) => Promise<void>,
+  now: () => number,
+  deadline: number = now() + 20_000,
+): Promise<Geocoded | null> {
+  if (candidates.length === 0) return null
+  for (let i = 0; i < candidates.length; i++) {
+    if (i > 0) {
+      if (now() + PHOTON_SPACING_MS > deadline) break
+      await sleep(PHOTON_SPACING_MS)
+    }
+    const text = photonText(candidates[i])
+    try {
+      const hit = parsePhoton(await fetchers.photon(text))
+      if (hit) return { ...hit, source: 'photon', query: text }
+    } catch {
+      // tenta a próxima
+    }
+  }
+  if (now() >= deadline) return null
+  try {
+    const first = candidates[0]
+    const hit = parseGeocode(await fetchers.nominatim(first as Record<string, string>))
+    if (hit) return { ...hit, source: 'nominatim', query: photonText(first) }
+  } catch {
+    // bloqueado (403) no Edge; segue sem resultado
+  }
+  return null
+}

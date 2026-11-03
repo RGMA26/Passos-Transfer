@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { candidateQueries, expandStreet, geocodeFirst, parseGeocode, parseRoute } from '../../supabase/functions/estimate-route/route'
+import {
+  candidateQueries,
+  expandStreet,
+  geocodeAddress,
+  geocodeFirst,
+  parseGeocode,
+  parsePhoton,
+  parseRoute,
+  PHOTON_SPACING_MS,
+  photonText,
+} from '../../supabase/functions/estimate-route/route'
 
 describe('parseRoute', () => {
   it('converte metros em km com 1 casa', () => {
@@ -105,5 +115,115 @@ describe('geocodeFirst', () => {
     const none = await geocodeFirst(candidateQueries(SAO_RAFAEL), async () => [], async () => void (t += 1100), () => t, 2000)
     expect(none).toBeNull()
     expect(t).toBeLessThanOrEqual(2200)
+  })
+})
+
+// ---------- Photon (fix 2026-11-03 b): o Nominatim responde 403 para o Supabase Edge ----------
+const PHOTON_FIXTURE = {
+  type: 'FeatureCollection',
+  features: [
+    { type: 'Feature', geometry: { type: 'Point', coordinates: [-9.14, 38.72] }, properties: { countrycode: 'PT', country: 'Portugal' } },
+    { type: 'Feature', geometry: { type: 'Point', coordinates: [-38.43, -12.92] }, properties: { countrycode: 'BR', country: 'Brasil', city: 'Salvador' } },
+  ],
+}
+
+describe('parsePhoton', () => {
+  it('pega a primeira feição do Brasil, com coordenadas [lon, lat]', () => {
+    expect(parsePhoton(PHOTON_FIXTURE)).toEqual({ lat: -12.92, lon: -38.43 })
+  })
+  it('aceita country Brasil/Brazil sem countrycode', () => {
+    expect(
+      parsePhoton({ features: [{ geometry: { coordinates: [-46.6, -23.5] }, properties: { country: 'Brazil' } }] }),
+    ).toEqual({ lat: -23.5, lon: -46.6 })
+  })
+  it('null sem feição brasileira ou com resposta ruim', () => {
+    expect(parsePhoton({ features: [PHOTON_FIXTURE.features[0]] })).toBeNull()
+    expect(parsePhoton({ features: [] })).toBeNull()
+    expect(parsePhoton(null)).toBeNull()
+    expect(parsePhoton({ features: [{ geometry: { coordinates: ['x', 1] }, properties: { countrycode: 'BR' } }] })).toBeNull()
+  })
+})
+
+describe('photonText', () => {
+  it('texto livre fica igual; CEP vira "<CEP>, Brasil"', () => {
+    expect(photonText({ q: 'Rua A 1, X, MG' })).toBe('Rua A 1, X, MG')
+    expect(photonText({ postalcode: '41253-190', country: 'Brasil' })).toBe('41253-190, Brasil')
+  })
+})
+
+describe('geocodeAddress', () => {
+  it('Photon em ordem com 300 ms entre chamadas; devolve fonte e busca achada', async () => {
+    const urls: string[] = []
+    const waits: number[] = []
+    const r = await geocodeAddress(
+      candidateQueries(SAO_RAFAEL),
+      {
+        photon: async (text) => {
+          urls.push(text)
+          return urls.length === 3 ? PHOTON_FIXTURE : { features: [] }
+        },
+        nominatim: async () => {
+          throw new Error('não deveria chamar')
+        },
+      },
+      async (ms) => void waits.push(ms),
+      () => 0,
+    )
+    expect(r).toEqual({ lat: -12.92, lon: -38.43, source: 'photon', query: '41253-190, Brasil' })
+    expect(urls).toEqual([
+      'Avenida São Rafael 2152, salvador, BA',
+      'Avenida São Rafael 2152, São Rafael, salvador, BA',
+      '41253-190, Brasil',
+    ])
+    expect(waits).toEqual([PHOTON_SPACING_MS, PHOTON_SPACING_MS])
+    expect(PHOTON_SPACING_MS).toBe(300)
+  })
+  it('Photon vazio em tudo: uma única tentativa no Nominatim (primeira busca)', async () => {
+    const nom: Record<string, string>[] = []
+    const r = await geocodeAddress(
+      candidateQueries(SAO_RAFAEL),
+      {
+        photon: async () => ({ features: [] }),
+        nominatim: async (p) => {
+          nom.push(p)
+          return [{ lat: '-12.9', lon: '-38.4' }]
+        },
+      },
+      async () => {},
+      () => 0,
+    )
+    expect(nom).toEqual([{ q: 'Avenida São Rafael 2152, salvador, BA' }])
+    expect(r).toEqual({ lat: -12.9, lon: -38.4, source: 'nominatim', query: 'Avenida São Rafael 2152, salvador, BA' })
+  })
+  it('Photon com erro e Nominatim 403: null, sem lançar', async () => {
+    let nominatimCalls = 0
+    const r = await geocodeAddress(
+      candidateQueries(SAO_RAFAEL),
+      {
+        photon: async () => {
+          throw new Error('HTTP 500')
+        },
+        nominatim: async () => {
+          nominatimCalls++
+          throw new Error('HTTP 403')
+        },
+      },
+      async () => {},
+      () => 0,
+    )
+    expect(r).toBeNull()
+    expect(nominatimCalls).toBe(1)
+  })
+  it('respeita o prazo', async () => {
+    let t = 0
+    const r = await geocodeAddress(
+      candidateQueries(SAO_RAFAEL),
+      { photon: async () => ({ features: [] }), nominatim: async () => [] },
+      async (ms) => void (t += ms),
+      () => t,
+      500,
+    )
+    expect(r).toBeNull()
+    expect(t).toBeLessThanOrEqual(600)
   })
 })

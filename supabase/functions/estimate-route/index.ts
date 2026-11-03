@@ -1,5 +1,5 @@
 import { corsHeaders, json, readBody, requireAdmin } from '../_shared/admin.ts'
-import { type Addr, candidateQueries, geocodeFirst, NOMINATIM_SPACING_MS, parseRoute } from './route.ts'
+import { type Addr, candidateQueries, geocodeAddress, PHOTON_SPACING_MS, parseRoute } from './route.ts'
 
 const UA = 'PassosTransfer/1.0'
 const TIMEOUT_MS = 6000
@@ -41,23 +41,32 @@ Deno.serve(async (req) => {
     const cd = destination ? candidateQueries(destination) : []
     if (co.length === 0 || cd.length === 0) return json({ km: null, reason: 'NOT_FOUND' })
 
-    // Nominatim: uma requisição por vez, ≥ 1,1 s entre elas, no máximo 4 por endereço
-    const nominatim = (params: Record<string, string>) =>
-      getJson(
-        `https://nominatim.openstreetmap.org/search?${new URLSearchParams({
-          format: 'json',
-          countrycodes: 'br',
-          limit: '1',
-          ...params,
-        })}`,
-        Math.min(TIMEOUT_MS, deadline - Date.now()),
-      )
-    const a = await geocodeFirst(co, nominatim, sleep, Date.now, deadline)
-    if (!a) return json({ km: null, reason: 'NOT_FOUND' })
-    if (Date.now() + NOMINATIM_SPACING_MS > deadline) return json({ km: null, reason: 'NOT_FOUND' })
-    await sleep(NOMINATIM_SPACING_MS)
-    const b = await geocodeFirst(cd, nominatim, sleep, Date.now, deadline)
-    if (!b) return json({ km: null, reason: 'NOT_FOUND' })
+    // Photon primeiro (o Nominatim dá 403 no Supabase Edge); Nominatim só como última tentativa
+    const timeout = () => Math.min(TIMEOUT_MS, deadline - Date.now())
+    const fetchers = {
+      photon: (text: string) =>
+        getJson(`https://photon.komoot.io/api/?${new URLSearchParams({ q: text, limit: '5' })}`, timeout()),
+      nominatim: (params: Record<string, string>) =>
+        getJson(
+          `https://nominatim.openstreetmap.org/search?${new URLSearchParams({
+            format: 'json',
+            countrycodes: 'br',
+            limit: '1',
+            ...params,
+          })}`,
+          timeout(),
+        ),
+    }
+    const a = await geocodeAddress(co, fetchers, sleep, Date.now, deadline)
+    if (!a) return json({ km: null, reason: 'NOT_FOUND', matched: { origin: null, destination: null } })
+    const matchedOrigin = { source: a.source, query: a.query }
+    if (Date.now() + PHOTON_SPACING_MS > deadline) {
+      return json({ km: null, reason: 'NOT_FOUND', matched: { origin: matchedOrigin, destination: null } })
+    }
+    await sleep(PHOTON_SPACING_MS)
+    const b = await geocodeAddress(cd, fetchers, sleep, Date.now, deadline)
+    if (!b) return json({ km: null, reason: 'NOT_FOUND', matched: { origin: matchedOrigin, destination: null } })
+    const matched = { origin: matchedOrigin, destination: { source: b.source, query: b.query } }
 
     try {
       const route = await getJson(
@@ -65,9 +74,9 @@ Deno.serve(async (req) => {
         Math.min(TIMEOUT_MS, started + BUDGET_MS - Date.now()),
       )
       const km = parseRoute(route)
-      return km === null ? json({ km: null, reason: 'ROUTE_FAILED' }) : json({ km })
+      return km === null ? json({ km: null, reason: 'ROUTE_FAILED', matched }) : json({ km, matched })
     } catch {
-      return json({ km: null, reason: 'ROUTE_FAILED' })
+      return json({ km: null, reason: 'ROUTE_FAILED', matched })
     }
   } catch {
     return json({ km: null, reason: 'ROUTE_FAILED' })
