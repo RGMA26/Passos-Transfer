@@ -219,6 +219,17 @@ describe('novo transfer', () => {
     expect(m.createTransfer).not.toHaveBeenCalled()
   })
 
+  it('rua sem número: "Informe o número da rua" (origem e destino) e não cria', async () => {
+    const user = await openForm()
+    await fillBase(user)
+    await fillAddress(user, 'Origem', { ...ADDR_ORIGIN, street: 'Rua das Flores' })
+    await fillAddress(user, 'Destino', { ...ADDR_DEST, street: 'Av. JK' })
+    await user.click(screen.getByRole('button', { name: 'Criar transfer' }))
+    expect(screen.getAllByText('Informe o número da rua')).toHaveLength(2)
+    expect(m.estimateRoute).not.toHaveBeenCalled()
+    expect(m.createTransfer).not.toHaveBeenCalled()
+  })
+
   it('só lista motoristas ativos', async () => {
     await openForm()
     const sel = screen.getByLabelText('Motorista')

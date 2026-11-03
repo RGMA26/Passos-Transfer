@@ -13,6 +13,9 @@ export const EMPTY_ADDRESS: AddressValue = { street: '', district: '', city: '',
 export const isAddressComplete = (a: AddressValue) =>
   [a.street, a.district, a.city, a.state].every((v) => v.trim() !== '')
 
+/** "Rua e número" precisa ter o número (sem ele o cálculo de km quase sempre falha). */
+export const hasStreetNumber = (a: AddressValue) => /\d/.test(a.street)
+
 interface Props {
   legend: string
   value: AddressValue

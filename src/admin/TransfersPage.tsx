@@ -5,7 +5,9 @@ import type { Profile } from '../lib/types'
 import MoneyInput from '../components/MoneyInput'
 import { formatBRL } from '../lib/money'
 import { localDate } from '../lib/periods'
-import AddressFields, { EMPTY_ADDRESS, isAddressComplete } from './AddressFields'
+import AddressFields, { EMPTY_ADDRESS, hasStreetNumber, isAddressComplete } from './AddressFields'
+
+const MSG_STREET_NUMBER = 'Informe o número da rua'
 import type { AddressValue } from './AddressFields'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
@@ -252,7 +254,9 @@ function NewTransferForm({
     if (amount === null || amount <= 0) errs.amount = 'Informe um valor válido'
     if (!driverId) errs.driver = 'Escolha o motorista'
     if (!isAddressComplete(origin)) errs.origin = 'Preencha o endereço de origem'
+    else if (!hasStreetNumber(origin)) errs.origin = MSG_STREET_NUMBER
     if (!isAddressComplete(destination)) errs.destination = 'Preencha o endereço de destino'
+    else if (!hasStreetNumber(destination)) errs.destination = MSG_STREET_NUMBER
     setErrors(errs)
     setError('')
     if (Object.keys(errs).length > 0 || !when || amount === null) return
