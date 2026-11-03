@@ -164,6 +164,29 @@ describe('TransfersTab', () => {
     expect(screen.getByRole('button', { name: 'Concluir' })).toBeInTheDocument()
   })
 
+  it('iniciar que falhou (ex.: conexão) volta a Iniciar e mostra o erro, mesmo com Concluir na fila', async () => {
+    shiftState(false, [
+      { ...pendingOp('start_transfer', { ride_id: 'r1', odometer: 7000 }), status: 'failed', error: 'Não enviado: falha de conexão ao enviar. Tente de novo.' },
+      pendingOp('complete_transfer', { ride_id: 'r1', odometer: 7040 }),
+    ])
+    await open()
+    expect(screen.getAllByText('Atribuída').length).toBeGreaterThan(0)
+    expect(screen.getByText('Não enviado: falha de conexão ao enviar. Tente de novo.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Iniciar' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Concluir' })).toBeNull()
+    expect(screen.queryByText('Odômetro inicial: 7000')).toBeNull()
+  })
+
+  it('anexo de foto na fila não aparece como pendência do Transfer', async () => {
+    mApi.listMyTransfers.mockResolvedValue([
+      ride({ transfer_status: 'in_progress', odometer_start: 5000 }),
+    ] as never)
+    shiftState(false, [pendingOp('attach_photo', { target: 'transfer_start', id: 'r1' })])
+    await open()
+    expect(screen.queryByText('pendente de envio')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Concluir' })).toBeInTheDocument()
+  })
+
   it('concluída: aguardando conferência, sem iniciar/concluir', async () => {
     mApi.listMyTransfers.mockResolvedValue([
       ride({ transfer_status: 'completed', odometer_start: 5000, odometer_end: 5042, km: 42 }),
