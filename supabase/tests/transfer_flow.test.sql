@@ -115,8 +115,8 @@ select is((select coalesce(odometer_start::text, 'null') from rides where id = '
 
 -- iniciar
 select throws_ok(
-  $$select start_transfer('00000000-0000-0000-0000-0000000031a1', 5000, '')$$,
-  'P0001', 'PHOTO_REQUIRED', 'iniciar sem foto');
+  $$select start_transfer('00000000-0000-0000-0000-0000000031a1', -1, '')$$,
+  'P0001', 'INVALID_ODOMETER', 'sem foto não é bloqueio (0015); leitura ainda é validada');
 select throws_ok(
   $$select start_transfer('00000000-0000-0000-0000-0000000031a1', null, 'a.jpg')$$,
   'P0001', 'INVALID_ODOMETER', 'iniciar sem leitura');
@@ -165,8 +165,8 @@ select throws_ok(
   $$select complete_transfer('00000000-0000-0000-0000-0000000031a1', null, 'b.jpg')$$,
   'P0001', 'ODOMETER_BELOW_START', 'final nulo');
 select throws_ok(
-  $$select complete_transfer('00000000-0000-0000-0000-0000000031a1', 5042, '')$$,
-  'P0001', 'PHOTO_REQUIRED', 'concluir sem foto');
+  $$select complete_transfer('00000000-0000-0000-0000-0000000031a1', 4000, '')$$,
+  'P0001', 'ODOMETER_BELOW_START', 'sem foto não é bloqueio (0015); leitura ainda é validada');
 select is(
   (select transfer_status || '/' || km from complete_transfer('00000000-0000-0000-0000-0000000031a1', 5042, 'b.jpg')),
   'completed/42.0', 'concluir: completed com km = final − inicial');

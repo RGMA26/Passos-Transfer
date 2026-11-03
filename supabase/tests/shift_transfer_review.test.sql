@@ -30,8 +30,8 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000d001","role":"authenticated"}';
 
 select throws_ok(
-  $$select start_shift('00000000-0000-0000-0000-0000000005b1','00000000-0000-0000-0000-00000000c001',1000,'')$$,
-  'P0001', 'PHOTO_REQUIRED', 'start_shift sem foto');
+  $$select start_shift('00000000-0000-0000-0000-0000000005b1','00000000-0000-0000-0000-00000000c002',1000,'')$$,
+  'P0001', 'NOT_COMPANY_CAR', 'sem foto não é bloqueio (0015); carro próprio ainda barra');
 select throws_ok(
   $$select start_shift('00000000-0000-0000-0000-0000000005b1','00000000-0000-0000-0000-00000000c002',1000,'p.jpg')$$,
   'P0001', 'NOT_COMPANY_CAR', 'start_shift com carro próprio');
@@ -88,11 +88,11 @@ select throws_ok(
   $$select end_shift('00000000-0000-0000-0000-0000000005b1',990,'f.jpg','u.jpg')$$,
   'P0001', 'ODOMETER_BELOW_START', 'odômetro final abaixo do inicial');
 select throws_ok(
-  $$select end_shift('00000000-0000-0000-0000-0000000005b1',1200,'','u.jpg')$$,
-  'P0001', 'PHOTO_REQUIRED', 'sem foto do odômetro');
+  $$select end_shift('00000000-0000-0000-0000-0000000005b1',990,'','u.jpg')$$,
+  'P0001', 'ODOMETER_BELOW_START', 'sem foto não é bloqueio (0015); odômetro ainda é validado');
 select throws_ok(
-  $$select end_shift('00000000-0000-0000-0000-0000000005b1',1200,'f.jpg',null)$$,
-  'P0001', 'UBER_PHOTO_REQUIRED', 'Uber sem print');
+  $$select end_shift('00000000-0000-0000-0000-0000000005b1',990,'f.jpg',null)$$,
+  'P0001', 'ODOMETER_BELOW_START', 'sem print da Uber não é bloqueio (0015: vira pendência 📷)');
 select is((select ended_at from shifts), null, 'falhas não encerram o turno');
 select is(
   end_shift('00000000-0000-0000-0000-0000000005b1',1200,'f.jpg','u.jpg'),

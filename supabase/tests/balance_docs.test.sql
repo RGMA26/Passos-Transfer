@@ -364,7 +364,8 @@ set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","r
 create temp table pend as select * from admin_pendencies()
   where driver_id in ('00000000-0000-0000-0000-000000005a03','00000000-0000-0000-0000-000000005a04','00000000-0000-0000-0000-000000005a05');
 reset role;
-select results_eq($$select category, count(*)::int from pend group by category order by category$$,
+-- fixtures sem fotos de odômetro também geram 📷 ('photo', testado em photo_pending.test.sql)
+select results_eq($$select category, count(*)::int from pend where category <> 'photo' group by category order by category$$,
   $$values ('orange'::text, 1), ('red', 1), ('white', 4), ('yellow', 1)$$, 'contagens por categoria');
 select results_eq($$select item_type, item_id from pend where category = 'white' order by item_type, item_id$$,
   $$values ('fueling'::text, '00000000-0000-0000-0000-000000005d01'::uuid),

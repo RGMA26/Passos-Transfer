@@ -335,6 +335,9 @@ isOneToOne: true
               "category": string,"driver_id": string,"driver_name": string,"item_id": string,"item_type": string,"label": string,"occurred_on": string
             }[]
                            },
+"attach_photo":
+{ Args: { "p_id": string,"p_path": string,"p_target": string }; Returns: undefined
+                           },
 "car_consumption":
 { Args: { "p_car": string,"p_fuel": string }; Returns: number
                            },
