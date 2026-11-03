@@ -407,7 +407,11 @@ end $$;
 -- transfer: aprovar → checked + despesas pendentes aprovadas (mesma transação);
 --           recusar → in_progress com o motivo, despesas seguem pendentes.
 -- expense: só pela conferência do Transfer (USE_TRANSFER_REVIEW).
-create or replace function review_item(p_kind text, p_id uuid, p_approved boolean, p_reason text)
+-- p_expense_ids (opcional): ao aprovar um Transfer, os pedágios/estacionamentos que o admin viu.
+-- Se houver despesa pendente fora da lista → NEW_EXPENSES (a tela recarrega). Nulo = aprova todas.
+drop function review_item(text, uuid, boolean, text);
+create function review_item(p_kind text, p_id uuid, p_approved boolean, p_reason text,
+                            p_expense_ids uuid[] default null)
 returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -444,6 +448,12 @@ begin
       if v_tstatus is distinct from 'completed' then
         raise exception 'NOT_REVIEWABLE' using errcode = 'P0001';
       end if;
+      if v_approved and p_expense_ids is not null and exists (
+           select 1 from ride_expenses e
+            where e.ride_id = p_id and e.review_status = 'pending'
+              and not (e.id = any (p_expense_ids))) then
+        raise exception 'NEW_EXPENSES' using errcode = 'P0001';
+      end if;
       update rides
         set transfer_status = case when v_approved then 'checked' else 'in_progress' end,
             reject_reason = v_reason
@@ -459,6 +469,9 @@ begin
     raise exception 'NOT_FOUND' using errcode = 'P0001';
   end if;
 end $$;
+
+revoke execute on function review_item(text, uuid, boolean, text, uuid[]) from public, anon;
+grant execute on function review_item(text, uuid, boolean, text, uuid[]) to authenticated;
 
 -- ===== RLS de despesas: Transfer atribuído, em andamento ou concluído =====
 drop policy driver_insert on ride_expenses;

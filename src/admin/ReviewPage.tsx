@@ -8,6 +8,7 @@ import { parseDecimal } from './helpers'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
 const MSG_PERIOD_CLOSED = 'Quinzena fechada: não é possível alterar'
+const MSG_NEW_EXPENSES = 'Há despesas novas neste Transfer. Atualize a conferência.'
 const MSG_REASON = 'Informe o motivo'
 const MSG_ODO = 'O odômetro final não pode ser menor que o inicial'
 
@@ -179,9 +180,12 @@ function ReviewItem({
   children,
   extra,
   conflict,
+  expenseIds,
 }: {
   kind: Kind
   id: string
+  /** Transfer: ids das despesas exibidas (o servidor recusa se houver outra pendente). */
+  expenseIds?: string[]
   photos: { path: string; alt: string }[]
   onDone: () => void
   children: ReactNode
@@ -199,9 +203,15 @@ function ReviewItem({
     setError('')
     setBusy(true)
     try {
-      await api.reviewItem(kind, id, approved, approved ? null : r)
+      if (approved && expenseIds) await api.reviewItem(kind, id, true, null, expenseIds)
+      else await api.reviewItem(kind, id, approved, approved ? null : r)
       onDone()
     } catch (err) {
+      if ((err as Error)?.message === 'NEW_EXPENSES') {
+        window.alert(MSG_NEW_EXPENSES)
+        onDone()
+        return
+      }
       setError(errorText(err, 'Não foi possível concluir a ação'))
       setBusy(false)
     }
@@ -261,7 +271,13 @@ function TransferItem({ transfer: t, onDone }: { transfer: api.PendingTransfer; 
     })),
   ].filter((p): p is { path: string; alt: string } => !!p)
   return (
-    <ReviewItem kind="transfer" id={t.id} onDone={onDone} photos={photos}>
+    <ReviewItem
+      kind="transfer"
+      id={t.id}
+      onDone={onDone}
+      photos={photos}
+      expenseIds={t.expenses.filter((e) => e.review_status === 'pending').map((e) => e.id)}
+    >
       <strong>{t.driver_name}</strong>
       <span>{`${t.client_name ?? '—'} · ${fmtWhen(t.scheduled_at)} · ${formatBRL(t.amount)}`}</span>
       {(t.origin || t.destination) && <span>{`${t.origin ?? '—'} → ${t.destination ?? '—'}`}</span>}

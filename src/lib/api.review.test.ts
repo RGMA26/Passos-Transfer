@@ -49,6 +49,15 @@ describe('reviewItem', () => {
     expect(rpcArgs).toEqual(['review_item', { p_kind: 'fueling', p_id: 'f1', p_approved: true, p_reason: null }])
   })
 
+  it('transfer: envia as despesas vistas em p_expense_ids', async () => {
+    result = { data: null, error: null }
+    await reviewItem('transfer', 't1', true, null, ['e1', 'e2'])
+    expect(rpcArgs).toEqual([
+      'review_item',
+      { p_kind: 'transfer', p_id: 't1', p_approved: true, p_reason: null, p_expense_ids: ['e1', 'e2'] },
+    ])
+  })
+
   it('propaga o código do servidor', async () => {
     result = { data: null, error: { message: 'REASON_REQUIRED', code: 'P0001' } }
     await expect(reviewItem('shift', 's1', false, '')).rejects.toThrow('REASON_REQUIRED')

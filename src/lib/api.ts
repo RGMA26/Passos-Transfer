@@ -1079,12 +1079,15 @@ export async function reviewItem(
   id: string,
   approved: boolean,
   reason: string | null,
+  /** Transfer: despesas que o admin viu; havendo outra pendente, o servidor responde NEW_EXPENSES. */
+  expenseIds?: string[],
 ): Promise<void> {
   const { error } = await supabase.rpc('review_item', {
     p_kind: kind,
     p_id: id,
     p_approved: approved,
     p_reason: reason as string,
+    ...(expenseIds ? { p_expense_ids: expenseIds } : {}),
   })
   if (error) throw Object.assign(new Error(error.message), { code: error.code })
 }

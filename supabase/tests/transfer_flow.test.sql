@@ -1,5 +1,5 @@
 begin;
-select plan(91);
+select plan(94);
 
 -- Personas do seed: admin ad01, João d001 (company_car, carro c001 da empresa),
 -- Maria d002 (own_car, carro c002 próprio). Fixtures próprias: uuids 3xxx.
@@ -221,7 +221,13 @@ reset role;
 
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000ad01","role":"authenticated"}';
 set local role authenticated;
-select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000031a1', true, null)$$, 'admin aprova transfer');
+-- despesa que o admin não viu (lista sem ela) → NEW_EXPENSES e nada muda
+select throws_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000031a1', true, null, array[]::uuid[])$$,
+  'P0001', 'NEW_EXPENSES', 'aprovar sem ter visto a despesa pendente: NEW_EXPENSES');
+select throws_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000031a1', true, null, array['00000000-0000-0000-0000-0000000031e2']::uuid[])$$,
+  'P0001', 'NEW_EXPENSES', 'lista com despesa de outro transfer: NEW_EXPENSES');
+select is((select transfer_status from rides where id = '00000000-0000-0000-0000-0000000031a1'), 'completed', 'NEW_EXPENSES não confere');
+select lives_ok($$select review_item('transfer','00000000-0000-0000-0000-0000000031a1', true, null, array['00000000-0000-0000-0000-0000000031e1']::uuid[])$$, 'admin aprova transfer com as despesas vistas');
 select is((select transfer_status from rides where id = '00000000-0000-0000-0000-0000000031a1'), 'checked', 'aprovado: checked');
 select is((select review_status || '/' || coalesce(reject_reason, 'null') from ride_expenses where id = '00000000-0000-0000-0000-0000000031e1'),
   'approved/null', 'aprovado: despesa aprovada junto');

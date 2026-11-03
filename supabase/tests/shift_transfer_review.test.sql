@@ -22,7 +22,7 @@ insert into ride_expenses (id, ride_id, kind, amount, photo_path) values
 
 -- Privilégios
 select ok(not has_function_privilege('anon', 'start_shift(uuid,uuid,int,text)', 'execute'), 'anon não executa start_shift');
-select ok(not has_function_privilege('anon', 'review_item(text,uuid,boolean,text)', 'execute'), 'anon não executa review_item');
+select ok(not has_function_privilege('anon', 'review_item(text,uuid,boolean,text,uuid[])', 'execute'), 'anon não executa review_item');
 select ok(has_function_privilege('authenticated', 'end_shift(uuid,int,text,text)', 'execute'), 'authenticated executa end_shift');
 
 -- ===== João: iniciar turno =====

@@ -452,7 +452,7 @@ isOneToOne: true
 { Args: { "p_driver": string,"p_resume_on": string }; Returns: undefined
                            },
 "review_item":
-{ Args: { "p_approved": boolean,"p_id": string,"p_kind": string,"p_reason": string }; Returns: undefined
+{ Args: { "p_approved": boolean,"p_expense_ids"?: (string)[],"p_id": string,"p_kind": string,"p_reason": string }; Returns: undefined
                            },
 "row_driver_date":
 { Args: { "p_table": string,"r": Json }; Returns: Record<string, unknown>

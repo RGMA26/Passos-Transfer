@@ -230,7 +230,20 @@ describe('conferência única do transfer', () => {
     expect(t.getAllByRole('button', { name: 'Recusar' })).toHaveLength(1)
     await user.click(t.getByRole('button', { name: 'Aprovar' }))
     await waitFor(() => expect(m.reviewItem).toHaveBeenCalledTimes(1))
-    expect(m.reviewItem).toHaveBeenCalledWith('transfer', 't1', true, null)
+    expect(m.reviewItem).toHaveBeenCalledWith('transfer', 't1', true, null, ['e1'])
+  })
+
+  it('NEW_EXPENSES: avisa e recarrega a conferência', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
+    m.reviewItem.mockRejectedValueOnce(Object.assign(new Error('NEW_EXPENSES'), { code: 'P0001' }))
+    const user = userEvent.setup()
+    renderPage()
+    const t = within(await waitFor(() => section('Transfers concluídos')))
+    const calls = m.listPendingReview.mock.calls.length
+    await user.click(t.getByRole('button', { name: 'Aprovar' }))
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Há despesas novas neste Transfer. Atualize a conferência.'))
+    await waitFor(() => expect(m.listPendingReview.mock.calls.length).toBeGreaterThan(calls))
+    alertSpy.mockRestore()
   })
 })
 
