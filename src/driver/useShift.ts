@@ -11,7 +11,7 @@ export interface ShiftState {
   startedAtMs: number
 }
 
-/** Turno aberto = turno aberto no servidor OU start_shift pendente, menos end_shift pendente. */
+/** Turno aberto = turno aberto no servidor OU start_shift pendente, menos end_shift pendente (ops failed não contam). */
 export function deriveShift(server: Shift | null, ops: QueuedOp[]): ShiftState | null {
   let shift: ShiftState | null = null
   if (server) {
@@ -21,7 +21,8 @@ export function deriveShift(server: Shift | null, ops: QueuedOp[]): ShiftState |
       startedAtMs: Date.parse(server.started_at),
     }
   } else {
-    const start = ops.find((o) => o.kind === 'start_shift')
+    // só start_shift pendente conta: um recusado (failed) nunca abriu turno no servidor
+    const start = ops.find((o) => o.kind === 'start_shift' && o.status === 'pending')
     if (start) {
       shift = {
         id: String(start.payload.id),
@@ -32,7 +33,7 @@ export function deriveShift(server: Shift | null, ops: QueuedOp[]): ShiftState |
   }
   if (!shift) return null
   const id = shift.id
-  if (ops.some((o) => o.kind === 'end_shift' && o.payload.shift_id === id)) return null
+  if (ops.some((o) => o.kind === 'end_shift' && o.status === 'pending' && o.payload.shift_id === id)) return null
   return shift
 }
 

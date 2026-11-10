@@ -231,6 +231,17 @@ describe('fila offline', () => {
     expect((await listOps())[0]).toMatchObject({ status: 'failed', error: msg })
   })
 
+  it('ODOMETER_BELOW_LAST com detail: guarda o detail e mostra o último registrado', async () => {
+    api.startShift.mockRejectedValueOnce(Object.assign(new Error('ODOMETER_BELOW_LAST'), { code: 'P0001', status: 400, details: '101500' }))
+    await enqueue(op('a', { kind: 'start_shift', payload: { id: 'a', car_id: 'c1', odometer: 90000 } }))
+    await flush()
+    expect((await listOps())[0]).toMatchObject({
+      status: 'failed',
+      error: 'Não enviado: odômetro menor que o último registrado (101.500 km)',
+      detail: '101500',
+    })
+  })
+
   it('start_transfer despacha com odômetro e foto enviada', async () => {
     await enqueue(
       op('s', {

@@ -17,6 +17,7 @@ vi.mock('../lib/api', () => ({
   getShiftRides: vi.fn(),
   getTodaySummary: vi.fn(),
   getCar: vi.fn(),
+  getLastCarReading: vi.fn(async () => null),
   endShift: vi.fn(),
   listTodayEntries: vi.fn(async () => []),
 }))

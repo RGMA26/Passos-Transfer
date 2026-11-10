@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import TodayTab from './TodayTab'
 import { makeProfile, photoFile } from './testUtils'
 import * as api from '../lib/api'
-import { enqueue, listOps } from '../lib/offline/queue'
+import { enqueue, listOps, discardOp } from '../lib/offline/queue'
 
 let profile = makeProfile()
 vi.mock('../lib/auth', () => ({
@@ -16,12 +16,14 @@ vi.mock('../lib/api', () => ({
   getShiftRides: vi.fn(),
   getTodaySummary: vi.fn(),
   getCar: vi.fn(),
+  getLastCarReading: vi.fn(async () => null),
   endShift: vi.fn(),
   listTodayEntries: vi.fn(async () => []),
 }))
 vi.mock('../lib/offline/queue', () => ({
   enqueue: vi.fn(async () => {}),
   listOps: vi.fn(async () => []),
+  discardOp: vi.fn(async () => {}),
   onQueueChange: vi.fn(() => () => {}),
 }))
 vi.mock('../components/PhotoInput', async () => ({
@@ -44,6 +46,7 @@ const summary = {
 const mApi = vi.mocked(api)
 const mEnqueue = vi.mocked(enqueue)
 const mList = vi.mocked(listOps)
+const mDiscard = vi.mocked(discardOp)
 
 function ui() {
   return render(
@@ -63,6 +66,7 @@ beforeEach(() => {
   mApi.getTodaySummary.mockResolvedValue(summary)
   mApi.getCar.mockResolvedValue(car as never)
   mApi.listTodayEntries.mockResolvedValue([])
+  mApi.getLastCarReading.mockResolvedValue(null)
 })
 
 describe('TodayTab', () => {
@@ -380,5 +384,61 @@ describe('TodayTab', () => {
       expect(await list.findByText(/Abastecimento R\$\s150,00 · Gasolina 30 L/)).toBeInTheDocument()
       expect(list.queryByText(/Uber R\$\s100,00/)).toBeNull()
     })
+  })
+})
+
+describe('TodayTab: início de turno recusado', () => {
+  const failedStart = {
+    id: 'f1',
+    kind: 'start_shift',
+    ownerId: 'u1',
+    payload: { id: 's9', car_id: 'c1', odometer: 90000 },
+    photos: [],
+    status: 'failed',
+    error: 'Não enviado: odômetro menor que o último registrado (101.500 km)',
+    createdAt: 1,
+  }
+
+  it('mostra caixa vermelha com o motivo e NÃO "Encerrar turno"', async () => {
+    mList.mockResolvedValue([failedStart] as never)
+    ui()
+    expect(await screen.findByText(/odômetro menor que o último registrado \(101\.500 km\)/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Encerrar turno' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Corrigir e tentar de novo' })).toBeInTheDocument()
+  })
+
+  it('Descartar remove a op falha', async () => {
+    const u = userEvent.setup()
+    mList.mockResolvedValue([failedStart] as never)
+    ui()
+    await u.click(await screen.findByRole('button', { name: 'Descartar' }))
+    expect(mDiscard).toHaveBeenCalledWith('f1')
+  })
+
+  it('Corrigir abre o formulário com carro e odômetro vazio; ao enviar descarta a op falha', async () => {
+    const u = userEvent.setup()
+    mList.mockResolvedValue([failedStart] as never)
+    ui()
+    await u.click(await screen.findByRole('button', { name: 'Corrigir e tentar de novo' }))
+    expect(await screen.findByText('Corolla – ABC1D23')).toBeInTheDocument()
+    const field = screen.getByLabelText('Odômetro') as HTMLInputElement
+    expect(field.value).toBe('')
+    await u.type(field, '102000')
+    await u.upload(screen.getByLabelText('Foto do odômetro'), photoFile())
+    await u.click(screen.getByRole('button', { name: 'Iniciar turno' }))
+    await waitFor(() => expect(mEnqueue).toHaveBeenCalled())
+    expect(mDiscard).toHaveBeenCalledWith('f1')
+  })
+
+  it('pré-valida contra a última leitura conhecida do carro', async () => {
+    const u = userEvent.setup()
+    mApi.getLastCarReading.mockResolvedValue(101500)
+    ui()
+    await u.type(await screen.findByLabelText('Odômetro'), '90000')
+    await u.upload(screen.getByLabelText('Foto do odômetro'), photoFile())
+    await waitFor(() => expect(mApi.getLastCarReading).toHaveBeenCalledWith('c1'))
+    await u.click(screen.getByRole('button', { name: 'Iniciar turno' }))
+    expect(await screen.findByText('O odômetro não pode ser menor que o último registrado (101.500 km)')).toBeInTheDocument()
+    expect(mEnqueue).not.toHaveBeenCalled()
   })
 })

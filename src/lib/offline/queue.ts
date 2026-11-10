@@ -2,7 +2,7 @@ import { openDB } from 'idb'
 import * as api from '../api'
 import { uploadPhoto } from '../photos'
 import { supabase } from '../supabase'
-import { rememberReading } from '../odometer'
+import { fmtInt, rememberReading } from '../odometer'
 
 const READING_KINDS: string[] = ['start_shift', 'end_shift', 'start_transfer', 'complete_transfer']
 
@@ -27,6 +27,8 @@ export type QueuedOp = {
   photos: StoredPhoto[]
   status: 'pending' | 'failed'
   error?: string
+  /** DETAIL do erro do servidor (ex.: último odômetro em ODOMETER_BELOW_LAST). */
+  detail?: string
   /** Falhas transitórias seguidas (com rede); 5 → failed. */
   attempts?: number
   /** failed por falha de conexão: continua segurando as ops seguintes (a ordem importa). */
@@ -140,7 +142,7 @@ export async function retryOp(id: string): Promise<void> {
   const db = await dbp
   const op = await db.get('ops', id)
   if (!op || op.status !== 'failed') return
-  await db.put('ops', { ...op, status: 'pending', error: undefined, attempts: 0, stalled: false })
+  await db.put('ops', { ...op, status: 'pending', error: undefined, detail: undefined, attempts: 0, stalled: false })
   notify()
   // um envio em andamento pode parar por rede sem voltar a esta op: nova passada depois dele
   if (inflight) void inflight.finally(() => void flush())
@@ -185,7 +187,7 @@ function alreadyApplied(kind: QueuedOp['kind'], e: unknown): boolean {
   return applied.includes(message ?? '') || applied.includes(code ?? '')
 }
 
-type Err = { code?: string; message?: string; status?: number }
+type Err = { code?: string; message?: string; status?: number; details?: string; detail?: string }
 
 const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false
 
@@ -198,8 +200,17 @@ function isTransient(e: unknown): boolean {
   return status === 0 || status === 401 || (status !== undefined && status >= 500)
 }
 
+function errorDetail(e: unknown): string | undefined {
+  const { details, detail } = (e ?? {}) as Err
+  return details || detail || undefined
+}
+
 function errorMessage(e: unknown): string {
   const { code, message, status } = (e ?? {}) as Err
+  if (message === 'ODOMETER_BELOW_LAST' || code === 'ODOMETER_BELOW_LAST') {
+    const last = Number(errorDetail(e))
+    if (errorDetail(e) && Number.isFinite(last)) return `${MESSAGES.ODOMETER_BELOW_LAST} (${fmtInt(last)} km)`
+  }
   const known = MESSAGES[message ?? ''] ?? MESSAGES[code ?? '']
   if (known) return known
   return `Não enviado: erro ao salvar (${code || message || status || 'desconhecido'})`
@@ -328,7 +339,7 @@ async function pass(): Promise<void> {
         rerun = false // rede ruim: não insistir agora
         return
       }
-      await db.put('ops', { ...op, status: 'failed', error: errorMessage(e) })
+      await db.put('ops', { ...op, status: 'failed', error: errorMessage(e), detail: errorDetail(e) })
       notify()
     }
   }

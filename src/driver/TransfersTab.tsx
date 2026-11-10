@@ -21,6 +21,7 @@ import {
 import ReceiptInput from '../components/ReceiptInput'
 import PausedNotice from './PausedNotice'
 import { useShift } from './useShift'
+import { failedStartShift, failureReason } from './shiftOps'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
 const MSG_SAVE = 'Não foi possível salvar. Tente de novo.'
@@ -82,6 +83,10 @@ export default function TransfersTab() {
   const company = profile?.driver_type === 'company_car'
   const paused = !!profile?.paused
   const { ops, shift } = useShift(uid, true)
+  const startFailure = (() => {
+    const f = failedStartShift(ops)
+    return f ? failureReason(f) : null
+  })()
   const [rides, setRides] = useState<Ride[] | null>(null)
   const [expenses, setExpenses] = useState<RideExpense[]>([])
   const [failed, setFailed] = useState(false)
@@ -137,6 +142,7 @@ export default function TransfersTab() {
           expenses={expenses.filter((e) => e.ride_id === r.id)}
           ops={ops.filter((o) => o.payload.ride_id === r.id)}
           noShift={company && !shift}
+          shiftFailure={company && !shift ? startFailure : null}
           shiftStart={company ? (shift?.odometerStart ?? null) : null}
           paused={paused}
           open={openId === r.id}
@@ -153,6 +159,7 @@ function RideCard({
   expenses,
   ops,
   noShift,
+  shiftFailure,
   shiftStart,
   paused,
   open,
@@ -163,6 +170,8 @@ function RideCard({
   expenses: RideExpense[]
   ops: QueuedOp[]
   noShift: boolean
+  /** Motivo do start_shift recusado (turno não aberto), se houve. */
+  shiftFailure: string | null
   /** Leitura inicial do turno aberto (carro da empresa): referência para iniciar o Transfer. */
   shiftStart: number | null
   paused: boolean
@@ -220,7 +229,13 @@ function RideCard({
               button="Iniciar"
               reference={shiftStart}
               blocked={paused || noShift}
-              hint={noShift && !paused ? 'Inicie um turno para iniciar o Transfer' : null}
+              hint={
+                noShift && !paused
+                  ? shiftFailure
+                    ? `Seu turno não foi aberto: ${shiftFailure}. Veja a aba Hoje.`
+                    : 'Inicie um turno para iniciar o Transfer'
+                  : null
+              }
             />
           )}
           {status === 'in_progress' && (

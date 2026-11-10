@@ -23,7 +23,7 @@ export async function clearMustChangePassword(): Promise<void> {
 }
 
 /** Erro do servidor: `message` do PostgREST é o código (ex.: PERIOD_CLOSED). */
-function fail(error: { message: string; code?: string }, status?: number): never {
+function fail(error: { message: string; code?: string; details?: string | null }, status?: number): never {
   const code = error.code || undefined
   const clientError = status !== undefined && status >= 400 && status < 500
   const transient =
@@ -35,7 +35,8 @@ function fail(error: { message: string; code?: string }, status?: number): never
     (!code && !clientError) // sem código do servidor e sem 4xx: rede/gateway
   // transitório vira TypeError, que a fila trata como "tentar depois"
   if (transient) throw new TypeError(error.message)
-  throw Object.assign(new Error(error.message), { code, status })
+  // details = DETAIL do raise (ex.: último odômetro em ODOMETER_BELOW_LAST)
+  throw Object.assign(new Error(error.message), { code, status, details: error.details || undefined })
 }
 
 type Tables = Database['public']['Tables']
@@ -248,6 +249,21 @@ export async function getOpenShift(driverId: string): Promise<Shift | null> {
     .maybeSingle()
   if (error) fail(error, status)
   return data
+}
+
+/** Última leitura conhecida do carro: odômetro final do último turno encerrado dele (null = nenhum). */
+export async function getLastCarReading(carId: string): Promise<number | null> {
+  const { data, error, status } = await supabase
+    .from('shifts')
+    .select('odometer_end')
+    .eq('car_id', carId)
+    .not('ended_at', 'is', null)
+    .not('odometer_end', 'is', null)
+    .order('ended_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) fail(error, status)
+  return data?.odometer_end == null ? null : Number(data.odometer_end)
 }
 
 export async function getShiftRides(shiftId: string): Promise<Ride[]> {

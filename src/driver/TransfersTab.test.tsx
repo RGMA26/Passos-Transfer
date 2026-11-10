@@ -277,3 +277,21 @@ describe('TransfersTab', () => {
     expect(await screen.findByText(/Hotel Sol/)).toBeInTheDocument()
   })
 })
+
+describe('TransfersTab: turno não aberto por falha', () => {
+  it('Iniciar desabilitado explica o motivo e manda para Hoje', async () => {
+    profile = makeProfile({ driver_type: 'company_car' })
+    shiftState(false, [
+      {
+        id: 'f1', kind: 'start_shift', status: 'failed', payload: { id: 's9' }, photos: [], createdAt: 1,
+        error: 'Não enviado: odômetro menor que o último registrado (101.500 km)',
+      },
+    ])
+    render(<TransfersTab />)
+    const u = userEvent.setup()
+    await u.click(await screen.findByRole('button', { name: /Hotel Sol/ }))
+    expect(
+      await screen.findByText('Seu turno não foi aberto: odômetro menor que o último registrado (101.500 km). Veja a aba Hoje.'),
+    ).toBeInTheDocument()
+  })
+})

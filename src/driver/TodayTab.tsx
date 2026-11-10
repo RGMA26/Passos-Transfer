@@ -5,7 +5,7 @@ import * as api from '../lib/api'
 import type { EndShiftResult, TodaySummary } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatBRL } from '../lib/money'
-import { enqueue } from '../lib/offline/queue'
+import { discardOp, enqueue } from '../lib/offline/queue'
 import { localDate } from '../lib/periods'
 import type { Car } from '../lib/types'
 import PhotoInput from '../components/PhotoInput'
@@ -22,6 +22,7 @@ import {
 import TodayEntries from './TodayEntries'
 import PausedNotice from './PausedNotice'
 import { useShift } from './useShift'
+import { failedStartShift, failureReason } from './shiftOps'
 import type { ShiftState } from './useShift'
 
 const MSG_ODO_LOWER = 'O odômetro final não pode ser menor que o inicial'
@@ -39,6 +40,7 @@ export default function TodayTab() {
   const ownCar = profile?.driver_type === 'own_car'
   const { loading, ops, shift, serverRides, refresh } = useShift(uid, !ownCar)
   const [ended, setEnded] = useState<Ended | null>(null)
+  const [correcting, setCorrecting] = useState(false)
 
   if (!uid || !profile) return null
   if (ownCar) {
@@ -83,7 +85,36 @@ export default function TodayTab() {
           onQueued={() => void refresh()}
         />
       ) : (
-        !profile.paused && <StartShift uid={uid} carId={profile.current_car_id} onQueued={refresh} />
+        !profile.paused &&
+        (() => {
+          const failedStart = failedStartShift(ops)
+          if (failedStart && !correcting) {
+            return (
+              <div className="panel" role="alert">
+                <strong className="error">Turno não aberto</strong>
+                <p className="error">{failedStart.error ?? failureReason(failedStart)}</p>
+                <p className="hint">O app não considera você em turno. Corrija a leitura e tente de novo.</p>
+                <button type="button" className="big" onClick={() => setCorrecting(true)}>
+                  Corrigir e tentar de novo
+                </button>
+                <button type="button" onClick={() => void discardOp(failedStart.id).then(refresh)}>
+                  Descartar
+                </button>
+              </div>
+            )
+          }
+          return (
+            <StartShift
+              uid={uid}
+              carId={profile.current_car_id}
+              replaceOpId={failedStart?.id ?? null}
+              onQueued={async () => {
+                setCorrecting(false)
+                await refresh()
+              }}
+            />
+          )
+        })()
       )}
       <TodayEntries uid={uid} ops={ops} />
     </section>
@@ -93,10 +124,13 @@ export default function TodayTab() {
 function StartShift({
   uid,
   carId,
+  replaceOpId,
   onQueued,
 }: {
   uid: string
   carId: string | null
+  /** start_shift recusado que este novo envio substitui (descartado ao enfileirar). */
+  replaceOpId: string | null
   onQueued: () => Promise<void>
 }) {
   const [car, setCar] = useState<Car | null>(null)
@@ -104,11 +138,14 @@ function StartShift({
   const [photo, setPhoto] = useState<Blob | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [lastKnown, setLastKnown] = useState<number | null>(null)
 
   useEffect(() => {
     if (!carId) return
     let alive = true
     api.getCar(carId).then((c) => alive && setCar(c)).catch(() => {})
+    // última leitura do carro (offline: segue sem a pré-validação; o servidor valida)
+    api.getLastCarReading(carId).then((n) => alive && setLastKnown(n)).catch(() => {})
     return () => {
       alive = false
     }
@@ -123,6 +160,9 @@ function StartShift({
     if (!odo.trim()) return setError('Informe o odômetro')
     const odometer = parseOdometerText(odo)
     if (odometer === null) return setError(odometerTextError(odo) ?? MSG_ODO_INTEGER)
+    if (lastKnown !== null && odometer < lastKnown) {
+      return setError(`O odômetro não pode ser menor que o último registrado (${fmtInt(lastKnown)} km)`)
+    }
     if (!photo) return setError('Adicione a foto do odômetro')
     // leitura fora do normal: confirma antes de enfileirar (cancelar mantém o formulário)
     if (!confirmReading(odometer, lastReading(uid))) return
@@ -137,6 +177,7 @@ function StartShift({
         payload: { id, car_id: carId, odometer },
         photos: [{ field: 'photo', photoId: crypto.randomUUID(), blob: photo }],
       })
+      if (replaceOpId) await discardOp(replaceOpId)
       // busy fica true: o botão some quando o turno derivado aparece
       await onQueued()
     } catch {
