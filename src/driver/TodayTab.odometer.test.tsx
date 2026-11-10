@@ -56,8 +56,19 @@ describe('Iniciar turno: leitura conferida', () => {
   it('mostra a leitura formatada embaixo do campo', async () => {
     const u = userEvent.setup()
     ui()
+    await u.type(await screen.findByLabelText('Odômetro'), '9102500')
+    expect(screen.getByText('9.102.500 km')).toBeInTheDocument()
+  })
+
+  it('acima de 9.999.999: "Leitura inválida"', async () => {
+    const u = userEvent.setup()
+    ui()
     await u.type(await screen.findByLabelText('Odômetro'), '10102500')
-    expect(screen.getByText('10.102.500 km')).toBeInTheDocument()
+    expect(screen.queryByText('10.102.500 km')).toBeNull()
+    await u.upload(screen.getByLabelText('Foto do odômetro'), photoFile())
+    await u.click(screen.getByRole('button', { name: 'Iniciar turno' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Leitura inválida')
+    expect(mEnqueue).not.toHaveBeenCalled()
   })
 
   it('ponto ou vírgula não é aceito', async () => {
@@ -118,11 +129,11 @@ describe('Encerrar turno: leitura conferida', () => {
     } as never)
     const u = userEvent.setup()
     ui()
-    await u.type(await screen.findByLabelText('Odômetro final'), '10102500')
-    expect(screen.getByText('10.102.500 km')).toBeInTheDocument()
+    await u.type(await screen.findByLabelText('Odômetro final'), '9102500')
+    expect(screen.getByText('9.102.500 km')).toBeInTheDocument()
     await u.upload(screen.getByLabelText('Foto do odômetro final'), photoFile())
     await u.click(screen.getByRole('button', { name: 'Encerrar turno' }))
-    expect(confirmSpy).toHaveBeenCalledWith('Confira a leitura: 10.102.500 km (10.044.624 km acima da última). Está certa?')
+    expect(confirmSpy).toHaveBeenCalledWith('Confira a leitura: 9.102.500 km (9.044.624 km acima da última). Está certa?')
     expect(mEnqueue).not.toHaveBeenCalled()
   })
 })

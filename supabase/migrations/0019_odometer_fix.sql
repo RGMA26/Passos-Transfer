@@ -3,9 +3,11 @@
 -- 57.876 → 57.877, foi conferido, entrou no extrato e travou o carro (ODOMETER_BELOW_LAST no próximo
 -- início). Ninguém foi avisado e o admin não tinha como corrigir. Agora:
 --  * unreview_item: o admin desfaz a conferência (o item volta para a fila);
---  * admin_fix_transfer_odometer: o admin corrige as leituras de um Transfer não conferido;
---  * odometer_suspect (turno e Transfer): leitura fora do normal vira pendência 🟠 (não bloqueia);
---  * end_shift: a leitura final não pode ficar abaixo das leituras dos Transfers do turno.
+--  * admin_fix_transfer_odometer / admin_fix_shift_odometer: o admin corrige as leituras (Transfer não
+--    conferido; em quinzena fechada também o conferido, mexendo só nas leituras — o extrato congelado fica);
+--  * odometer_suspect (turno e Transfer): leitura fora do normal vira pendência 🟠 (não bloqueia), inclusive
+--    o turno que termina abaixo da leitura de um Transfer dele;
+--  * teto: leitura acima de 9.999.999 é recusada (INVALID_ODOMETER) em qualquer caminho.
 
 -- ===== Desfazer conferência =====
 -- transfer: checked → completed (despesas aprovadas voltam a pendentes, as recusadas ficam);
@@ -77,53 +79,14 @@ end $$;
 revoke execute on function unreview_item(text, uuid) from public, anon;
 grant execute on function unreview_item(text, uuid) to authenticated;
 
--- ===== Corrigir odômetro do Transfer (admin) =====
--- in_progress: só a leitura inicial (p_end nulo); completed: as duas, km = final − inicial.
--- checked → NOT_CHANGEABLE (desfazer a conferência antes); assigned → NOT_CHANGEABLE.
--- Quinzena fechada → PERIOD_CLOSED (gatilho block_closed_period). Auditoria: gatilho audit_rides.
-create function admin_fix_transfer_odometer(p_id uuid, p_start int, p_end int)
-returns rides
-language plpgsql security definer set search_path = public, pg_temp as $$
-declare
-  r rides%rowtype;
-begin
-  if not is_admin() then
-    raise exception 'FORBIDDEN' using errcode = 'P0001';
-  end if;
-
-  select * into r from rides where id = p_id and platform = 'transfer' for update;
-  if not found then
-    raise exception 'NOT_FOUND' using errcode = 'P0001';
-  end if;
-  if r.transfer_status not in ('in_progress', 'completed') then
-    raise exception 'NOT_CHANGEABLE' using errcode = 'P0001';
-  end if;
-  if p_start is null or p_start < 0
-     or (r.transfer_status = 'completed' and p_end is null)
-     or (r.transfer_status = 'in_progress' and p_end is not null) then
-    raise exception 'INVALID_ODOMETER' using errcode = 'P0001';
-  end if;
-  if p_end is not null and p_end < p_start then
-    raise exception 'ODOMETER_BELOW_START' using errcode = 'P0001';
-  end if;
-
-  update rides
-     set odometer_start = p_start,
-         odometer_end = p_end,
-         km = case when p_end is null then null else p_end - p_start end
-   where id = r.id
-   returning * into r;
-  return r;
-end $$;
-
-revoke execute on function admin_fix_transfer_odometer(uuid, int, int) from public, anon;
-grant execute on function admin_fix_transfer_odometer(uuid, int, int) to authenticated;
-
--- ===== Leitura fora do normal =====
--- Não bloqueia: marca o turno/Transfer (odometer_suspect) e gera pendência 🟠 para o admin conferir.
+-- ===== Teto e leitura fora do normal =====
+-- Teto: leitura > 9.999.999 → INVALID_ODOMETER (gatilhos abaixo: vale para start_shift, end_shift,
+-- start_transfer, complete_transfer, correções do admin e qualquer escrita direta).
+-- Suspeita (não bloqueia; marca o turno/Transfer e gera pendência 🟠 enquanto não foi conferido):
 -- (a) leitura inicial mais de 1.000 km acima da última leitura do carro (sem contar a própria linha);
--- (b) Transfer com mais de 1.000 km; (c) turno com mais de 1.500 km.
--- Recalculada quando as leituras (ou o carro) mudam; nunca vem do cliente.
+-- (b) Transfer com mais de 1.000 km; (c) turno com mais de 1.500 km;
+-- (d) turno que terminou abaixo da maior leitura de um Transfer dele.
+-- Recalculada quando as leituras/carro mudam ou quando alguém escreve na marca (nunca vem do cliente).
 alter table shifts add column odometer_suspect boolean not null default false;
 alter table rides add column odometer_suspect boolean not null default false;
 
@@ -140,23 +103,36 @@ language sql stable security definer set search_path = public, pg_temp as $$
   ) x
 $$;
 
+-- Maior leitura dos Transfers de um turno. Interno.
+create function shift_transfer_max(p_shift uuid) returns int
+language sql stable security definer set search_path = public, pg_temp as $$
+  select max(greatest(odometer_start, coalesce(odometer_end, odometer_start)))
+    from rides where shift_id = p_shift and platform = 'transfer' and odometer_start is not null
+$$;
+
 revoke execute on function car_prev_odometer(uuid, uuid, uuid) from public, anon, authenticated;
+revoke execute on function shift_transfer_max(uuid) from public, anon, authenticated;
 
 create function shifts_odometer_suspect() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_prev int;
+  v_tr int;
+  v_changed boolean := tg_op = 'INSERT'
+    or (new.odometer_start, new.odometer_end, new.car_id) is distinct from (old.odometer_start, old.odometer_end, old.car_id);
 begin
-  if tg_op = 'UPDATE'
-     and (new.odometer_start, new.odometer_end, new.car_id)
-         is not distinct from (old.odometer_start, old.odometer_end, old.car_id) then
-    new.odometer_suspect := old.odometer_suspect;
+  if not v_changed and new.odometer_suspect is not distinct from old.odometer_suspect then
     return new;
   end if;
+  if v_changed and (new.odometer_start > 9999999 or new.odometer_end > 9999999) then
+    raise exception 'INVALID_ODOMETER' using errcode = 'P0001';
+  end if;
   v_prev := car_prev_odometer(new.car_id, new.id, null);
+  v_tr := shift_transfer_max(new.id);
   new.odometer_suspect :=
     coalesce(new.odometer_start > v_prev + 1000, false)
-    or coalesce(new.odometer_end - new.odometer_start > 1500, false);
+    or coalesce(new.odometer_end - new.odometer_start > 1500, false)
+    or coalesce(new.odometer_end < v_tr, false);
   return new;
 end $$;
 
@@ -164,16 +140,19 @@ create function rides_odometer_suspect() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_prev int;
+  v_changed boolean := tg_op = 'INSERT'
+    or (new.odometer_start, new.odometer_end, new.car_id, new.platform)
+       is distinct from (old.odometer_start, old.odometer_end, old.car_id, old.platform);
 begin
   if new.platform <> 'transfer' or new.odometer_start is null then
     new.odometer_suspect := false;
     return new;
   end if;
-  if tg_op = 'UPDATE'
-     and (new.odometer_start, new.odometer_end, new.car_id, new.platform)
-         is not distinct from (old.odometer_start, old.odometer_end, old.car_id, old.platform) then
-    new.odometer_suspect := old.odometer_suspect;
+  if not v_changed and new.odometer_suspect is not distinct from old.odometer_suspect then
     return new;
+  end if;
+  if v_changed and (new.odometer_start > 9999999 or new.odometer_end > 9999999) then
+    raise exception 'INVALID_ODOMETER' using errcode = 'P0001';
   end if;
   v_prev := case when new.car_id is null then null else car_prev_odometer(new.car_id, null, new.id) end;
   new.odometer_suspect :=
@@ -193,79 +172,132 @@ create trigger shifts_odometer_suspect before insert or update on shifts
 
 -- Sem backfill: a base de produção foi zerada antes desta migração (só o admin existe).
 
--- ===== end_shift: igual à 0015, + a leitura final ≥ maior leitura dos Transfers do turno =====
--- (senão ODOMETER_BELOW_LAST, detail = a maior leitura; o km do turno não pode ficar menor que o dos Transfers)
-create or replace function end_shift(p_shift_id uuid, p_odometer int, p_photo text, p_uber_photo text)
-returns jsonb
+-- ===== Quinzena fechada: saída de emergência para o odômetro =====
+-- block_closed_period: igual à 0010, mas deixa passar a UPDATE do admin feita pelas RPCs de correção
+-- (flag de sessão passos.admin_odometer_fix) quando só mudam leituras, km e a marca de suspeita.
+-- O extrato congelado (statements) não é recalculado.
+create or replace function block_closed_period() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
-  s shifts%rowtype;
-  v_total int;
-  v_service numeric;
-  v_off numeric;
-  v_cost numeric;
-  v_period uuid;
-  v_transfers int;
+  v_driver uuid;
+  d date;
+  v_last date;
+  v_odo constant text[] := array['odometer_start', 'odometer_end', 'km', 'odometer_suspect'];
 begin
-  if not is_active_driver() then
+  if tg_op in ('INSERT', 'UPDATE') and tg_table_name <> 'adjustments' then
+    select x.driver, x.d into v_driver, d from row_driver_date(tg_table_name, to_jsonb(new)) x;
+    if v_driver is not null and v_driver = auth.uid()
+       and exists (select 1 from profiles where id = v_driver and paused) then
+      select max(end_date) into v_last from driver_periods where driver_id = v_driver;
+      if v_last is null or d > v_last then
+        raise exception 'DRIVER_PAUSED' using errcode = 'P0001';
+      end if;
+    end if;
+  end if;
+  if tg_op = 'UPDATE' and tg_table_name in ('rides', 'shifts')
+     and coalesce(current_setting('passos.admin_odometer_fix', true), '') = 'on' and is_admin()
+     and (to_jsonb(new) - v_odo) = (to_jsonb(old) - v_odo) then
+    return new;
+  end if;
+  if tg_op in ('UPDATE', 'DELETE') and row_in_closed_period(tg_table_name, to_jsonb(old)) then
+    raise exception 'PERIOD_CLOSED' using errcode = 'P0001';
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') and row_in_closed_period(tg_table_name, to_jsonb(new)) then
+    raise exception 'PERIOD_CLOSED' using errcode = 'P0001';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end $$;
+
+revoke execute on function block_closed_period() from public, anon, authenticated;
+
+-- ===== Corrigir odômetro do Transfer (admin) =====
+-- in_progress: só a leitura inicial (p_end nulo); completed: as duas, km = final − inicial.
+-- checked: só em quinzena fechada (lá não dá para desfazer a conferência); fora dela → NOT_CHANGEABLE.
+-- assigned → NOT_CHANGEABLE. Leitura nula/negativa/> 9.999.999 → INVALID_ODOMETER.
+-- Em quinzena fechada só leituras, km e a marca mudam (block_closed_period + flag); o extrato fica.
+-- A marca do turno do Transfer é recalculada (regra d). Auditoria: gatilhos audit_*.
+create function admin_fix_transfer_odometer(p_id uuid, p_start int, p_end int)
+returns rides
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  r rides%rowtype;
+  v_closed boolean;
+begin
+  if not is_admin() then
     raise exception 'FORBIDDEN' using errcode = 'P0001';
   end if;
 
-  select * into s from shifts where id = p_shift_id and driver_id = auth.uid() for update;
+  select * into r from rides where id = p_id and platform = 'transfer' for update;
   if not found then
     raise exception 'NOT_FOUND' using errcode = 'P0001';
   end if;
-
-  if s.ended_at is null then
-    if exists (select 1 from rides
-                where shift_id = s.id and platform = 'transfer' and transfer_status = 'in_progress') then
-      raise exception 'TRANSFER_IN_PROGRESS' using errcode = 'P0001';
-    end if;
-    if p_odometer is null or p_odometer < s.odometer_start then
-      raise exception 'ODOMETER_BELOW_START' using errcode = 'P0001';
-    end if;
-    -- a leitura final não fica abaixo das leituras dos Transfers do turno
-    select max(greatest(odometer_start, coalesce(odometer_end, odometer_start))) into v_transfers
-      from rides where shift_id = s.id and platform = 'transfer' and odometer_start is not null;
-    if v_transfers is not null and p_odometer < v_transfers then
-      raise exception 'ODOMETER_BELOW_LAST' using errcode = 'P0001', detail = v_transfers::text;
-    end if;
-    update shifts
-      set ended_at = now(), odometer_end = p_odometer, odometer_end_photo = nullif(btrim(p_photo), ''),
-          uber_earnings_photo = nullif(btrim(p_uber_photo), '')
-      where id = s.id
-      returning * into s;
-  elsif (s.odometer_end_photo is null and nullif(btrim(p_photo), '') is not null)
-     or (s.uber_earnings_photo is null and nullif(btrim(p_uber_photo), '') is not null) then
-    -- repetição (offline): só preenche as fotos que ainda estão vazias
-    begin
-      update shifts
-         set odometer_end_photo = coalesce(odometer_end_photo, nullif(btrim(p_photo), '')),
-             uber_earnings_photo = coalesce(uber_earnings_photo, nullif(btrim(p_uber_photo), ''))
-       where id = s.id
-       returning * into s;
-    exception when raise_exception then
-      null; -- ex.: quinzena fechada: a repetição continua devolvendo o resultado
-    end;
+  v_closed := row_in_closed_period('rides', to_jsonb(r));
+  if not (r.transfer_status in ('in_progress', 'completed') or (v_closed and r.transfer_status = 'checked')) then
+    raise exception 'NOT_CHANGEABLE' using errcode = 'P0001';
+  end if;
+  if p_start is null or p_start < 0 or p_start > 9999999 or p_end > 9999999
+     or (r.transfer_status in ('completed', 'checked') and p_end is null)
+     or (r.transfer_status = 'in_progress' and p_end is not null) then
+    raise exception 'INVALID_ODOMETER' using errcode = 'P0001';
+  end if;
+  if p_end is not null and p_end < p_start then
+    raise exception 'ODOMETER_BELOW_START' using errcode = 'P0001';
   end if;
 
-  v_total := s.odometer_end - s.odometer_start;
-  select coalesce(sum(km), 0) into v_service from rides
-   where shift_id = s.id and driver_id = s.driver_id
-     and (platform <> 'transfer' or transfer_status in ('completed', 'checked'));
-  v_off := greatest(v_total - v_service, 0);
-  -- statement separado: a quinzena pode ser criada aqui e cost_per_km_for (stable)
-  -- só a enxerga num snapshot posterior
-  v_period := driver_period_for(s.driver_id, s.start_date);
-  v_cost := (cost_per_km_for(s.driver_id, v_period)->>'cost_per_km')::numeric;
-  return jsonb_build_object(
-    'km_total', v_total,
-    'km_service', v_service,
-    'km_off', v_off,
-    'off_discount_estimate', round(v_off * v_cost, 2));
+  perform set_config('passos.admin_odometer_fix', 'on', true);
+  update rides
+     set odometer_start = p_start,
+         odometer_end = p_end,
+         km = case when p_end is null then null else p_end - p_start end
+   where id = r.id
+   returning * into r;
+  if r.shift_id is not null then
+    -- escrever na marca força o recálculo (regra d: final do turno × leituras dos Transfers)
+    update shifts set odometer_suspect = not odometer_suspect where id = r.shift_id;
+  end if;
+  perform set_config('passos.admin_odometer_fix', '', true);
+  return r;
 end $$;
 
--- ===== Central de pendências: igual à 0015, + 🟠 "Odômetro fora do normal" (turno/Transfer) =====
+revoke execute on function admin_fix_transfer_odometer(uuid, int, int) from public, anon;
+grant execute on function admin_fix_transfer_odometer(uuid, int, int) to authenticated;
+
+-- ===== Corrigir odômetro do turno (admin) =====
+-- Substitui a UPDATE direta do app. Turno aberto: só a inicial (p_end nulo); encerrado: as duas.
+-- Leitura nula/negativa/> 9.999.999 → INVALID_ODOMETER; final < inicial → ODOMETER_BELOW_START.
+-- Vale também em quinzena fechada (só as leituras mudam; o extrato congelado fica).
+create function admin_fix_shift_odometer(p_id uuid, p_start int, p_end int)
+returns shifts
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  s shifts%rowtype;
+begin
+  if not is_admin() then
+    raise exception 'FORBIDDEN' using errcode = 'P0001';
+  end if;
+  select * into s from shifts where id = p_id for update;
+  if not found then
+    raise exception 'NOT_FOUND' using errcode = 'P0001';
+  end if;
+  if p_start is null or p_start < 0 or p_start > 9999999 or p_end > 9999999
+     or (s.ended_at is null and p_end is not null)
+     or (s.ended_at is not null and p_end is null) then
+    raise exception 'INVALID_ODOMETER' using errcode = 'P0001';
+  end if;
+  if p_end is not null and p_end < p_start then
+    raise exception 'ODOMETER_BELOW_START' using errcode = 'P0001';
+  end if;
+
+  perform set_config('passos.admin_odometer_fix', 'on', true);
+  update shifts set odometer_start = p_start, odometer_end = p_end where id = s.id returning * into s;
+  perform set_config('passos.admin_odometer_fix', '', true);
+  return s;
+end $$;
+
+revoke execute on function admin_fix_shift_odometer(uuid, int, int) from public, anon;
+grant execute on function admin_fix_shift_odometer(uuid, int, int) to authenticated;
+
+-- ===== Central de pendências: igual à 0015, + 🟠 leitura fora do normal (turno/Transfer não conferidos) =====
 create or replace function admin_pendencies()
 returns table(category text, item_type text, item_id uuid, driver_id uuid, driver_name text,
               label text, occurred_on date)
@@ -337,15 +369,22 @@ begin
                         and x.d between p.start_date and p.end_date)
    order by x.d;
 
-  -- 🟠 leitura fora do normal (odometer_suspect), fora de quinzena fechada
+  -- 🟠 leitura fora do normal (odometer_suspect) ainda não conferida, fora de quinzena fechada.
+  -- Transfer em andamento: item_type 'transfer_in_progress' (o app leva para a lista de Transfers).
   return query
-  select 'orange'::text, x.item_type, x.id, x.driver_id, pr.name, 'Odômetro fora do normal'::text, x.d
+  select 'orange'::text, x.item_type, x.id, x.driver_id, pr.name, x.lbl, x.d
     from (
-      select 'shift'::text as item_type, s.id, s.driver_id, s.start_date as d
-        from shifts s where s.odometer_suspect
+      select 'shift'::text as item_type, s.id, s.driver_id, s.start_date as d,
+             case when s.odometer_end < shift_transfer_max(s.id)
+                  then 'Odômetro do turno menor que o de um Transfer'
+                  else 'Odômetro fora do normal' end::text as lbl
+        from shifts s
+       where s.odometer_suspect and s.ended_at is not null and s.review_status in ('pending', 'rejected')
       union all
-      select 'transfer', r.id, r.driver_id, r.ride_date
-        from rides r where r.platform = 'transfer' and r.odometer_suspect
+      select case when r.transfer_status = 'in_progress' then 'transfer_in_progress' else 'transfer' end,
+             r.id, r.driver_id, r.ride_date, 'Odômetro fora do normal'
+        from rides r
+       where r.platform = 'transfer' and r.odometer_suspect and r.transfer_status in ('in_progress', 'completed')
     ) x
     join profiles pr on pr.id = x.driver_id
    where not exists (select 1 from driver_periods p

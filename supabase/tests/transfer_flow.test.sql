@@ -271,7 +271,7 @@ select lives_ok(
   $$select complete_transfer('00000000-0000-0000-0000-0000000031a2', 5300, 'b.jpg')$$,
   'T2 concluído em 5300');
 select is(
-  end_shift('00000000-0000-0000-0000-0000000031b2', 5300, 'f.jpg', null)->>'km_service',
+  end_shift('00000000-0000-0000-0000-0000000031b2', 5250, 'f.jpg', null)->>'km_service',
   '100.0', 'turno: Transfer concluído conta como serviço');
 select throws_ok(
   $$select start_shift('00000000-0000-0000-0000-0000000031b3','00000000-0000-0000-0000-00000000c001',5280,'s.jpg')$$,

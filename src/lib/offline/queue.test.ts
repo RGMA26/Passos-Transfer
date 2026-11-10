@@ -25,6 +25,7 @@ vi.mock('../supabase', () => ({
 
 import { openDB } from 'idb'
 import { enqueue, flush, listOps, discardOp, onQueueChange, retryOp, readStoredPhoto, PhotoLostError } from './queue'
+import { lastReading } from '../odometer'
 import type { QueuedOp } from './queue'
 
 function op(id: string, over: Partial<QueuedOp> = {}): Omit<QueuedOp, 'status' | 'createdAt'> {
@@ -421,5 +422,30 @@ describe('fila offline', () => {
     await new Promise((r) => setTimeout(r, 30))
     expect(api.insertRide.mock.calls.map(([p]) => p.id)).toContain('x')
     expect((await listOps()).map((o) => o.id)).not.toContain('x')
+  })
+})
+
+describe('última leitura do aparelho', () => {
+  beforeEach(async () => {
+    uid = 'u1'
+    localStorage.clear()
+    Object.values(api).forEach((f) => f.mockReset().mockResolvedValue(undefined))
+    for (const o of await listOps()) await discardOp(o.id)
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
+  })
+
+  it('só guarda a leitura depois que o servidor aceitou', async () => {
+    await enqueue(op('s', { kind: 'start_shift', payload: { id: 's', car_id: 'c', odometer: 57876 } }))
+    expect(lastReading('u1')).toBeNull()
+    await flush()
+    expect(lastReading('u1')).toBe(57876)
+  })
+
+  it('leitura recusada pelo servidor não é guardada', async () => {
+    api.completeTransfer.mockRejectedValueOnce(Object.assign(new Error('INVALID_ODOMETER'), { code: 'P0001', status: 400 }))
+    await enqueue(op('c', { kind: 'complete_transfer', payload: { ride_id: 'r1', odometer: 9102500 } }))
+    await flush()
+    expect((await listOps())[0].status).toBe('failed')
+    expect(lastReading('u1')).toBeNull()
   })
 })

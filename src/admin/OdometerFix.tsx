@@ -1,14 +1,15 @@
 import { useState } from 'react'
 import * as api from '../lib/api'
+import OdometerField from '../components/OdometerField'
+import { MSG_ODO_INVALID, checkReading, odometerTextError, parseOdometerText } from '../lib/odometer'
 
 const MSG_ODO = 'O odômetro final não pode ser menor que o inicial'
 const ERRORS: Record<string, string> = {
   PERIOD_CLOSED: 'Quinzena fechada: não é possível alterar',
   NOT_CHANGEABLE: 'Conferido: desfaça a conferência antes de corrigir',
   ODOMETER_BELOW_START: MSG_ODO,
+  INVALID_ODOMETER: MSG_ODO_INVALID,
 }
-
-const parseInt0 = (t: string) => (/^\d+$/.test(t.trim()) ? Number(t.trim()) : null)
 
 /**
  * "Corrigir odômetro" de um Transfer (admin): em andamento só a leitura inicial; concluído as duas.
@@ -42,10 +43,15 @@ export default function OdometerFix({
   }
 
   async function save() {
-    const a = parseInt0(s)
-    const b = withEnd ? parseInt0(e) : null
+    const bad = odometerTextError(s) ?? (withEnd ? odometerTextError(e) : null)
+    if (bad) return setError(bad)
+    const a = parseOdometerText(s)
+    const b = withEnd ? parseOdometerText(e) : null
     if (a === null || (withEnd && b === null)) return setError('Informe as leituras (só números)')
     if (b !== null && b < a) return setError(MSG_ODO)
+    // Transfer com mais de 1.000 km: confirma antes de gravar
+    const msg = b !== null ? checkReading(b, a) : null
+    if (msg && !window.confirm(msg)) return
     setError('')
     setBusy(true)
     try {
@@ -61,16 +67,8 @@ export default function OdometerFix({
 
   return (
     <div className="inline-edit">
-      <label className="field">
-        Odômetro inicial
-        <input inputMode="numeric" value={s} onChange={(ev) => setS(ev.target.value)} />
-      </label>
-      {withEnd && (
-        <label className="field">
-          Odômetro final
-          <input inputMode="numeric" value={e} onChange={(ev) => setE(ev.target.value)} />
-        </label>
-      )}
+      <OdometerField label="Odômetro inicial" value={s} onChange={setS} />
+      {withEnd && <OdometerField label="Odômetro final" value={e} onChange={setE} />}
       {error && <p className="error" role="alert">{error}</p>}
       <button type="button" disabled={busy} onClick={() => void save()}>
         Salvar odômetro

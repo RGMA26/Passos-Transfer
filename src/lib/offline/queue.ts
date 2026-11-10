@@ -2,6 +2,9 @@ import { openDB } from 'idb'
 import * as api from '../api'
 import { uploadPhoto } from '../photos'
 import { supabase } from '../supabase'
+import { rememberReading } from '../odometer'
+
+const READING_KINDS: string[] = ['start_shift', 'end_shift', 'start_transfer', 'complete_transfer']
 
 export type QueuedOp = {
   id: string
@@ -294,6 +297,10 @@ async function pass(): Promise<void> {
         await dispatch(op.kind, payload)
       } catch (e) {
         if (!alreadyApplied(op.kind, e)) throw e
+      }
+      // referência do aviso de leitura: só leitura que o servidor aceitou
+      if (READING_KINDS.includes(op.kind) && Number.isFinite(Number(payload.odometer))) {
+        rememberReading(op.ownerId, Number(payload.odometer))
       }
       // anexos vão para o fim da fila (depois de tudo que já esperava)
       for (const a of later) await db.put('ops', { ...a, createdAt: nextCreatedAt() })

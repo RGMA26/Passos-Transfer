@@ -963,6 +963,8 @@ export interface PendingShift {
   odometer_end: number | null
   /** Leitura fora do normal (servidor, 0019): aviso 🟠 na conferência. */
   odometer_suspect: boolean
+  /** Maior leitura dos Transfers do turno (turno que terminou abaixo dela é suspeito). */
+  transfer_max_odometer: number | null
   odometer_start_photo: string | null
   odometer_end_photo: string | null
   uber_earnings_photo: string | null
@@ -1021,20 +1023,29 @@ const emptyTotals = (): ShiftTotals => ({
 /** Soma por turno do que foi lançado: Uber/BlaBlaCar (valor e km) e km de transfers concluídos. */
 async function shiftTotals(
   shiftIds: string[],
-): Promise<{ totals: Map<string, ShiftTotals>; rides: Map<string, PendingShiftRide[]> }> {
+): Promise<{
+  totals: Map<string, ShiftTotals>
+  rides: Map<string, PendingShiftRide[]>
+  maxReading: Map<string, number>
+}> {
   const out = new Map<string, ShiftTotals>()
   const rides = new Map<string, PendingShiftRide[]>()
-  if (shiftIds.length === 0) return { totals: out, rides }
+  const maxReading = new Map<string, number>()
+  if (shiftIds.length === 0) return { totals: out, rides, maxReading }
   const rows =
     must(
       await supabase
         .from('rides')
-        .select('id, shift_id, platform, amount, km, transfer_status, ride_date, receipt_path, created_at')
+        .select('id, shift_id, platform, amount, km, transfer_status, ride_date, receipt_path, created_at, odometer_start, odometer_end')
         .in('shift_id', shiftIds)
         .order('created_at'),
     ) ?? []
   for (const r of rows) {
     if (!r.shift_id) continue
+    if (r.platform === 'transfer' && r.odometer_start != null) {
+      const v = Math.max(Number(r.odometer_start), Number(r.odometer_end ?? r.odometer_start))
+      maxReading.set(r.shift_id, Math.max(v, maxReading.get(r.shift_id) ?? v))
+    }
     if (r.platform !== 'transfer' || r.transfer_status === 'completed' || r.transfer_status === 'checked') {
       const list = rides.get(r.shift_id) ?? []
       list.push({
@@ -1057,7 +1068,7 @@ async function shiftTotals(
     }
     out.set(r.shift_id, t)
   }
-  return { totals: out, rides }
+  return { totals: out, rides, maxReading }
 }
 
 export async function listPendingReview(): Promise<PendingReview> {
@@ -1080,7 +1091,7 @@ export async function listPendingReview(): Promise<PendingReview> {
   const n = (id: string) => names.get(id) ?? '—'
   const num = (v: number | null) => (v === null || v === undefined ? null : Number(v))
   const shiftRows = must(s) ?? []
-  const { totals, rides: shiftRides } = await shiftTotals(shiftRows.map((x) => x.id))
+  const { totals, rides: shiftRides, maxReading } = await shiftTotals(shiftRows.map((x) => x.id))
   type TransferJoined = Ride & { ride_expenses: RideExpense[] | null }
   return {
     fuelings: (must(f) ?? []).map((x) => ({
@@ -1103,6 +1114,7 @@ export async function listPendingReview(): Promise<PendingReview> {
       odometer_start: Number(x.odometer_start),
       odometer_end: x.odometer_end === null ? null : Number(x.odometer_end),
       odometer_suspect: !!x.odometer_suspect,
+      transfer_max_odometer: maxReading.get(x.id) ?? null,
       odometer_start_photo: x.odometer_start_photo,
       odometer_end_photo: x.odometer_end_photo,
       uber_earnings_photo: x.uber_earnings_photo,
@@ -1271,8 +1283,10 @@ export async function signedPhotoUrl(path: string): Promise<string> {
   return data.signedUrl
 }
 
-export async function updateShiftOdometers(id: string, start: number, end: number): Promise<void> {
-  must(await supabase.from('shifts').update({ odometer_start: start, odometer_end: end }).eq('id', id))
+/** Admin corrige as leituras do turno (RPC admin_fix_shift_odometer; vale também em quinzena fechada). */
+export async function updateShiftOdometers(id: string, start: number, end: number | null): Promise<void> {
+  const { error } = await supabase.rpc('admin_fix_shift_odometer', { p_id: id, p_start: start, p_end: end as number })
+  if (error) throw Object.assign(new Error(error.message), { code: error.code })
 }
 
 // ---------- Admin: quinzenas, extratos e painel ----------
@@ -1446,7 +1460,7 @@ export type PendencyCategory = 'white' | 'yellow' | 'red' | 'orange' | 'photo'
 export type Pendency = Omit<
   Database['public']['Functions']['admin_pendencies']['Returns'][number],
   'category' | 'item_type'
-> & { category: PendencyCategory; item_type: 'fueling' | 'shift' | 'transfer' | 'period' }
+> & { category: PendencyCategory; item_type: 'fueling' | 'shift' | 'transfer' | 'transfer_in_progress' | 'period' }
 
 export async function listPendencies(): Promise<Pendency[]> {
   return (must(await supabase.rpc('admin_pendencies')) ?? []) as Pendency[]

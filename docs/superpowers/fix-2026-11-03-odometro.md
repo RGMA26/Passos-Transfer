@@ -152,6 +152,73 @@ $ npx playwright test
 
 ## Pontos de atenção
 
-- Com a nova regra do `end_shift`, um Transfer lançado com leitura absurda dentro do turno impede o motorista de encerrar o turno: a fila mostra "Não enviado: odômetro menor que o último registrado". O admin precisa corrigir o Transfer (em andamento ou concluído) antes. A operação na fila fica marcada como falha, e o motorista encerra de novo depois da correção.
+- (Superado pela revisão abaixo: `end_shift` não bloqueia mais.)
 - A referência do aviso no app é local ao aparelho (última leitura enviada). Num aparelho novo, o primeiro "Iniciar turno" não tem referência; nesse caso só o servidor marca (pendência 🟠).
 - Um item marcado 🟠 continua na central até ser corrigido ou até a quinzena fechar, mesmo depois de aprovado. Isso é de propósito, para não sumir sem correção.
+
+## Revisão ("with fixes"), aplicada na mesma branch, com a 0019 editada no lugar
+
+1. **Pendência 🟠 só do que ainda não foi conferido.**
+   - Entram turnos encerrados com `review_status` pending/rejected e Transfers in_progress/completed.
+   - Transfer em andamento vem com `item_type = 'transfer_in_progress'`, e `pendencyPath` leva para `/admin/transfers`.
+2. **`end_shift` não bloqueia mais.**
+   - O `ODOMETER_BELOW_LAST` desse caso foi removido: a 0019 não recria mais `end_shift`, que fica igual à 0015.
+   - O turno que termina abaixo da maior leitura de um Transfer dele recebe `odometer_suspect` (regra d, nova função interna `shift_transfer_max`).
+   - Na central aparece como 🟠 "Odômetro do turno menor que o de um Transfer".
+   - Na Conferência aparece "🟠 Odômetro do turno menor que o de um Transfer: turno X → Y · Transfer até Z" (`PendingShift.transfer_max_odometer`).
+   - Quando o admin corrige o Transfer, a marca do turno é recalculada. Escrever na marca força o recálculo, então ela nunca vem do cliente.
+   - O `ODOMETER_BELOW_LAST` no nível do carro (`start_shift`/`start_transfer`) continua.
+   - Os testes antigos `statement`/`transfer_flow` voltaram ao original.
+3. **Teto de 9.999.999.**
+   - Os gatilhos `shifts_/rides_odometer_suspect` recusam leitura maior com `INVALID_ODOMETER`. Isso cobre `start_shift`, `end_shift`, `start_transfer`, `complete_transfer`, as RPCs do admin e qualquer escrita direta.
+   - As RPCs do admin também conferem antes de escrever.
+   - No cliente, `parseOdometerText` limita ao teto e `odometerTextError` devolve "Leitura inválida".
+   - `OdometerFix` e o "Corrigir odômetro" do turno ganharam o eco formatado e a confirmação (Transfer > 1.000 km, turno > 1.500 km).
+   - As fixtures de teste foram de 10.102.500 para 9.102.500.
+4. **Quinzena fechada: saída de emergência.**
+   - Nova RPC `admin_fix_shift_odometer(p_id, p_start, p_end)`. O app troca a UPDATE direta por ela em `updateShiftOdometers`.
+   - `admin_fix_transfer_odometer` passa a aceitar também Transfer conferido, mas só em quinzena fechada (lá não dá para desfazer a conferência).
+   - As duas ligam a flag de sessão `passos.admin_odometer_fix`. O `block_closed_period` recriado só deixa passar a UPDATE do admin, nas tabelas rides/shifts, e só quando mudam `odometer_start`/`odometer_end`/`km`/`odometer_suspect`.
+   - O extrato congelado não é recalculado.
+   - Teste novo `admin_odometer_fix_closed.test.sql` (17): o extrato fica byte a byte igual, outras colunas continuam com `PERIOD_CLOSED`, `unreview_item` continua barrado e o carro destrava (novo `start_shift` passa).
+5. **`rememberReading` só depois do envio.** Agora é a fila (`queue.ts`) que grava a última leitura, só depois que o servidor aceitou start/end shift ou start/complete transfer. Leitura recusada não vira referência. Os formulários não gravam mais nada.
+
+RED antes da correção:
+- pgTAP: 15 falhas em `odometer_suspect`, 3 em `fix_transfer_odometer` e função inexistente em `admin_odometer_fix_closed`.
+- Vitest: 11 falhas (teto, eco/confirmação no `OdometerFix`, aviso do turno, `pendencyPath`, fila, RPC do turno).
+
+GREEN: tudo passa (saídas abaixo).
+
+Observação: na rodada encadeada, `npm test` teve 1 timeout de 5 s em `TransfersPage.test.tsx` ("falha no cálculo…"), um teste antigo que não foi mexido e que cada vez falha num teste diferente sob carga, logo depois do `db reset`. Rodado de novo sozinho, passou.
+
+### Verificação final (revisão)
+
+```
+$ npx supabase db reset --local && npx supabase test db
+Files=23, Tests=1044, 19 wallclock secs ( 0.81 usr  0.52 sys +  1.21 cusr  1.27 csys =  3.81 CPU)
+Result: PASS
+db exit 0
+```
+
+```
+$ npm test   (rodada isolada)
+ Test Files  54 passed | 1 skipped (55)
+      Tests  542 passed | 12 skipped (558)
+test exit 0
+```
+
+```
+$ npm run build
+files generated
+  dist/sw.js
+  dist/workbox-2fbc6a65.js
+build exit 0
+```
+
+```
+$ npx playwright test
+  1 passed (6.5m)
+e2e exit 0
+```
+
+Deploy: igual ao anterior (`supabase db push` da 0019 antes do front). A 0019 não foi publicada, por isso foi editada no lugar.

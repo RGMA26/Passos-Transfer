@@ -16,8 +16,8 @@ import {
   fmtInt,
   lastReading,
   maxReading,
+  odometerTextError,
   parseOdometerText,
-  rememberReading,
 } from '../lib/odometer'
 import TodayEntries from './TodayEntries'
 import PausedNotice from './PausedNotice'
@@ -122,7 +122,7 @@ function StartShift({
     e.preventDefault()
     if (!odo.trim()) return setError('Informe o odômetro')
     const odometer = parseOdometerText(odo)
-    if (odometer === null) return setError(MSG_ODO_INTEGER)
+    if (odometer === null) return setError(odometerTextError(odo) ?? MSG_ODO_INTEGER)
     if (!photo) return setError('Adicione a foto do odômetro')
     // leitura fora do normal: confirma antes de enfileirar (cancelar mantém o formulário)
     if (!confirmReading(odometer, lastReading(uid))) return
@@ -137,7 +137,6 @@ function StartShift({
         payload: { id, car_id: carId, odometer },
         photos: [{ field: 'photo', photoId: crypto.randomUUID(), blob: photo }],
       })
-      rememberReading(uid, odometer)
       // busy fica true: o botão some quando o turno derivado aparece
       await onQueued()
     } catch {
@@ -231,7 +230,7 @@ function OpenShift({
     e.preventDefault()
     if (!odo.trim()) return setError('Informe o odômetro final')
     const odometer = parseOdometerText(odo)
-    if (odometer === null) return setError(MSG_ODO_INTEGER)
+    if (odometer === null) return setError(odometerTextError(odo) ?? MSG_ODO_INTEGER)
     if (odometer < shift.odometerStart) return setError(MSG_ODO_LOWER)
     if (!photo) return setError('Adicione a foto do odômetro final')
     if (needsUber && !uberPhoto) return setError('Adicione o print dos ganhos da Uber')
@@ -250,7 +249,6 @@ function OpenShift({
         payload: { shift_id: shift.id, odometer, uber_photo: null },
         photos,
       })
-      rememberReading(uid, odometer)
       await onEnded({ shiftId: shift.id, start: shift.odometerStart, end: odometer })
     } catch {
       setError('Não foi possível salvar. Tente de novo.')

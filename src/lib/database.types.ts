@@ -330,6 +330,30 @@ isOneToOne: true
               "detail": Json,"driver_id": string,"kind": string,"shift_id": string
             }[]
                            },
+"admin_fix_shift_odometer":
+{ Args: { "p_end": number,"p_id": string,"p_start": number }; Returns: {
+              "car_id": string,
+"created_at": string,
+"driver_id": string,
+"ended_at": string | null,
+"id": string,
+"odometer_end": number | null,
+"odometer_end_photo": string | null,
+"odometer_start": number,
+"odometer_start_photo": string | null,
+"odometer_suspect": boolean,
+"reject_reason": string | null,
+"review_status": string,
+"start_date": string,
+"started_at": string,
+"uber_earnings_photo": string | null
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "shifts"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "admin_fix_transfer_odometer":
 { Args: { "p_end": number,"p_id": string,"p_start": number }; Returns: {
               "amount": number,
@@ -523,6 +547,9 @@ isOneToOne: true
                            },
 "row_in_closed_period":
 { Args: { "p_table": string,"r": Json }; Returns: boolean
+                           },
+"shift_transfer_max":
+{ Args: { "p_shift": string }; Returns: number
                            },
 "start_shift":
 { Args: { "p_car_id": string,"p_id": string,"p_odometer": number,"p_photo": string }; Returns: {

@@ -15,8 +15,8 @@ import {
   fmtInt,
   lastReading,
   maxReading,
+  odometerTextError,
   parseOdometerText,
-  rememberReading,
 } from '../lib/odometer'
 import ReceiptInput from '../components/ReceiptInput'
 import PausedNotice from './PausedNotice'
@@ -275,7 +275,7 @@ function OdometerForm({
     e.preventDefault()
     if (!odo.trim()) return setError('Informe o odômetro')
     const odometer = parseOdometerText(odo)
-    if (odometer === null) return setError(MSG_ODO_INTEGER)
+    if (odometer === null) return setError(odometerTextError(odo) ?? MSG_ODO_INTEGER)
     if (min != null && odometer < min) return setError(MSG_ODO_LOWER)
     if (!photo) return setError('Adicione a foto do odômetro')
     // concluir: referência = início do Transfer (km do Transfer); iniciar: turno ou última do aparelho
@@ -292,7 +292,6 @@ function OdometerForm({
         payload: { ride_id: rideId, odometer },
         photos: [{ field: 'photo', photoId: crypto.randomUUID(), blob: photo }],
       })
-      rememberReading(uid, odometer)
       setOdo('')
     } catch {
       setError(MSG_SAVE)

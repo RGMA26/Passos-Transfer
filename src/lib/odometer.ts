@@ -7,11 +7,24 @@ export const fmtInt = (n: number) => intFmt.format(Number(n))
 export const SUSPECT_KM = 1000
 
 export const MSG_ODO_INTEGER = 'Digite só números, sem ponto ou vírgula'
+export const MSG_ODO_INVALID = 'Leitura inválida'
+/** Teto do odômetro (o servidor recusa acima disso com INVALID_ODOMETER). */
+export const MAX_ODOMETER = 9_999_999
 
-/** Leitura digitada: só inteiro (sem ponto, vírgula ou letra), ou null. */
+/** Leitura digitada: só inteiro (sem ponto, vírgula ou letra) até 9.999.999, ou null. */
 export function parseOdometerText(text: string): number | null {
   const t = text.trim()
-  return /^\d+$/.test(t) ? Number(t) : null
+  if (!/^\d+$/.test(t)) return null
+  const n = Number(t)
+  return n <= MAX_ODOMETER ? n : null
+}
+
+/** Erro da leitura digitada (vazio = sem erro aqui; o formulário pede "Informe…"). */
+export function odometerTextError(text: string): string | null {
+  const t = text.trim()
+  if (!t) return null
+  if (!/^\d+$/.test(t)) return MSG_ODO_INTEGER
+  return Number(t) <= MAX_ODOMETER ? null : MSG_ODO_INVALID
 }
 
 /** "10.102.500 km" embaixo do campo (null se ainda não é um inteiro). */
@@ -20,21 +33,29 @@ export function odometerEcho(text: string): string | null {
   return n === null ? null : `${fmtInt(n)} km`
 }
 
-/** Mensagem de confirmação se a leitura passa mais de 1.000 km da referência; senão null. */
-export function checkReading(reading: number, reference: number | null | undefined): string | null {
-  if (reference == null || reading - reference <= SUSPECT_KM) return null
+/** Mensagem de confirmação se a leitura passa mais de `limit` km (1.000) da referência; senão null. */
+export function checkReading(
+  reading: number,
+  reference: number | null | undefined,
+  limit: number = SUSPECT_KM,
+): string | null {
+  if (reference == null || reading - reference <= limit) return null
   return `Confira a leitura: ${fmtInt(reading)} km (${fmtInt(reading - reference)} km acima da última). Está certa?`
 }
 
 /** Confirma (window.confirm) leitura fora do normal; true = pode enviar. */
-export function confirmReading(reading: number, reference: number | null | undefined): boolean {
-  const msg = checkReading(reading, reference)
+export function confirmReading(
+  reading: number,
+  reference: number | null | undefined,
+  limit: number = SUSPECT_KM,
+): boolean {
+  const msg = checkReading(reading, reference, limit)
   return msg === null || window.confirm(msg)
 }
 
 const key = (uid: string) => `passos.lastOdometer.${uid}`
 
-/** Última leitura que este aparelho enviou para o motorista (referência offline). */
+/** Última leitura deste motorista que o servidor aceitou (gravada pela fila offline). */
 export function lastReading(uid: string): number | null {
   try {
     const raw = localStorage.getItem(key(uid))

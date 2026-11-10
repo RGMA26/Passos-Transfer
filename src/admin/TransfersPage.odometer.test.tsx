@@ -43,7 +43,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   m.listTransfers.mockResolvedValue([
     t(),
-    t({ id: 't2', client_name: 'Ana', transfer_status: 'completed', km: 9092500, odometer_start: 1010000, odometer_end: 10102500 }),
+    t({ id: 't2', client_name: 'Ana', transfer_status: 'completed', km: 8092500, odometer_start: 1010000, odometer_end: 9102500 }),
     t({ id: 't3', client_name: 'Beto', transfer_status: 'checked', km: 40, odometer_start: 1000, odometer_end: 1040 }),
     t({ id: 't4', client_name: 'Caio', transfer_status: 'in_progress', odometer_start: 2000 }),
   ])
@@ -96,7 +96,7 @@ describe('Corrigir odômetro', () => {
     expect(within(row('Caio')).getByRole('button', { name: 'Corrigir odômetro' })).toBeInTheDocument()
     expect(within(row('Beto')).queryByRole('button', { name: 'Corrigir odômetro' })).not.toBeInTheDocument()
     expect(within(row('Hotel Central')).queryByRole('button', { name: 'Corrigir odômetro' })).not.toBeInTheDocument()
-    expect(within(row('Ana')).getByText('1.010.000 → 10.102.500')).toBeInTheDocument()
+    expect(within(row('Ana')).getByText('1.010.000 → 9.102.500')).toBeInTheDocument()
   })
 
   it('salva as leituras corrigidas e recarrega', async () => {
@@ -138,5 +138,42 @@ describe('Corrigir odômetro', () => {
     await user.type(r.getByLabelText('Odômetro inicial'), '1999')
     await user.click(r.getByRole('button', { name: 'Salvar odômetro' }))
     await waitFor(() => expect(m.fixTransferOdometer).toHaveBeenCalledWith('t4', 1999, null))
+  })
+})
+
+describe('Corrigir odômetro: eco, teto e confirmação', () => {
+  async function openFix() {
+    const user = userEvent.setup()
+    render(<TransfersPage />)
+    await screen.findByText('Ana')
+    await user.click(within(row('Ana')).getByRole('button', { name: 'Corrigir odômetro' }))
+    return { user, r: within(row('Ana')) }
+  }
+
+  it('mostra a leitura formatada embaixo dos campos', async () => {
+    const { r } = await openFix()
+    expect(r.getByText('1.010.000 km')).toBeInTheDocument()
+    expect(r.getByText('9.102.500 km')).toBeInTheDocument()
+  })
+
+  it('Transfer com mais de 1.000 km pede confirmação; cancelar não salva', async () => {
+    confirmSpy.mockReturnValue(false)
+    const { user, r } = await openFix()
+    await user.clear(r.getByLabelText('Odômetro inicial'))
+    await user.type(r.getByLabelText('Odômetro inicial'), '57876')
+    await user.clear(r.getByLabelText('Odômetro final'))
+    await user.type(r.getByLabelText('Odômetro final'), '60000')
+    await user.click(r.getByRole('button', { name: 'Salvar odômetro' }))
+    expect(confirmSpy).toHaveBeenCalledWith('Confira a leitura: 60.000 km (2.124 km acima da última). Está certa?')
+    expect(m.fixTransferOdometer).not.toHaveBeenCalled()
+  })
+
+  it('acima de 9.999.999: "Leitura inválida"', async () => {
+    const { user, r } = await openFix()
+    await user.clear(r.getByLabelText('Odômetro final'))
+    await user.type(r.getByLabelText('Odômetro final'), '10102500')
+    await user.click(r.getByRole('button', { name: 'Salvar odômetro' }))
+    expect(r.getByRole('alert')).toHaveTextContent('Leitura inválida')
+    expect(m.fixTransferOdometer).not.toHaveBeenCalled()
   })
 })

@@ -4,8 +4,9 @@ import type { ReactNode } from 'react'
 import * as api from '../lib/api'
 import { formatBRL } from '../lib/money'
 import { conflictText, formatQty, fuelUnit } from '../lib/fuel'
-import { MSG_CONFIRM_UNDO, parseDecimal } from './helpers'
-import { fmtInt } from '../lib/odometer'
+import { MSG_CONFIRM_UNDO } from './helpers'
+import { MSG_ODO_INVALID, checkReading, fmtInt, odometerTextError, parseOdometerText } from '../lib/odometer'
+import OdometerField from '../components/OdometerField'
 import OdometerFix from './OdometerFix'
 
 const MSG_LOAD = 'Não foi possível carregar. Tente novamente.'
@@ -375,17 +376,28 @@ function ShiftItem({ shift, onDone }: { shift: api.PendingShift; onDone: () => v
   const [error, setError] = useState('')
 
   async function save() {
-    const s = parseDecimal(start)
-    const e = parseDecimal(end)
+    const bad = odometerTextError(start) ?? odometerTextError(end)
+    if (bad) return setError(bad)
+    const s = parseOdometerText(start)
+    const e = parseOdometerText(end)
     if (s === null || e === null) return setError('Informe os dois odômetros')
     if (e < s) return setError(MSG_ODO)
+    // turno com mais de 1.500 km: confirma antes de gravar
+    const msg = checkReading(e, s, 1500)
+    if (msg && !window.confirm(msg)) return
     setError('')
     try {
       await api.updateShiftOdometers(shift.id, s, e)
       setEditing(false)
       onDone()
     } catch (err) {
-      setError(errorText(err, 'Não foi possível salvar o odômetro'))
+      setError(
+        (err as Error)?.message === 'INVALID_ODOMETER'
+          ? MSG_ODO_INVALID
+          : (err as Error)?.message === 'ODOMETER_BELOW_START'
+            ? MSG_ODO
+            : errorText(err, 'Não foi possível salvar o odômetro'),
+      )
     }
   }
 
@@ -404,14 +416,8 @@ function ShiftItem({ shift, onDone }: { shift: api.PendingShift; onDone: () => v
       extra={
         editing ? (
           <div className="inline-edit">
-            <label className="field">
-              Odômetro inicial
-              <input inputMode="numeric" value={start} onChange={(e) => setStart(e.target.value)} />
-            </label>
-            <label className="field">
-              Odômetro final
-              <input inputMode="numeric" value={end} onChange={(e) => setEnd(e.target.value)} />
-            </label>
+            <OdometerField label="Odômetro inicial" value={start} onChange={setStart} />
+            <OdometerField label="Odômetro final" value={end} onChange={setEnd} />
             {error && <p className="error" role="alert">{error}</p>}
             <button type="button" onClick={() => void save()}>
               Salvar odômetro
@@ -436,7 +442,17 @@ function ShiftItem({ shift, onDone }: { shift: api.PendingShift; onDone: () => v
       </span>
       <span>{`BlaBlaCar: ${formatBRL(shift.totals.blablacar.amount)} (${shift.totals.blablacar.km} km)`}</span>
       <span>{`Transfers: ${shift.totals.transfer_km} km`}</span>
-      {shift.odometer_suspect && <SuspectWarning start={shift.odometer_start} end={shift.odometer_end} />}
+      {shift.odometer_end != null &&
+      shift.transfer_max_odometer != null &&
+      shift.odometer_end < shift.transfer_max_odometer ? (
+        <span className="warn" style={{ background: '#fff4e5', fontWeight: 600 }}>
+          {`🟠 Odômetro do turno menor que o de um Transfer: turno ${fmtInt(shift.odometer_start)} → ${fmtInt(
+            shift.odometer_end,
+          )} · Transfer até ${fmtInt(shift.transfer_max_odometer)}`}
+        </span>
+      ) : (
+        shift.odometer_suspect && <SuspectWarning start={shift.odometer_start} end={shift.odometer_end} />
+      )}
       {!shift.odometer_start_photo && <span className="warn">📷 Foto do odômetro não enviada (início)</span>}
       {shift.odometer_end != null && !shift.odometer_end_photo && (
         <span className="warn">📷 Foto do odômetro não enviada (fim)</span>

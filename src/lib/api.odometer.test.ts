@@ -11,7 +11,7 @@ vi.mock('./supabase', () => ({
     },
   },
 }))
-import { fixTransferOdometer, unreviewItem } from './api'
+import { fixTransferOdometer, unreviewItem, updateShiftOdometers } from './api'
 
 beforeEach(() => {
   result = { data: null, error: null }
@@ -43,5 +43,12 @@ describe('fixTransferOdometer', () => {
   it('erro do servidor vira Error com o código', async () => {
     result = { data: null, error: { message: 'NOT_CHANGEABLE', code: 'P0001' } }
     await expect(fixTransferOdometer('t1', 1, 2)).rejects.toThrow('NOT_CHANGEABLE')
+  })
+})
+
+describe('updateShiftOdometers', () => {
+  it('usa a RPC admin_fix_shift_odometer (vale também em quinzena fechada)', async () => {
+    await updateShiftOdometers('s1', 57876, 57880)
+    expect(rpcArgs).toEqual(['admin_fix_shift_odometer', { p_id: 's1', p_start: 57876, p_end: 57880 }])
   })
 })

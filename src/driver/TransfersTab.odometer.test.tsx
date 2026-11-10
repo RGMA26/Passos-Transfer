@@ -91,8 +91,8 @@ describe('Transfer: leitura conferida', () => {
 
   it('concluir com mais de 1.000 km no Transfer pede confirmação (o caso de produção)', async () => {
     mApi.listMyTransfers.mockResolvedValue([ride({ transfer_status: 'in_progress', odometer_start: 1010000 })] as never)
-    await fill('Odômetro final', '10102500', 'Concluir')
-    expect(confirmSpy).toHaveBeenCalledWith('Confira a leitura: 10.102.500 km (9.092.500 km acima da última). Está certa?')
+    await fill('Odômetro final', '9102500', 'Concluir')
+    expect(confirmSpy).toHaveBeenCalledWith('Confira a leitura: 9.102.500 km (8.092.500 km acima da última). Está certa?')
     expect(mEnqueue).not.toHaveBeenCalled()
   })
 
@@ -109,6 +109,13 @@ describe('Transfer: leitura conferida', () => {
     await fill('Odômetro final', '57950', 'Concluir')
     await waitFor(() => expect(mEnqueue).toHaveBeenCalledTimes(1))
     expect(confirmSpy).not.toHaveBeenCalled()
+  })
+
+  it('acima de 9.999.999: "Leitura inválida"', async () => {
+    mApi.listMyTransfers.mockResolvedValue([ride({ transfer_status: 'in_progress', odometer_start: 1010000 })] as never)
+    await fill('Odômetro final', '10102500', 'Concluir')
+    expect(screen.getByRole('alert')).toHaveTextContent('Leitura inválida')
+    expect(mEnqueue).not.toHaveBeenCalled()
   })
 
   it('ponto não é aceito', async () => {

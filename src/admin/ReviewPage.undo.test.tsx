@@ -82,13 +82,13 @@ const pendingTransfer = (over: Partial<api.PendingTransfer> = {}): api.PendingTr
   driver_name: 'Ana',
   client_name: 'Hotel Central',
   amount: 250,
-  km: 9092500,
+  km: 8092500,
   estimated_km: 38,
   scheduled_at: '2026-10-29T15:00:00Z',
   origin: 'Rua A',
   destination: 'Av B',
   odometer_start: 1010000,
-  odometer_end: 10102500,
+  odometer_end: 9102500,
   odometer_start_photo: 'a.jpg',
   odometer_end_photo: 'b.jpg',
   odometer_suspect: false,
@@ -130,7 +130,7 @@ describe('Corrigir odômetro do Transfer na conferência', () => {
     m.listPendingReview.mockResolvedValue({ fuelings: [], shifts: [], transfers: [pendingTransfer()] })
     renderPage()
     const s = within(await screen.findByRole('region', { name: 'Transfers concluídos' }))
-    expect(s.getByText('Odômetro 1.010.000 → 10.102.500')).toBeInTheDocument()
+    expect(s.getByText('Odômetro 1.010.000 → 9.102.500')).toBeInTheDocument()
   })
 })
 
@@ -139,7 +139,7 @@ describe('Odômetro fora do normal', () => {
     m.listPendingReview.mockResolvedValue({ fuelings: [], shifts: [], transfers: [pendingTransfer({ odometer_suspect: true })] })
     renderPage()
     const s = within(await screen.findByRole('region', { name: 'Transfers concluídos' }))
-    expect(s.getByText('🟠 Odômetro fora do normal: 1.010.000 → 10.102.500 (9.092.500 km)')).toBeInTheDocument()
+    expect(s.getByText('🟠 Odômetro fora do normal: 1.010.000 → 9.102.500 (8.092.500 km)')).toBeInTheDocument()
   })
 
   it('Transfer normal não mostra o aviso', async () => {
@@ -156,7 +156,7 @@ describe('Odômetro fora do normal', () => {
       shifts: [
         {
           id: 's1', driver_id: 'd1', driver_name: 'Ana', start_date: '2026-10-28',
-          odometer_start: 57876, odometer_end: 60000, odometer_suspect: true,
+          odometer_start: 57876, odometer_end: 60000, odometer_suspect: true, transfer_max_odometer: null,
           odometer_start_photo: 'a.jpg', odometer_end_photo: 'b.jpg', uber_earnings_photo: null,
           review_status: 'pending', reject_reason: null,
           totals: { uber: { amount: 0, km: 0 }, blablacar: { amount: 0, km: 0 }, transfer_km: 0 },
@@ -167,5 +167,29 @@ describe('Odômetro fora do normal', () => {
     renderPage()
     const s = within(await screen.findByRole('region', { name: 'Turnos' }))
     expect(s.getByText('🟠 Odômetro fora do normal: 57.876 → 60.000 (2.124 km)')).toBeInTheDocument()
+  })
+})
+
+describe('turno menor que um Transfer', () => {
+  it('mostra o aviso com as leituras do turno e do Transfer', async () => {
+    m.listPendingReview.mockResolvedValue({
+      fuelings: [],
+      transfers: [],
+      shifts: [
+        {
+          id: 's2', driver_id: 'd1', driver_name: 'Ana', start_date: '2026-10-28',
+          odometer_start: 20000, odometer_end: 20050, odometer_suspect: true, transfer_max_odometer: 20100,
+          odometer_start_photo: 'a.jpg', odometer_end_photo: 'b.jpg', uber_earnings_photo: null,
+          review_status: 'pending', reject_reason: null,
+          totals: { uber: { amount: 0, km: 0 }, blablacar: { amount: 0, km: 0 }, transfer_km: 90 },
+          rides: [],
+        },
+      ],
+    })
+    renderPage()
+    const s = within(await screen.findByRole('region', { name: 'Turnos' }))
+    expect(
+      s.getByText('🟠 Odômetro do turno menor que o de um Transfer: turno 20.000 → 20.050 · Transfer até 20.100'),
+    ).toBeInTheDocument()
   })
 })

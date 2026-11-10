@@ -48,7 +48,7 @@ const full = (): api.PendingReview => ({
   shifts: [
     {
       id: 's1', driver_id: 'd1', driver_name: 'Maria', start_date: '2026-10-28',
-      odometer_start: 1000, odometer_end: 1200, odometer_suspect: false,
+      odometer_start: 1000, odometer_end: 1200, odometer_suspect: false, transfer_max_odometer: null,
       odometer_start_photo: 's1a.jpg', odometer_end_photo: 's1b.jpg', uber_earnings_photo: null,
       review_status: 'pending', reject_reason: null,
       totals: { uber: { amount: 150, km: 40 }, blablacar: { amount: 80, km: 70 }, transfer_km: 20 },
