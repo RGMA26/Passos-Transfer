@@ -316,12 +316,12 @@ set local role authenticated;
 select lives_ok($$select start_transfer('00000000-0000-0000-0000-0000000006a9', 1200, 'a.jpg')$$, 'd9 inicia transfer no turno');
 select lives_ok($$select complete_transfer('00000000-0000-0000-0000-0000000006a9', 1205, 'b.jpg')$$, 'd9 conclui transfer no turno');
 select is(
-  end_shift('00000000-0000-0000-0000-0000000006b9',1020,'f.jpg',null),
-  '{"km_total":20,"km_service":5,"km_off":15,"off_discount_estimate":9.00}'::jsonb,
-  'end_shift soma o transfer no km em serviço e estima o desconto (15 × 0,60)');
+  end_shift('00000000-0000-0000-0000-0000000006b9',1205,'f.jpg',null),
+  '{"km_total":205,"km_service":5,"km_off":200,"off_discount_estimate":120.00}'::jsonb,
+  'end_shift soma o transfer no km em serviço e estima o desconto (200 × 0,60; final ≥ leitura do transfer, 0019)');
 select is(
   end_shift('00000000-0000-0000-0000-0000000006b9',1500,'z.jpg',null),
-  '{"km_total":20,"km_service":5,"km_off":15,"off_discount_estimate":9.00}'::jsonb,
+  '{"km_total":205,"km_service":5,"km_off":200,"off_discount_estimate":120.00}'::jsonb,
   'end_shift repetido mantém a estimativa');
 -- turno encerrado: carro da empresa não inicia transfer
 reset role;

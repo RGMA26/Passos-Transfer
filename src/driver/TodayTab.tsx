@@ -9,6 +9,16 @@ import { enqueue } from '../lib/offline/queue'
 import { localDate } from '../lib/periods'
 import type { Car } from '../lib/types'
 import PhotoInput from '../components/PhotoInput'
+import OdometerField from '../components/OdometerField'
+import {
+  MSG_ODO_INTEGER,
+  confirmReading,
+  fmtInt,
+  lastReading,
+  maxReading,
+  parseOdometerText,
+  rememberReading,
+} from '../lib/odometer'
 import TodayEntries from './TodayEntries'
 import PausedNotice from './PausedNotice'
 import { useShift } from './useShift'
@@ -16,11 +26,6 @@ import type { ShiftState } from './useShift'
 
 const MSG_ODO_LOWER = 'O odômetro final não pode ser menor que o inicial'
 
-/** Inteiro >= 0, ou null. */
-function parseOdometer(text: string): number | null {
-  const t = text.trim()
-  return /^\d+$/.test(t) ? Number(t) : null
-}
 
 interface Ended {
   shiftId: string
@@ -115,9 +120,12 @@ function StartShift({
 
   async function submit(e: FormEvent) {
     e.preventDefault()
-    const odometer = parseOdometer(odo)
-    if (odometer === null) return setError('Informe o odômetro')
+    if (!odo.trim()) return setError('Informe o odômetro')
+    const odometer = parseOdometerText(odo)
+    if (odometer === null) return setError(MSG_ODO_INTEGER)
     if (!photo) return setError('Adicione a foto do odômetro')
+    // leitura fora do normal: confirma antes de enfileirar (cancelar mantém o formulário)
+    if (!confirmReading(odometer, lastReading(uid))) return
     setError('')
     setBusy(true)
     try {
@@ -129,6 +137,7 @@ function StartShift({
         payload: { id, car_id: carId, odometer },
         photos: [{ field: 'photo', photoId: crypto.randomUUID(), blob: photo }],
       })
+      rememberReading(uid, odometer)
       // busy fica true: o botão some quando o turno derivado aparece
       await onQueued()
     } catch {
@@ -141,10 +150,7 @@ function StartShift({
     <form className="panel" onSubmit={(e) => void submit(e)} noValidate>
       <strong>Iniciar turno</strong>
       {car && <p>{`${car.model} – ${car.plate}`}</p>}
-      <label className="field">
-        Odômetro
-        <input inputMode="numeric" value={odo} onChange={(e) => setOdo(e.target.value)} />
-      </label>
+      <OdometerField label="Odômetro" value={odo} onChange={setOdo} />
       <PhotoInput label="Foto do odômetro" onChange={setPhoto} />
       {error && <p className="error" role="alert">{error}</p>}
       <button type="submit" className="big" disabled={busy}>
@@ -223,11 +229,13 @@ function OpenShift({
 
   async function submit(e: FormEvent) {
     e.preventDefault()
-    const odometer = parseOdometer(odo)
-    if (odometer === null) return setError('Informe o odômetro final')
+    if (!odo.trim()) return setError('Informe o odômetro final')
+    const odometer = parseOdometerText(odo)
+    if (odometer === null) return setError(MSG_ODO_INTEGER)
     if (odometer < shift.odometerStart) return setError(MSG_ODO_LOWER)
     if (!photo) return setError('Adicione a foto do odômetro final')
     if (needsUber && !uberPhoto) return setError('Adicione o print dos ganhos da Uber')
+    if (!confirmReading(odometer, maxReading(shift.odometerStart, lastReading(uid)))) return
     setError('')
     setBusy(true)
     try {
@@ -242,6 +250,7 @@ function OpenShift({
         payload: { shift_id: shift.id, odometer, uber_photo: null },
         photos,
       })
+      rememberReading(uid, odometer)
       await onEnded({ shiftId: shift.id, start: shift.odometerStart, end: odometer })
     } catch {
       setError('Não foi possível salvar. Tente de novo.')
@@ -263,11 +272,8 @@ function OpenShift({
       </div>
       <form className="panel" onSubmit={(e) => void submit(e)} noValidate>
         <strong>Encerrar turno</strong>
-        <p className="hint">Odômetro inicial: {shift.odometerStart}</p>
-        <label className="field">
-          Odômetro final
-          <input inputMode="numeric" value={odo} onChange={(e) => setOdo(e.target.value)} />
-        </label>
+        <p className="hint">Odômetro inicial: {fmtInt(shift.odometerStart)}</p>
+        <OdometerField label="Odômetro final" value={odo} onChange={setOdo} />
         <PhotoInput label="Foto do odômetro final" onChange={setPhoto} />
         {needsUber && <PhotoInput label="Print dos ganhos da Uber" onChange={setUberPhoto} />}
         {error && <p className="error" role="alert">{error}</p>}

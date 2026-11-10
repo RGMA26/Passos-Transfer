@@ -11,7 +11,7 @@ const DOTS: { cat: api.PendencyCategory; icon: string; label: string }[] = [
   { cat: 'white', icon: '⚪', label: 'aguardando conferência' },
   { cat: 'yellow', icon: '🟡', label: 'quinzena terminando' },
   { cat: 'red', icon: '🔴', label: 'quinzena atrasada' },
-  { cat: 'orange', icon: '🟠', label: 'valores conflitantes' },
+  { cat: 'orange', icon: '🟠', label: 'valores conflitantes / odômetro fora do normal' },
   { cat: 'photo', icon: '📷', label: 'foto do odômetro não enviada' },
 ]
 

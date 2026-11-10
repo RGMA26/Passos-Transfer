@@ -8,6 +8,16 @@ import type { QueuedOp } from '../lib/offline/queue'
 import type { Ride, RideExpense } from '../lib/types'
 import MoneyInput from '../components/MoneyInput'
 import PhotoInput from '../components/PhotoInput'
+import OdometerField from '../components/OdometerField'
+import {
+  MSG_ODO_INTEGER,
+  confirmReading,
+  fmtInt,
+  lastReading,
+  maxReading,
+  parseOdometerText,
+  rememberReading,
+} from '../lib/odometer'
 import ReceiptInput from '../components/ReceiptInput'
 import PausedNotice from './PausedNotice'
 import { useShift } from './useShift'
@@ -38,11 +48,6 @@ const whenFmt = new Intl.DateTimeFormat('pt-BR', {
 })
 const kmFmt = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 })
 
-/** Inteiro >= 0, ou null. */
-function parseOdometer(text: string): number | null {
-  const t = text.trim()
-  return /^\d+$/.test(t) ? Number(t) : null
-}
 
 /** "Rua, bairro, cidade/UF" (cai no texto antigo origin/destination). */
 function address(street: string | null, district: string | null, city: string | null, state: string | null) {
@@ -132,6 +137,7 @@ export default function TransfersTab() {
           expenses={expenses.filter((e) => e.ride_id === r.id)}
           ops={ops.filter((o) => o.payload.ride_id === r.id)}
           noShift={company && !shift}
+          shiftStart={company ? (shift?.odometerStart ?? null) : null}
           paused={paused}
           open={openId === r.id}
           onToggle={() => setOpenId(openId === r.id ? null : r.id)}
@@ -147,6 +153,7 @@ function RideCard({
   expenses,
   ops,
   noShift,
+  shiftStart,
   paused,
   open,
   onToggle,
@@ -156,6 +163,8 @@ function RideCard({
   expenses: RideExpense[]
   ops: QueuedOp[]
   noShift: boolean
+  /** Leitura inicial do turno aberto (carro da empresa): referência para iniciar o Transfer. */
+  shiftStart: number | null
   paused: boolean
   open: boolean
   onToggle: () => void
@@ -187,7 +196,7 @@ function RideCard({
       ))}
       {open && (
         <div>
-          {odometerStart != null && <p className="hint">{`Odômetro inicial: ${odometerStart}`}</p>}
+          {odometerStart != null && <p className="hint">{`Odômetro inicial: ${fmtInt(odometerStart)}`}</p>}
           {(status === 'completed' || status === 'checked') && ride.km != null && (
             <p className="hint">{`Km: ${kmFmt.format(Number(ride.km))}`}</p>
           )}
@@ -209,6 +218,7 @@ function RideCard({
               kind="start_transfer"
               label="Odômetro inicial"
               button="Iniciar"
+              reference={shiftStart}
               blocked={paused || noShift}
               hint={noShift && !paused ? 'Inicie um turno para iniciar o Transfer' : null}
             />
@@ -221,6 +231,7 @@ function RideCard({
               label="Odômetro final"
               button="Concluir"
               min={odometerStart}
+              reference={odometerStart}
               blocked={paused}
               hint={null}
             />
@@ -240,6 +251,7 @@ function OdometerForm({
   label,
   button,
   min,
+  reference,
   blocked,
   hint,
 }: {
@@ -249,6 +261,8 @@ function OdometerForm({
   label: string
   button: string
   min?: number | null
+  /** Última leitura conhecida (turno / início do Transfer) para decidir a confirmação. */
+  reference?: number | null
   blocked: boolean
   hint: string | null
 }) {
@@ -259,10 +273,15 @@ function OdometerForm({
 
   async function submit(e: FormEvent) {
     e.preventDefault()
-    const odometer = parseOdometer(odo)
-    if (odometer === null) return setError('Informe o odômetro')
+    if (!odo.trim()) return setError('Informe o odômetro')
+    const odometer = parseOdometerText(odo)
+    if (odometer === null) return setError(MSG_ODO_INTEGER)
     if (min != null && odometer < min) return setError(MSG_ODO_LOWER)
     if (!photo) return setError('Adicione a foto do odômetro')
+    // concluir: referência = início do Transfer (km do Transfer); iniciar: turno ou última do aparelho
+    const ref =
+      kind === 'complete_transfer' ? (reference ?? lastReading(uid)) : maxReading(reference, lastReading(uid))
+    if (!confirmReading(odometer, ref)) return
     setError('')
     setBusy(true)
     try {
@@ -273,6 +292,7 @@ function OdometerForm({
         payload: { ride_id: rideId, odometer },
         photos: [{ field: 'photo', photoId: crypto.randomUUID(), blob: photo }],
       })
+      rememberReading(uid, odometer)
       setOdo('')
     } catch {
       setError(MSG_SAVE)
@@ -283,10 +303,7 @@ function OdometerForm({
 
   return (
     <form onSubmit={(e) => void submit(e)} noValidate>
-      <label className="field">
-        {label}
-        <input inputMode="numeric" value={odo} onChange={(e) => setOdo(e.target.value)} />
-      </label>
+      <OdometerField label={label} value={odo} onChange={setOdo} />
       <PhotoInput label="Foto do odômetro" onChange={setPhoto} />
       {hint && <p className="hint">{hint}</p>}
       {error && (

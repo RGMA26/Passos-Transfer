@@ -961,6 +961,8 @@ export interface PendingShift {
   start_date: string
   odometer_start: number
   odometer_end: number | null
+  /** Leitura fora do normal (servidor, 0019): aviso 🟠 na conferência. */
+  odometer_suspect: boolean
   odometer_start_photo: string | null
   odometer_end_photo: string | null
   uber_earnings_photo: string | null
@@ -999,6 +1001,8 @@ export interface PendingTransfer {
   odometer_end: number | null
   odometer_start_photo: string | null
   odometer_end_photo: string | null
+  /** Leitura fora do normal (servidor, 0019): aviso 🟠 na conferência. */
+  odometer_suspect: boolean
   /** Pedágios e estacionamentos do Transfer (aprovados junto com ele). */
   expenses: PendingExpense[]
 }
@@ -1098,6 +1102,7 @@ export async function listPendingReview(): Promise<PendingReview> {
       start_date: x.start_date,
       odometer_start: Number(x.odometer_start),
       odometer_end: x.odometer_end === null ? null : Number(x.odometer_end),
+      odometer_suspect: !!x.odometer_suspect,
       odometer_start_photo: x.odometer_start_photo,
       odometer_end_photo: x.odometer_end_photo,
       uber_earnings_photo: x.uber_earnings_photo,
@@ -1120,6 +1125,7 @@ export async function listPendingReview(): Promise<PendingReview> {
       odometer_end: num(x.odometer_end),
       odometer_start_photo: x.odometer_start_photo,
       odometer_end_photo: x.odometer_end_photo,
+      odometer_suspect: !!x.odometer_suspect,
       expenses: (x.ride_expenses ?? []).map((e) => ({
         id: e.id,
         kind: e.kind,

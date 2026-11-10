@@ -137,7 +137,7 @@ describe('TransfersTab', () => {
     ] as never)
     await open()
     expect(screen.getAllByText('Em andamento').length).toBeGreaterThan(0)
-    expect(screen.getByText('Odômetro inicial: 5000')).toBeInTheDocument()
+    expect(screen.getByText('Odômetro inicial: 5.000')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Iniciar' })).toBeNull()
     expect(screen.queryByLabelText('Km')).toBeNull()
     await userEvent.type(screen.getByLabelText('Odômetro final'), '4990')
@@ -160,7 +160,7 @@ describe('TransfersTab', () => {
     await open()
     expect(screen.getAllByText('Em andamento').length).toBeGreaterThan(0)
     expect(screen.getByText('pendente de envio')).toBeInTheDocument()
-    expect(screen.getByText('Odômetro inicial: 7000')).toBeInTheDocument()
+    expect(screen.getByText('Odômetro inicial: 7.000')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Concluir' })).toBeInTheDocument()
   })
 

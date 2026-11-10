@@ -91,6 +91,7 @@ const pendingTransfer = (over: Partial<api.PendingTransfer> = {}): api.PendingTr
   odometer_end: 10102500,
   odometer_start_photo: 'a.jpg',
   odometer_end_photo: 'b.jpg',
+  odometer_suspect: false,
   expenses: [],
   ...over,
 })
@@ -130,5 +131,41 @@ describe('Corrigir odômetro do Transfer na conferência', () => {
     renderPage()
     const s = within(await screen.findByRole('region', { name: 'Transfers concluídos' }))
     expect(s.getByText('Odômetro 1.010.000 → 10.102.500')).toBeInTheDocument()
+  })
+})
+
+describe('Odômetro fora do normal', () => {
+  it('Transfer suspeito mostra o aviso laranja com as leituras', async () => {
+    m.listPendingReview.mockResolvedValue({ fuelings: [], shifts: [], transfers: [pendingTransfer({ odometer_suspect: true })] })
+    renderPage()
+    const s = within(await screen.findByRole('region', { name: 'Transfers concluídos' }))
+    expect(s.getByText('🟠 Odômetro fora do normal: 1.010.000 → 10.102.500 (9.092.500 km)')).toBeInTheDocument()
+  })
+
+  it('Transfer normal não mostra o aviso', async () => {
+    m.listPendingReview.mockResolvedValue({ fuelings: [], shifts: [], transfers: [pendingTransfer({ km: 49, odometer_end: 1010049 })] })
+    renderPage()
+    const s = within(await screen.findByRole('region', { name: 'Transfers concluídos' }))
+    expect(s.queryByText(/Odômetro fora do normal/)).toBeNull()
+  })
+
+  it('turno suspeito mostra o aviso laranja', async () => {
+    m.listPendingReview.mockResolvedValue({
+      fuelings: [],
+      transfers: [],
+      shifts: [
+        {
+          id: 's1', driver_id: 'd1', driver_name: 'Ana', start_date: '2026-10-28',
+          odometer_start: 57876, odometer_end: 60000, odometer_suspect: true,
+          odometer_start_photo: 'a.jpg', odometer_end_photo: 'b.jpg', uber_earnings_photo: null,
+          review_status: 'pending', reject_reason: null,
+          totals: { uber: { amount: 0, km: 0 }, blablacar: { amount: 0, km: 0 }, transfer_km: 0 },
+          rides: [],
+        },
+      ],
+    })
+    renderPage()
+    const s = within(await screen.findByRole('region', { name: 'Turnos' }))
+    expect(s.getByText('🟠 Odômetro fora do normal: 57.876 → 60.000 (2.124 km)')).toBeInTheDocument()
   })
 })

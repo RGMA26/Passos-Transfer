@@ -34,6 +34,7 @@ const transfer = (over: Partial<api.PendingTransfer> = {}): api.PendingTransfer 
   odometer_end: 1040,
   odometer_start_photo: 't1a.jpg',
   odometer_end_photo: 't1b.jpg',
+  odometer_suspect: false,
   expenses: [{ id: 'e1', kind: 'toll', amount: 12.5, review_status: 'pending', photo_path: 'e1.jpg' }],
   ...over,
 })
@@ -47,7 +48,7 @@ const full = (): api.PendingReview => ({
   shifts: [
     {
       id: 's1', driver_id: 'd1', driver_name: 'Maria', start_date: '2026-10-28',
-      odometer_start: 1000, odometer_end: 1200,
+      odometer_start: 1000, odometer_end: 1200, odometer_suspect: false,
       odometer_start_photo: 's1a.jpg', odometer_end_photo: 's1b.jpg', uber_earnings_photo: null,
       review_status: 'pending', reject_reason: null,
       totals: { uber: { amount: 150, km: 40 }, blablacar: { amount: 80, km: 70 }, transfer_km: 20 },
@@ -80,7 +81,7 @@ describe('fila', () => {
     expect(img).toHaveAttribute('src', 'https://signed/f1.jpg')
     expect(img.closest('a')).toHaveAttribute('href', 'https://signed/f1.jpg')
     expect(img.closest('a')).toHaveAttribute('target', '_blank')
-    expect(within(section('Turnos')).getByText(/1000/)).toBeInTheDocument()
+    expect(within(section('Turnos')).getByText(/1.000/)).toBeInTheDocument()
     expect(within(section('Transfers concluídos')).getByText(/Hotel Central/)).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Pedágios e estacionamentos' })).toBeNull()
   })

@@ -9,7 +9,7 @@ export const CATEGORY_LABEL: Record<api.PendencyCategory, string> = {
   white: '⚪ Aguardando conferência',
   yellow: '🟡 Quinzena terminando',
   red: '🔴 Quinzena atrasada',
-  orange: '🟠 Valores conflitantes',
+  orange: '🟠 Valores conflitantes / odômetro fora do normal',
   photo: '📷 Foto não enviada',
 }
 

@@ -341,6 +341,7 @@ function TransferItem({ transfer: t, onDone }: { transfer: api.PendingTransfer; 
       }`}</span>
       <span>{`Km real: ${t.km ?? '—'} · Km estimado: ${t.estimated_km ?? '—'}`}</span>
       {kmAboveEstimate(t.km, t.estimated_km) && <span className="warn">Km acima do estimado</span>}
+      {t.odometer_suspect && <SuspectWarning start={t.odometer_start} end={t.odometer_end} />}
       {t.odometer_start != null && !t.odometer_start_photo && (
         <span className="warn">📷 Foto do odômetro não enviada (início)</span>
       )}
@@ -351,6 +352,17 @@ function TransferItem({ transfer: t, onDone }: { transfer: api.PendingTransfer; 
         <span key={e.id}>{`${EXPENSE_LABEL[e.kind] ?? e.kind} · ${formatBRL(e.amount)}`}</span>
       ))}
     </ReviewItem>
+  )
+}
+
+/** 🟠 leitura fora do normal (odometer_suspect): mostra as leituras para o admin conferir/corrigir. */
+function SuspectWarning({ start, end }: { start: number | null; end: number | null }) {
+  const f = (n: number | null) => (n == null ? '—' : fmtInt(n))
+  const km = start != null && end != null ? ` (${fmtInt(end - start)} km)` : ''
+  return (
+    <span className="warn" style={{ background: '#fff4e5', fontWeight: 600 }}>
+      {`🟠 Odômetro fora do normal: ${f(start)} → ${f(end)}${km}`}
+    </span>
   )
 }
 
@@ -416,12 +428,15 @@ function ShiftItem({ shift, onDone }: { shift: api.PendingShift; onDone: () => v
       }
     >
       <strong>{shift.driver_name}</strong>
-      <span>{`${fmtDay(shift.start_date)} · odômetro ${shift.odometer_start} → ${shift.odometer_end ?? '—'}`}</span>
+      <span>{`${fmtDay(shift.start_date)} · odômetro ${fmtInt(shift.odometer_start)} → ${
+        shift.odometer_end == null ? '—' : fmtInt(shift.odometer_end)
+      }`}</span>
       <span className="shift-totals">
         {`Uber: ${formatBRL(shift.totals.uber.amount)} (${shift.totals.uber.km} km)`}
       </span>
       <span>{`BlaBlaCar: ${formatBRL(shift.totals.blablacar.amount)} (${shift.totals.blablacar.km} km)`}</span>
       <span>{`Transfers: ${shift.totals.transfer_km} km`}</span>
+      {shift.odometer_suspect && <SuspectWarning start={shift.odometer_start} end={shift.odometer_end} />}
       {!shift.odometer_start_photo && <span className="warn">📷 Foto do odômetro não enviada (início)</span>}
       {shift.odometer_end != null && !shift.odometer_end_photo && (
         <span className="warn">📷 Foto do odômetro não enviada (fim)</span>

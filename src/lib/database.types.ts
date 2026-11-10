@@ -237,14 +237,14 @@ isOneToOne: false
                   ]
                 },"rides": {
                   Row: {
-                    "amount": number,"car_id": string | null,"client_name": string | null,"created_at": string,"dest_city": string | null,"dest_district": string | null,"dest_ref": string | null,"dest_state": string | null,"dest_street": string | null,"dest_zip": string | null,"destination": string | null,"driver_id": string,"driver_pct": number | null,"estimated_km": number | null,"id": string,"km": number | null,"odometer_end": number | null,"odometer_end_photo": string | null,"odometer_start": number | null,"odometer_start_photo": string | null,"origin": string | null,"origin_city": string | null,"origin_district": string | null,"origin_ref": string | null,"origin_state": string | null,"origin_street": string | null,"origin_zip": string | null,"platform": string,"receipt_path": string | null,"reject_reason": string | null,"ride_date": string,"scheduled_at": string | null,"shift_id": string | null,"started_at": string | null,"transfer_status": string | null
+                    "amount": number,"car_id": string | null,"client_name": string | null,"created_at": string,"dest_city": string | null,"dest_district": string | null,"dest_ref": string | null,"dest_state": string | null,"dest_street": string | null,"dest_zip": string | null,"destination": string | null,"driver_id": string,"driver_pct": number | null,"estimated_km": number | null,"id": string,"km": number | null,"odometer_end": number | null,"odometer_end_photo": string | null,"odometer_start": number | null,"odometer_start_photo": string | null,"odometer_suspect": boolean,"origin": string | null,"origin_city": string | null,"origin_district": string | null,"origin_ref": string | null,"origin_state": string | null,"origin_street": string | null,"origin_zip": string | null,"platform": string,"receipt_path": string | null,"reject_reason": string | null,"ride_date": string,"scheduled_at": string | null,"shift_id": string | null,"started_at": string | null,"transfer_status": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "amount": number,"car_id"?: string | null,"client_name"?: string | null,"created_at"?: string,"dest_city"?: string | null,"dest_district"?: string | null,"dest_ref"?: string | null,"dest_state"?: string | null,"dest_street"?: string | null,"dest_zip"?: string | null,"destination"?: string | null,"driver_id": string,"driver_pct"?: number | null,"estimated_km"?: number | null,"id"?: string,"km"?: number | null,"odometer_end"?: number | null,"odometer_end_photo"?: string | null,"odometer_start"?: number | null,"odometer_start_photo"?: string | null,"origin"?: string | null,"origin_city"?: string | null,"origin_district"?: string | null,"origin_ref"?: string | null,"origin_state"?: string | null,"origin_street"?: string | null,"origin_zip"?: string | null,"platform": string,"receipt_path"?: string | null,"reject_reason"?: string | null,"ride_date": string,"scheduled_at"?: string | null,"shift_id"?: string | null,"started_at"?: string | null,"transfer_status"?: string | null
+                    "amount": number,"car_id"?: string | null,"client_name"?: string | null,"created_at"?: string,"dest_city"?: string | null,"dest_district"?: string | null,"dest_ref"?: string | null,"dest_state"?: string | null,"dest_street"?: string | null,"dest_zip"?: string | null,"destination"?: string | null,"driver_id": string,"driver_pct"?: number | null,"estimated_km"?: number | null,"id"?: string,"km"?: number | null,"odometer_end"?: number | null,"odometer_end_photo"?: string | null,"odometer_start"?: number | null,"odometer_start_photo"?: string | null,"odometer_suspect"?: boolean,"origin"?: string | null,"origin_city"?: string | null,"origin_district"?: string | null,"origin_ref"?: string | null,"origin_state"?: string | null,"origin_street"?: string | null,"origin_zip"?: string | null,"platform": string,"receipt_path"?: string | null,"reject_reason"?: string | null,"ride_date": string,"scheduled_at"?: string | null,"shift_id"?: string | null,"started_at"?: string | null,"transfer_status"?: string | null
                   }
                   Update: {
-                    "amount"?: number,"car_id"?: string | null,"client_name"?: string | null,"created_at"?: string,"dest_city"?: string | null,"dest_district"?: string | null,"dest_ref"?: string | null,"dest_state"?: string | null,"dest_street"?: string | null,"dest_zip"?: string | null,"destination"?: string | null,"driver_id"?: string,"driver_pct"?: number | null,"estimated_km"?: number | null,"id"?: string,"km"?: number | null,"odometer_end"?: number | null,"odometer_end_photo"?: string | null,"odometer_start"?: number | null,"odometer_start_photo"?: string | null,"origin"?: string | null,"origin_city"?: string | null,"origin_district"?: string | null,"origin_ref"?: string | null,"origin_state"?: string | null,"origin_street"?: string | null,"origin_zip"?: string | null,"platform"?: string,"receipt_path"?: string | null,"reject_reason"?: string | null,"ride_date"?: string,"scheduled_at"?: string | null,"shift_id"?: string | null,"started_at"?: string | null,"transfer_status"?: string | null
+                    "amount"?: number,"car_id"?: string | null,"client_name"?: string | null,"created_at"?: string,"dest_city"?: string | null,"dest_district"?: string | null,"dest_ref"?: string | null,"dest_state"?: string | null,"dest_street"?: string | null,"dest_zip"?: string | null,"destination"?: string | null,"driver_id"?: string,"driver_pct"?: number | null,"estimated_km"?: number | null,"id"?: string,"km"?: number | null,"odometer_end"?: number | null,"odometer_end_photo"?: string | null,"odometer_start"?: number | null,"odometer_start_photo"?: string | null,"odometer_suspect"?: boolean,"origin"?: string | null,"origin_city"?: string | null,"origin_district"?: string | null,"origin_ref"?: string | null,"origin_state"?: string | null,"origin_street"?: string | null,"origin_zip"?: string | null,"platform"?: string,"receipt_path"?: string | null,"reject_reason"?: string | null,"ride_date"?: string,"scheduled_at"?: string | null,"shift_id"?: string | null,"started_at"?: string | null,"transfer_status"?: string | null
                   }
                   Relationships: [
                     {
@@ -269,14 +269,14 @@ isOneToOne: false
                   ]
                 },"shifts": {
                   Row: {
-                    "car_id": string,"created_at": string,"driver_id": string,"ended_at": string | null,"id": string,"odometer_end": number | null,"odometer_end_photo": string | null,"odometer_start": number,"odometer_start_photo": string | null,"reject_reason": string | null,"review_status": string,"start_date": string,"started_at": string,"uber_earnings_photo": string | null
+                    "car_id": string,"created_at": string,"driver_id": string,"ended_at": string | null,"id": string,"odometer_end": number | null,"odometer_end_photo": string | null,"odometer_start": number,"odometer_start_photo": string | null,"odometer_suspect": boolean,"reject_reason": string | null,"review_status": string,"start_date": string,"started_at": string,"uber_earnings_photo": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "car_id": string,"created_at"?: string,"driver_id": string,"ended_at"?: string | null,"id"?: string,"odometer_end"?: number | null,"odometer_end_photo"?: string | null,"odometer_start": number,"odometer_start_photo"?: string | null,"reject_reason"?: string | null,"review_status"?: string,"start_date": string,"started_at"?: string,"uber_earnings_photo"?: string | null
+                    "car_id": string,"created_at"?: string,"driver_id": string,"ended_at"?: string | null,"id"?: string,"odometer_end"?: number | null,"odometer_end_photo"?: string | null,"odometer_start": number,"odometer_start_photo"?: string | null,"odometer_suspect"?: boolean,"reject_reason"?: string | null,"review_status"?: string,"start_date": string,"started_at"?: string,"uber_earnings_photo"?: string | null
                   }
                   Update: {
-                    "car_id"?: string,"created_at"?: string,"driver_id"?: string,"ended_at"?: string | null,"id"?: string,"odometer_end"?: number | null,"odometer_end_photo"?: string | null,"odometer_start"?: number,"odometer_start_photo"?: string | null,"reject_reason"?: string | null,"review_status"?: string,"start_date"?: string,"started_at"?: string,"uber_earnings_photo"?: string | null
+                    "car_id"?: string,"created_at"?: string,"driver_id"?: string,"ended_at"?: string | null,"id"?: string,"odometer_end"?: number | null,"odometer_end_photo"?: string | null,"odometer_start"?: number,"odometer_start_photo"?: string | null,"odometer_suspect"?: boolean,"reject_reason"?: string | null,"review_status"?: string,"start_date"?: string,"started_at"?: string,"uber_earnings_photo"?: string | null
                   }
                   Relationships: [
                     {
@@ -352,6 +352,7 @@ isOneToOne: true
 "odometer_end_photo": string | null,
 "odometer_start": number | null,
 "odometer_start_photo": string | null,
+"odometer_suspect": boolean,
 "origin": string | null,
 "origin_city": string | null,
 "origin_district": string | null,
@@ -393,6 +394,9 @@ isOneToOne: true
 "car_last_odometer":
 { Args: { "p_car": string }; Returns: number
                            },
+"car_prev_odometer":
+{ Args: { "p_car": string,"p_ride": string,"p_shift": string }; Returns: number
+                           },
 "clear_must_change_password":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -421,6 +425,7 @@ isOneToOne: true
 "odometer_end_photo": string | null,
 "odometer_start": number | null,
 "odometer_start_photo": string | null,
+"odometer_suspect": boolean,
 "origin": string | null,
 "origin_city": string | null,
 "origin_district": string | null,
@@ -530,6 +535,7 @@ isOneToOne: true
 "odometer_end_photo": string | null,
 "odometer_start": number,
 "odometer_start_photo": string | null,
+"odometer_suspect": boolean,
 "reject_reason": string | null,
 "review_status": string,
 "start_date": string,
@@ -564,6 +570,7 @@ isOneToOne: true
 "odometer_end_photo": string | null,
 "odometer_start": number | null,
 "odometer_start_photo": string | null,
+"odometer_suspect": boolean,
 "origin": string | null,
 "origin_city": string | null,
 "origin_district": string | null,
@@ -617,6 +624,7 @@ isOneToOne: true
 "odometer_end_photo": string | null,
 "odometer_start": number | null,
 "odometer_start_photo": string | null,
+"odometer_suspect": boolean,
 "origin": string | null,
 "origin_city": string | null,
 "origin_district": string | null,
