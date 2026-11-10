@@ -308,7 +308,7 @@ test('fluxo completo: cadastro → turno → Transfer → conferência → fecha
   await driver.getByRole('link', { name: 'Transfers' }).click()
   await driver.getByRole('button', { name: /Cliente E2E/ }).click()
   await expect(driver.getByText(/Pedágio R\$\s15,00 – Aguardando conferência/)).toBeVisible()
-  await expect(driver.getByText('Odômetro inicial: 1040')).toBeVisible()
+  await expect(driver.getByText('Odômetro inicial: 1.040')).toBeVisible()
   await driver.getByLabel('Odômetro final').fill('1060')
   await driver.getByLabel('Foto do odômetro').setInputFiles(ODO)
   await expect(driver.getByAltText('Pré-visualização')).toBeVisible()
@@ -355,7 +355,7 @@ test('fluxo completo: cadastro → turno → Transfer → conferência → fecha
 
   // o Transfer aparece com odômetros, km real e o pedágio juntos
   const transferItem = admin.getByRole('region', { name: 'Transfers concluídos' }).locator('.review-item')
-  await expect(transferItem).toContainText('Odômetro 1040 → 1060')
+  await expect(transferItem).toContainText('Odômetro 1.040 → 1.060')
   await expect(transferItem).toContainText('Km real: 20')
   await expect(transferItem).toContainText(/Pedágio · R\$\s15,00/)
   await expect(transferItem.getByAltText('Comprovante do pedágio')).toBeVisible()
@@ -369,6 +369,22 @@ test('fluxo completo: cadastro → turno → Transfer → conferência → fecha
     await approve.first().click()
     await expect(admin.getByRole('button', { name: 'Aprovar' })).toHaveCount(before - 1)
   }
+  await expect(admin.getByText('Nada para conferir.')).toBeVisible()
+
+  // ---------- 8b. desfazer a conferência do Transfer, corrigir o odômetro e conferir de novo ----------
+  const reviewed = admin.getByRole('region', { name: 'Conferidos recentemente' })
+  const reviewedTransfer = reviewed.getByRole('listitem').filter({ hasText: 'Transfer ·' })
+  await reviewedTransfer.getByRole('button', { name: 'Desfazer conferência' }).click()
+  expect(dialogs).toContain('Desfazer a conferência deste item? Ele volta para a fila de conferência.')
+  const reopened = admin.getByRole('region', { name: 'Transfers concluídos' }).locator('.review-item')
+  await expect(reopened).toContainText('Odômetro 1.040 → 1.060')
+  await reopened.getByRole('button', { name: 'Corrigir odômetro' }).click()
+  await reopened.getByLabel('Odômetro inicial').fill('1040')
+  await reopened.getByLabel('Odômetro final').fill('1060')
+  await reopened.getByRole('button', { name: 'Salvar odômetro' }).click()
+  await expect(reopened.getByRole('button', { name: 'Salvar odômetro' })).toHaveCount(0)
+  await expect(reopened).toContainText('Km real: 20')
+  await reopened.getByRole('button', { name: 'Aprovar' }).click()
   await expect(admin.getByText('Nada para conferir.')).toBeVisible()
 
   // ---------- 9. fechamento individual com force ----------
